@@ -71,9 +71,9 @@ if CLIENT then
 		hook.Add("Think", "snow", function()
 			math.randomseed(math.floor(os.time()/1000))
 			if math.random() < 0.5 then return end
+			math.randomseed(SysTime())
 		
 			for _, point in pairs(draw_these) do
-				math.randomseed(SysTime() + _)
 				if math.random() > snow_density then continue end
 				
 				local prt = emt:Add("particle/snow", point)
@@ -109,6 +109,7 @@ if CLIENT then
 		timer.Create("snow_sector_think", 0.1, 0, function()
 			math.randomseed(math.floor(os.time()/1000))
 			if math.random() < 0.5 then return end
+			math.randomseed(SysTime())
 			
 			if not ply:IsValid() then
 				ply = LocalPlayer()
@@ -121,9 +122,7 @@ if CLIENT then
 				local r = math.min(iterations, c)
 				local completed = false
 				
-				for i = 1, r do
-					math.randomseed(SysTime() + i)
-				
+				for i = 1, r do				
 					local key = lastkey + 1
 					if key > c then
 						completed = true
