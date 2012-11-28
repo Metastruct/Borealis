@@ -70,8 +70,8 @@ if CLIENT then
 
 		hook.Add("Think", "snow", function()
 			math.randomseed(math.floor(os.time()/1000))
-			if math.random() < 0.5 then return end
-			math.randomseed(SysTime()%1*10000000)
+			if math.random() < 0.5 then math.randomseed(SysTime()) return end
+			math.randomseed(SysTime())
 		
 			for _, point in pairs(draw_these) do
 				if math.random() > snow_density then continue end
@@ -108,8 +108,8 @@ if CLIENT then
 
 		timer.Create("snow_sector_think", 0.1, 0, function()
 			math.randomseed(math.floor(os.time()/1000))
-			if math.random() < 0.5 then return end
-			math.randomseed(SysTime()%1*10000000)
+			if math.random() < 0.5 then math.randomseed(SysTime()) return end
+			math.randomseed(SysTime())
 			
 			if not ply:IsValid() then
 				ply = LocalPlayer()
