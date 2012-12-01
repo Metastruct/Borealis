@@ -587,7 +587,7 @@ if SERVER then
 end
 	
 if SERVER then
-	local enable = CreateConVar("sv_tod", "1", {FCVAR_ARCHIVE, FCVAR_NOTIFY, FCVAR_GAMEDLL})
+	local enable = CreateConVar("sv_tod", "1", {FCVAR_NOTIFY})
 
 	local function cmd(val)
 		if val == "demo" then
