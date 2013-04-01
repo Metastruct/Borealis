@@ -1,7 +1,0 @@
-"AddonInfo"
-{
-	"name"        "tod"
-	"author_name" "CapsAdmin"
-	"author_url"  "http://steamcommunity.com/id/CapsAdmin"
-	"info"        "dynamic day night"
-}
