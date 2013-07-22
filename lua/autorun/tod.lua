@@ -1,10 +1,6 @@
 AddCSLuaFile()
 AddCSLuaFile("autorun/client/materials.lua")
 
--- FIX THIS??
-if game.GetMap():find('construct_flatgrass',1,true) then return end
-
-
 tod = {}
 
 tod.Params = {}
