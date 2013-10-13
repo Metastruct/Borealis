@@ -9,7 +9,7 @@ tod.CurrentParams = {}
 local P = tod.Params
 local C = tod.CurrentParams
 
--- sky paint	
+-- sky paint
 local function GetSky()
 	local ent = ents.FindByClass("env_skypaint")[1] or NULL
 	
@@ -23,7 +23,7 @@ local function GetSky()
 		ent:SetKeyValue("startexture", "skybox/starfield")
 	
 		RunConsoleCommand("sv_skyname", "painted")
-	end		
+	end
 	return ent
 end
 	
@@ -154,16 +154,16 @@ if SERVER then
 		end
 	end
 	
-	P.sun_angles = function(val)	
+	P.sun_angles = function(val)
 		local ent = ents.FindByClass("env_sun")[1] or NULL
 		
 		local n = -val:Forward()
 		GetSky():SetKeyValue("sunnormal", n.x .. " " .. n.y .. " " .. n.z)
 		
-		do 
+		do
 			local ent = ents.FindByClass("shadow_control")[1] or NULL
 			
-			if ent:IsValid() then	
+			if ent:IsValid() then
 				ent:Fire("SetAngles", math.Round(val.p).." "..math.Round(val.y).." "..math.Round(val.r))
 				
 				local fade = (val.p/180)
@@ -173,7 +173,7 @@ if SERVER then
 				else
 					ent:Fire("SetShadowsDisabled", "1")
 				end
-			end		
+			end
 		end
 		
 		if ent:IsValid() then
@@ -206,17 +206,17 @@ if CLIENT then
 	do -- stars	and moon
 		tod.moon_ent = NULL
 		
-		do		
+		do
 			local earth = Material("models/props_wasteland/rockcliff02c")
 			local atmosphere = Material("models/props/de_tides/clouds")
 			local atmosphere_outter = Material("models/debug/debugwhite")
 
 			local render = render
-			local SetMaterialOverride = function(m) 
-				if _G.net then 
-					render.MaterialOverride(m == 0 and nil or m) 
-				else 
-					SetMaterialOverride(m) 
+			local SetMaterialOverride = function(m)
+				if _G.net then
+					render.MaterialOverride(m == 0 and nil or m)
+				else
+					SetMaterialOverride(m)
 				end
 			end
 			
@@ -248,8 +248,8 @@ if CLIENT then
 						
 						render_SetColorModulation(0.7, 0.8, 0.9)
 						render_SetBlend(fraction)
-						render_MaterialOverride(earth) 
-						self:SetModelScale(normal_scale, 0) 
+						render_MaterialOverride(earth)
+						self:SetModelScale(normal_scale, 0)
 						self:DrawModel()
 					
 						render_SetColorModulation( 1,1,1 )
@@ -260,8 +260,8 @@ if CLIENT then
 												
 						render_SetColorModulation( 3.5,3.6,3.9 )
 						render_SetBlend(fraction)
-						render_MaterialOverride(atmosphere) 
-						self:SetModelScale(normal_scale * 1.1, 0) 
+						render_MaterialOverride(atmosphere)
+						self:SetModelScale(normal_scale * 1.1, 0)
 						self:DrawModel()
 												
 						render_SetColorModulation(1, 1, 1)
@@ -277,7 +277,7 @@ if CLIENT then
 					end
 					timer.Create("tod_moon_sound", 0.25, 1, function()
 						LocalPlayer():SetDSP(0)
-						if _G.net then 
+						if _G.net then
 							LocalPlayer():ConCommand("stopsound")
 						else
 							LocalPlayer():ConCommand("stopsounds")
@@ -286,7 +286,7 @@ if CLIENT then
 				end
 			end
 			
-			function tod.InitializeSky()				
+			function tod.InitializeSky()
 				local origin = vector_origin
 				local angles = vector_origin
 				
@@ -304,7 +304,7 @@ if CLIENT then
 						tod.moon_ent:SetAngles((pos - origin):Angle() + Angle(-90,0,180))
 						tod.MoonRender(tod.moon_ent)
 					else
-						timer.Simple(0.1, function() 
+						timer.Simple(0.1, function()
 							local ent = ents.CreateClientProp()
 
 							ent:SetModel("models/dav0r/hoverball.mdl")
@@ -320,11 +320,11 @@ if CLIENT then
 			end
 			
 			if LocalPlayer():IsValid() then
-				tod.InitializeSky()	
+				tod.InitializeSky()
 			end
 				
 			hook.Add("InitPostEntity", "tod_moon", function()
-				tod.InitializeSky()	
+				tod.InitializeSky()
 				hook.Remove("InitPostEntity", "tod_moon")
 			end)
 		end
@@ -333,30 +333,30 @@ if CLIENT then
 	local enable = CreateClientConVar("tod_pp", "0")
 	local DrawColorModify = DrawColorModify
 	
-	hook.Add("RenderScreenspaceEffects", "tod_pp", function()	
+	hook.Add("RenderScreenspaceEffects", "tod_pp", function()
 		if not enable:GetBool() then return end
 		
 		-- hack
 		-- DrawColorModify may exist after this script is ran
-		DrawColorModify = DrawColorModify or _G.DrawColorModify 
+		DrawColorModify = DrawColorModify or _G.DrawColorModify
 		
-		if 
+		if
 			C.sharpen_contrast ~= 0 or
 			C.sharpen_distance ~= 0
 		then
 			DrawSharpen(
 				C.sharpen_contrast,
-				C.sharpen_distance		
+				C.sharpen_distance
 			)
 		end
 		
-		if 
+		if
 			C.color_add ~= vector_origin or
 			C.color_multiply ~= vector_origin or
 			C.color_brightness ~= 0 or
 			C.color_contrast ~= 1 or
-			C.color_saturation ~= 1 
-		then			
+			C.color_saturation ~= 1
+		then
 			local params = {}
 				params["$pp_colour_addr"] = C.color_multiply.r
 				params["$pp_colour_addg"] = C.color_multiply.g
@@ -370,10 +370,10 @@ if CLIENT then
 			DrawColorModify(params)
 		end
 		
-		if 
+		if
 			C.bloom_darken ~= 1 or
 			C.bloom_multiply ~= 0
-		then			
+		then
 			DrawBloom(
 				C.bloom_darken,
 				C.bloom_multiply,
@@ -395,7 +395,7 @@ if CLIENT then
 	
 	function tod.IsOutside()
 		return smooth_outside > 0.5
-	end		
+	end
 	local cache = {}
 	timer.Create("tod_outside", 0.2, 0, function()
 		local outside = 0
@@ -405,14 +405,14 @@ if CLIENT then
 		a.y = math.Round(a.y/32)*32
 		a.z = math.Round(a.z/32)*32
 		
-		if cache[a.x..a.y..a.z] then 
+		if cache[a.x..a.y..a.z] then
 			outside = 1
 		else
 			local b = a + VectorRand() * 32000
 						
 			if util.TraceLine(
 				{
-					start = a, 
+					start = a,
 					endpos = b,
 					mask = MASK_OPAQUE,
 				}
@@ -431,17 +431,17 @@ end
 
 -- keep hidden entities
 -- light_environment won't update properly if the map didn't compile with it properly.
--- the light refreshes on full update (reconnecting for instance) 
+-- the light refreshes on full update (reconnecting for instance)
 -- or when you spawn a light somewhere on the map it will update that sector of the map
 
 -- so if you're using a realtime tod it shouldn't be that noticable
-do 
+do
 	tod.hidden_entities = {}
 
 	hook.Add("EntityKeyValue", "hidden_entities", function(ent, key, val)
 		local T = ent:GetClass():lower()
 		
-		if 
+		if
 			T == "shadow_control" or
 			T == "light_environment" or
 			T == "sky_camera" or
@@ -462,7 +462,7 @@ end
 
 -- lerping
 do
-	function tod.Lerp(mult, a, b)	
+	function tod.Lerp(mult, a, b)
 		local params = {}
 		for key, val in pairs(a) do
 			if type(val) == "number" then
@@ -490,15 +490,15 @@ do
 		end
 
 		if #out > 1 then
-			return lerp(mult, out) 
-		else 
-			return out[1] 
+			return lerp(mult, out)
+		else
+			return out[1]
 		end
-	end 
+	end
 
 	function tod.LerpConfigs(mult, ...)
 		return lerp(mult, {...})
-	end 
+	end
 end
 
 function tod.SetParameter(key, val)
@@ -519,16 +519,16 @@ function tod.SetConfig(data)
 end
 
 function tod.GetCycle(scale)
-	if SERVER and tod.current_cycle and tod.current_cycle >= 0 then 
-		return tod.current_cycle 
+	if SERVER and tod.current_cycle and tod.current_cycle >= 0 then
+		return tod.current_cycle
 	end
 	
 	scale = scale or 1
 	
 	local time = tod.time or 0
 		
-	if CLIENT and time and time >= 0 then 
-		time = time / 100 
+	if CLIENT and time and time >= 0 then
+		time = time / 100
 	else
 		time = (UnPredictedCurTime() / scale)
 	end
@@ -614,7 +614,7 @@ if SERVER then
 		concommand.Add("settod", function(ply, _, args)
 			if ply:IsAdmin() then
 				cmd(args[1])
-			end			
+			end
 		end)
 	end
 	
@@ -630,8 +630,8 @@ end
 
 -- finally, the actual config
 
-local night = 
-{	
+local night =
+{
 	["sky_color"] = Vector(0.4, 0.8, 1)*0.007,
 	["sun_angles"] = Angle(-90, 45, 0),
 	["moon_angles"] = -Angle(-90, 45, 0),
@@ -679,7 +679,7 @@ local night =
 	["sky_hdrscale"] = 0.66,
 }
 
-local dusk = 
+local dusk =
 {
 	["sky_color"] = Vector(1.5,0.5,0.25)*0.3,
 	["sun_angles"] = Angle(0, 45, 0),
@@ -695,7 +695,7 @@ local dusk =
 	["fog_start"] = 0,
 	["fog_end"] = 10000,
 	["fog_max_density"] = 1,
-	["fog_color"] = Vector(1, 0.85, 0.6), 
+	["fog_color"] = Vector(1, 0.85, 0.6),
 	
 	["shadow_angles"] = Angle(0, 45, 0),
 	["shadow_color"] = Vector(0, 0, 0),
@@ -728,7 +728,7 @@ local dusk =
 	["sky_hdrscale"] = 0.66,
 }
 
-local day = 
+local day =
 {
 	["sky_color"] = Vector(1,1,1),
 	["sun_angles"] = Angle(90, 45, 0),
@@ -744,7 +744,7 @@ local day =
 	["fog_start"] = 0,
 	["fog_end"] = 30000,
 	["fog_max_density"] = -1,
-	["fog_color"] = Vector(1,1,1), 
+	["fog_color"] = Vector(1,1,1),
 	
 	["shadow_angles"] = Angle(0, 45, 0),
 	["shadow_color"] = Vector(0, 0, 0),
@@ -777,7 +777,7 @@ local day =
 	["sky_hdrscale"] = 0.66,
 }
 
-local dawn = 
+local dawn =
 {
 	["sky_color"] = Vector(1,0.25,0.5)*0.5,
 	["sun_angles"] = Angle(90*2, 45, 0),
@@ -793,7 +793,7 @@ local dawn =
 	["fog_start"] = 0,
 	["fog_end"] = 10000,
 	["fog_max_density"] = -1,
-	["fog_color"] = Vector(1,1,1), 
+	["fog_color"] = Vector(1,1,1),
 	
 	["shadow_angles"] = Angle(0, 45, 0),
 	["shadow_color"] = Vector(0, 0, 0),
@@ -839,7 +839,7 @@ timer.Create("tod", 0.1, 0, function()
 		cache[time] = cfg
 	end
 	
-	tod.SetConfig(cfg)	
+	tod.SetConfig(cfg)
 end)
 
 do -- weather
