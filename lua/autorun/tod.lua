@@ -1,3 +1,4 @@
+do return end
 AddCSLuaFile()
 AddCSLuaFile("autorun/client/materials.lua")
 
