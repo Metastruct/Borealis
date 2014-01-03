@@ -31,8 +31,8 @@ end
 local last = IsDay()
 hook.Add("Think", "DayNightHooks", function()
 	if last != IsDay() then
-		hook.Call("DayCycle", _, IsDay())
-		hook.Call(IsDay() and "Day" or "Night")
+		hook.Call("DayCycle", nil, IsDay())
+		hook.Call(IsDay() and "Day" or "Night",nil)
 		last = IsDay()
 	end
 end)
