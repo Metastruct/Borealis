@@ -284,7 +284,7 @@ else
 		end
 	end
 
-	timer.Create("UpdateLight", 0, .1, function()
+	timer.Create("UpdateLight", .1, 0, function()
 		local hour = GameTime()*1440/60%24
 		local Past = PreviousHour(config[WEATHER_SUNNY], hour)
 		local Next = NextHour(config[WEATHER_SUNNY], hour)
