@@ -1,3 +1,4 @@
+do return end
 --local gm = istable(GM) and GM or GAMEMODE
 --print(gm.FolderName)
 
