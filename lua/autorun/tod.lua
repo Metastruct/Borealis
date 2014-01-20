@@ -38,6 +38,10 @@ local function ADD_SKY_KEYVALUE(name, default)
 	end
 end
 
+function tod.MultToLightEnv(mult)
+	return math.Round(math.Clamp(64+(mult * 64), 64, 127))
+end
+
 ADD_SKY_KEYVALUE("topcolor", Vector(0.2, 0.5, 1))--
 ADD_SKY_KEYVALUE("bottomcolor", Vector(0.8, 1, 1))
 ADD_SKY_KEYVALUE("fadebias", 1)
@@ -140,14 +144,27 @@ if SERVER then
 		local ent = ents.FindByClass("light_environment")[1] or NULL
 		
 		if ent:IsValid() then
-			ent:Fire("SetPattern", string.char(math.Round(math.Clamp(64+(val * 64), 64, 127))))
+			ent:Fire("SetPattern", string.char(tod.MultToLightEnv(val)))
 		else
-			engine.LightStyle(math.Round(math.Clamp(64+(val * 64), 64, 127)), 0)
+			engine.LightStyle(tod.MultToLightEnv(val), 0)
 		end
 	end
 end
 
 if CLIENT then
+	local last_byte
+	
+	timer.Create("tod_update_lightmap", 0.1, 0, function()
+		local byte = tod.MultToLightEnv(tod.GetCycle())
+		
+		if last_byte ~= byte then
+			-- this function is very slow
+			render.RedownloadAllLightmaps() 
+			last_byte = byte
+		end
+	end)
+		
+	
 	do -- stars	and moon
 		tod.moon_ent = NULL
 		
@@ -477,19 +494,18 @@ function tod.SetConfig(data)
 	end
 end
 
-function tod.GetCycle(scale)
+function tod.GetCycle()
 	if tod.mode == 2 then	
-		return (CurTime() / (scale or 1))%1
+		-- demo mode
+		return (CurTime() / (20))%1
 	end
+	
 	return tod.current_cycle or 0
 end
 
 if CLIENT then
 	net.Receive("tod_setcycle", function()
 		tod.current_cycle = net.ReadFloat() / 1000
-		timer.Create("tod_rdl_lightmaps", 0.5, 1, function()
-			print("render.RedownloadAllLightmaps()")
-		end)
 	end)
 	
 	net.Receive("tod_setmode", function()
@@ -786,15 +802,13 @@ hook.Add("Think", "tod", function()
 		
 	local time
 
-	if not tod.mode or tod.mode == 0 then -- manual
+	if not tod.mode or tod.mode == 0 or tod.mode == 2 then -- manual
 		time = tod.GetCycle()
 	elseif tod.mode == 1 then -- realtime
 		local H, M, S = os.date("%H"), os.date("%M"), os.date("%S")
 		local fraction = (H*3600 + M*60 + S) / 86400
 
 		time = fraction%1
-	elseif tod.mode == 2 then -- demo
-		time = tod.GetCycle(20)
 	end
 	
 	tod.SetConfig(get_config(time))	
