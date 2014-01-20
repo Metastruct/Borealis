@@ -49,6 +49,7 @@ local texture_replacements =
 	"METASTRUCT_2/LOBBYFLOOR",
 	"maps/gm_construct_m_56/concrete/concretefloor039a_-13999_38_14371",
 	"maps/gm_construct_m_56/concrete/concretefloor039a_-13165_34_14392",
+	"de_cbble/grassfloor01",
 }
 
 if SERVER then

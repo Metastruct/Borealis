@@ -512,7 +512,6 @@ if SERVER then
 
 	local function cmd(val)
 		local daytime = tonumber(val)
-		print(val, daytime, "huh")
 		
 		if daytime then
 			game.ConsoleCommand("sv_tod 0\n")
