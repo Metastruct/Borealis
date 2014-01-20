@@ -42,16 +42,16 @@ local night =
 	["sky_duskscale"] = 1,
 	["sky_duskintensity"] = 1,
 	["sky_duskcolor"] = Vector(0, 0, 0),
-	["sky_starscale"] = 0.5,
-	["sky_starfade"] = 10,
-	["sky_starspeed"] = 0.01,
+	["sky_starscale"] = 2,
+	["sky_starfade"] = 1,
+	["sky_starspeed"] = 0.005,
 	["sky_hdrscale"] = 0.66,
 }
 
 local dusk = 
 {
 	["sun_angles"] = Angle(0, 45, 0),
-	["moon_angles"] = -Angle(0, 45, 0),
+	["moon_angles"] = -Angle(45, 45, 0),
 	["world_light_multiplier"] = 0.53,
 	
 	["color_brightness"] = 0,
