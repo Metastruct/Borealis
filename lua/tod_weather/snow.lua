@@ -1,5 +1,5 @@
 local snow_density = 0.05
-local texture_replacements =
+local texture_replacements = 
 {
 	"metastruct_2/grass",
 	"gm_construct/grass",
@@ -21,6 +21,8 @@ local texture_replacements =
 	"gm_construct/grass-sand_13",
 	"gm_construct/flatgrass_2",
 	"gm_construct/grass_13",
+	"custom/grasssandblend08",
+	"custom/grasssandblend09",
 }
 
 if SERVER then
@@ -122,7 +124,7 @@ if CLIENT then
 				local r = math.min(iterations, c)
 				local completed = false
 				
-				for i = 1, r do
+				for i = 1, r do				
 					local key = lastkey + 1
 					if key > c then
 						completed = true
@@ -142,8 +144,8 @@ if CLIENT then
 					lastkey = key
 				end
 				
-				if completed then
-					lastpos = pos
+				if completed then 
+					lastpos = pos 
 				end
 			end
 		end)
@@ -154,7 +156,7 @@ if CLIENT then
 			if not LocalPlayer():IsValid() then return end
 
 			if materials then
-				local sky =
+				local sky = 
 				{
 					"up",
 					"dn",
@@ -166,7 +168,7 @@ if CLIENT then
 
 				local sky_name = GetConVarString("sv_skyname")
 
-				for _, path in pairs(sky) do
+				for _, path in pairs(sky) do	
 					path = "skybox/" .. sky_name .. path
 					materials.ReplaceTexture(path, "Decals/decal_paintsplatterpink001")
 					materials.SetColor(path, Vector(0.9,1,0.9)*0.9)
