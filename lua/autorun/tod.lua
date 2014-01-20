@@ -501,7 +501,6 @@ if SERVER then
 	
 	function tod.SetCycle(time)
 		tod.current_cycle = time and (time%1) or -1
-		print("?!??!!")
 		net.Start("tod_setcycle")
 			net.WriteFloat(tod.current_cycle * 1000)
 		net.Send(player.GetAll())
