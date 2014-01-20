@@ -24,14 +24,17 @@ local function GetSky()
 	return ent
 end
 	
-local function ADD_SKY_KEYVALUE(name, default)
+local function ADD_SKY_KEYVALUE(name, default, mod)
 	if CLIENT then
 		P["sky_" .. name] = default
 	end
 	if SERVER then
 		local type = type(default)
 		if type == "Vector" then
-			P["sky_" .. name] = function(val) GetSky():SetKeyValue(name, val.x .. " " .. val.y .. " " .. val.z) end
+			P["sky_" .. name] = function(val) 
+				if mod then val = mod(val) or val end
+				GetSky():SetKeyValue(name, val.x .. " " .. val.y .. " " .. val.z) 
+			end
 		elseif type == "number" then
 			P["sky_" .. name] = function(val) GetSky():SetKeyValue(name, val) end
 		end
@@ -42,7 +45,7 @@ function tod.MultToLightEnv(mult)
 	return math.Round(math.Clamp(64+(mult * 64), 64, 127))
 end
 
-ADD_SKY_KEYVALUE("topcolor", Vector(0.2, 0.5, 1))--
+ADD_SKY_KEYVALUE("topcolor", Vector(0.2, 0.5, 1))
 ADD_SKY_KEYVALUE("bottomcolor", Vector(0.8, 1, 1))
 ADD_SKY_KEYVALUE("fadebias", 1)
 ADD_SKY_KEYVALUE("sunsize", 2)
@@ -444,14 +447,8 @@ do
 			if type(val) == "number" then
 				params[key] =  Lerp(mult, val, b[key] or val)
 			elseif type(val) == "Vector" then
-				if not params[key] then
-					params[key] = Vector(0,0,0)
-				end
 				params[key] = LerpVector(mult, val, b[key] or val)
 			elseif type(val) == "Angle" then
-				if not params[key] then
-					params[key] = Angle(0,0,0)
-				end
 				params[key] = LerpAngle(mult, val, b[key] or val)
 			end
 		end
@@ -574,224 +571,18 @@ if SERVER then
 	end)
 end
 
--- finally, the actual config
-
-local night = 
-{	
-	["sun_angles"] = Angle(-90, 45, 0),
-	["moon_angles"] = -Angle(-90, 45, 0),
-	["world_light_multiplier"] = 0.53,
-	
-	["color_brightness"] = 0,
-	["color_contrast"] = 1,
-	["color_saturation"] = 0.75,
-	["color_multiply"] = Vector(-0.017, -0.005, 0.02),
-	["color_add"] = Vector(0, 0, 0),
-	
-	["fog_start"] = 0,
-	["fog_end"] = 14000,
-	["fog_max_density"] = 0.25,
-	["fog_color"] = Vector(0.25, 0.20, 0.30),
-	
-	["shadow_angles"] = Angle(-90, 45, 0),
-	["shadow_color"] = Vector(0, 0, 0),
-	
-	["star_intensity"] = 1,
-	
-	["bloom_passes"] = 1,
-	["bloom_color"] = Vector(1, 1, 1),
-	["bloom_width"] = 1,
-	["bloom_saturation"] = 1,
-	["bloom_height"] = 1,
-	["bloom_darken"] = 0,
-	["bloom_multiply"] = 0,
-	
-	["sharpen_contrast"] = 0,
-	["sharpen_distance"] = 0,
-	
-	["sky_topcolor"] = Vector(0, 0, 0),
-	["sky_bottomcolor"] = Vector(0, 0, 0),
-	["sky_fadebias"] = 1,
-	["sky_sunsize"] = 0,
-	["sky_sunnormal"] = Vector(0.4, 0, 0.01),
-	["sky_suncolor"] = Vector(0.2, 0.1, 0),
-	["sky_duskscale"] = 1,
-	["sky_duskintensity"] = 1,
-	["sky_duskcolor"] = Vector(0, 0, 0),
-	["sky_starscale"] = 0.5,
-	["sky_starfade"] = 10,
-	["sky_starspeed"] = 0.01,
-	["sky_hdrscale"] = 0.66,
-}
-
-local dusk = 
-{
-	["sun_angles"] = Angle(0, 45, 0),
-	["moon_angles"] = -Angle(0, 45, 0),
-	["world_light_multiplier"] = 0.53,
-	
-	["color_brightness"] = 0,
-	["color_contrast"] = 1,
-	["color_saturation"] = 1.1,
-	["color_multiply"] = Vector(0.017, 0.005, -0.02),
-	["color_add"] = Vector(0, 0, 0),
-	
-	["fog_start"] = 0,
-	["fog_end"] = 10000,
-	["fog_max_density"] = 1,
-	["fog_color"] = Vector(1, 0.85, 0.6), 
-	
-	["shadow_angles"] = Angle(0, 45, 0),
-	["shadow_color"] = Vector(0, 0, 0),
-	
-	["star_intensity"] = 0,
-	
-	["bloom_passes"] = 3,
-	["bloom_color"] = Vector(1, 1, 1),
-	["bloom_width"] = 5,
-	["bloom_height"] = 5,
-	["bloom_saturation"] = 0.25,
-	["bloom_darken"] = 1,
-	["bloom_multiply"] = 0,
-	
-	["sharpen_contrast"] = 0,
-	["sharpen_distance"] = 0,
-	
-	["sky_topcolor"] = Vector(1, 1, 1),
-	["sky_bottomcolor"] = Vector(1, 1, 1)*0,
-	["sky_fadebias"] = 1,
-	["sky_sunsize"] = 2,
-	["sky_sunnormal"] = Vector(0, 0, 0),
-	["sky_suncolor"] = Vector(0.5, 0.1, 0),
-	["sky_duskscale"] = 7,
-	["sky_duskintensity"] = 5,
-	["sky_duskcolor"] = Vector(1, 0.2, 0),
-	["sky_starscale"] = 0.5,
-	["sky_starfade"] = 1,
-	["sky_starspeed"] = 0.01,
-	["sky_hdrscale"] = 0.66,
-}
-
-local day = 
-{
-	["sun_angles"] = Angle(90, 45, 0),
-	["moon_angles"] = -Angle(90, 45, 0),
-	["world_light_multiplier"] = 1,
-	
-	["color_brightness"] = 0,
-	["color_contrast"] = 1,
-	["color_saturation"] = 1,
-	["color_multiply"] = Vector(0,0,0),
-	["color_add"] = Vector(0, 0, 0),
-	
-	["fog_start"] = 0,
-	["fog_end"] = 30000,
-	["fog_max_density"] = -1,
-	["fog_color"] = Vector(1,1,1), 
-	
-	["shadow_angles"] = Angle(0, 45, 0),
-	["shadow_color"] = Vector(0, 0, 0),
-	
-	["star_intensity"] = 0,
-	
-	["bloom_passes"] = 3,
-	["bloom_color"] = Vector(1, 1, 1),
-	["bloom_width"] = 5,
-	["bloom_height"] = 5,
-	["bloom_saturation"] = 0.25,
-	["bloom_darken"] = 1,
-	["bloom_multiply"] = 0,
-	
-	["sharpen_contrast"] = 0,
-	["sharpen_distance"] = 0,
-	
-	["sky_topcolor"] = Vector(0.125, 0.5, 1),
-	["sky_bottomcolor"] = Vector(0.8, 1, 1),
-	["sky_fadebias"] = 0.25,
-	["sky_sunsize"] = 1,
-	["sky_sunnormal"] = Vector(0, 0, 0),
-	["sky_suncolor"] = Vector(0.2, 0.1, 0),
-	["sky_duskscale"] = 0,
-	["sky_duskintensity"] = -1,
-	["sky_duskcolor"] = Vector(1, 0.2, 0),
-	["sky_starscale"] = 0.5,
-	["sky_starfade"] = 1,
-	["sky_starspeed"] = 0.01,
-	["sky_hdrscale"] = 0.66,
-}
-
-local dawn = 
-{
-	["sun_angles"] = Angle(90*2, 45, 0),
-	["moon_angles"] = -Angle(90*2, 45, 0),
-	["world_light_multiplier"] = 0.53,
-	
-	["color_brightness"] = 0,
-	["color_contrast"] = 1,
-	["color_saturation"] = 0.9,
-	["color_multiply"] = Vector(0.017, -0.075, 0.01),
-	["color_add"] = Vector(0, 0, 0),
-	
-	["fog_start"] = 0,
-	["fog_end"] = 10000,
-	["fog_max_density"] = -1,
-	["fog_color"] = Vector(1,1,1), 
-	
-	["shadow_angles"] = Angle(0, 45, 0),
-	["shadow_color"] = Vector(0, 0, 0),
-	
-	["star_intensity"] = 0,
-	
-	["bloom_passes"] = 3,
-	["bloom_color"] = Vector(1, 1, 1),
-	["bloom_width"] = 5,
-	["bloom_height"] = 5,
-	["bloom_saturation"] = 0.25,
-	["bloom_darken"] = 1,
-	["bloom_multiply"] = 0,
-	
-	["sharpen_contrast"] = 0,
-	["sharpen_distance"] = 0,
-	
-	["sky_topcolor"] = Vector(1, 0.25, 1) * 0.25,
-	["sky_bottomcolor"] = Vector(1, 0.5, 0.25),
-	["sky_fadebias"] = 0,
-	["sky_sunsize"] = 1,
-	["sky_sunnormal"] = Vector(0, 0, 0),
-	["sky_suncolor"] = Vector(0.2, 0.1, 0),
-	["sky_duskscale"] = 2,
-	["sky_duskintensity"] = 5,
-	["sky_duskcolor"] = Vector(1, 0.1, 0.5),
-	["sky_starscale"] = 0.5,
-	["sky_starfade"] = 100,
-	["sky_starspeed"] = 0.01,
-	["sky_hdrscale"] = 0.66,
-}
-
 local cache = {}
 
-local function get_config(time)
-	time = math.Round(time, 3)
-	
-	local cfg
-	
-	if cache[time] then
-		cfg = cache[time]
-	else
-		cfg = tod.LerpConfigs(
-			time, 
-			
-			night, night, night, night, night, night, night, 
-			dusk, 
-			day,day,day,day,day, day, day, day, dawn, 
-			night, night
-		)
-		cache[time] = cfg
-	end
-	
-	return cfg
+function tod.SetConfigCycle(...)
+	cache = {}
+	tod.config_cycle = {...}
 end
 
+function tod.SetOverrideConfig(config, lerp)
+	cache = {}
+	tod.override_config = config
+	tod.override_lerp =  lerp
+end
 
 hook.Add("Think", "tod", function()
 
@@ -811,14 +602,45 @@ hook.Add("Think", "tod", function()
 		time = fraction%1
 	end
 	
-	tod.SetConfig(get_config(time))	
+	-- cache lerp results
+	-- good for realtime
+	time = math.Round(time, 3)
+	
+	local cfg
+	
+	if cache[time] then
+		cfg = cache[time]
+	else
+		cfg = tod.LerpConfigs(
+			time, 
+			
+			unpack(tod.config_cycle)
+		)
+		
+		-- for snow and such
+		if tod.override_config then
+			cfg = tod.LerpConfigs(tod.override_lerp, cfg, tod.override_config)
+		end
+		
+		cache[time] = cfg
+	end
+	
+	tod.SetConfig(cfg)	
 end)
+
+include("tod/default_cycle.lua")
+
+if SERVER then
+	AddCSLuaFile("tod/default_cycle.lua")
+end
 
 do -- weather
 	local month = tonumber(os.date("%m")) or -1
 
 	if month >= 11 or month <= 2 then
-		include("tod_weather/snow.lua")
-		AddCSLuaFile("tod_weather/snow.lua")
+		include("tod/snow.lua")
+		if SERVER then 
+			AddCSLuaFile("tod/snow.lua")
+		end
 	end
 end
