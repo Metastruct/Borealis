@@ -1,6 +1,3 @@
-AddCSLuaFile()
-AddCSLuaFile("autorun/client/materials.lua")
-
 tod = {}
 
 tod.Params = {}
@@ -481,18 +478,22 @@ function tod.SetConfig(data)
 end
 
 function tod.GetCycle(scale)
-	if tod.current_cycle == -1 then	
-		return CurTime() / (scale or 1)
+	if tod.mode == 2 then	
+		return (CurTime() / (scale or 1))%1
 	end
-	return tod.current_cycle  or 0
+	return tod.current_cycle or 0
 end
 
 if CLIENT then
 	net.Receive("tod_setcycle", function()
 		tod.current_cycle = net.ReadFloat() / 1000
-		timer.Simple(0.2, function()
-			render.RedownloadAllLightmaps() 
+		timer.Create("tod_rdl_lightmaps", 0.5, 1, function()
+			print("render.RedownloadAllLightmaps()")
 		end)
+	end)
+	
+	net.Receive("tod_setmode", function()
+		tod.mode = net.ReadInt(4)
 	end)
 end
 
@@ -505,21 +506,37 @@ if SERVER then
 			net.WriteFloat(tod.current_cycle * 1000)
 		net.Send(player.GetAll())
 	end
+	
+	util.AddNetworkString("tod_setmode")
+
+	function tod.SetMode(mode, filter)
+		tod.mode = mode
+		net.Start("tod_setmode")
+			net.WriteInt(tod.mode, 4)
+		net.Send(filter or player.GetAll())
+	end
 end
 
-if SERVER then
-	local enable = CreateConVar("sv_tod", "1", {FCVAR_ARCHIVE, FCVAR_GAMEDLL})
+tod.cvar = CreateConVar("sv_tod", "1", bit.bor(FCVAR_REPLICATED, FCVAR_NOTIFY),
+	"0 = off\1 = realtime\n2 = demo"
+)
 
+if SERVER then
 	local function cmd(val)
-		local daytime = tonumber(val)
+		local time24 = tonumber(val)
 		
-		if daytime then
-			game.ConsoleCommand("sv_tod 0\n")
-			tod.SetCycle((daytime / 24)%1)
-		else
-			game.ConsoleCommand("sv_tod 1\n")
-			tod.SetCycle()
+		if time24 then
+			RunConsoleCommand("sv_tod", "0")
+			tod.SetCycle((time24 / 24)%1)
+		elseif val == "demo" then
+			RunConsoleCommand("sv_tod", "2")
+		elseif val == "realtime" or time24 < 0 then
+			RunConsoleCommand("sv_tod", "1")
 		end
+		
+		timer.Simple(0.1, function()
+			tod.SetMode(tod.cvar:GetInt())
+		end)
 	end
 	
 	if aowl then
@@ -533,6 +550,12 @@ if SERVER then
 			end			
 		end)
 	end
+	
+	hook.Add("PlayerInitialSpawn", "tod_mode", function(ply)
+		if not ply or not ply:IsValid() then return end
+				
+		tod.SetMode(tod.cvar:GetInt(), ply)
+	end)
 end
 
 -- finally, the actual config
@@ -730,10 +753,10 @@ local dawn =
 }
 
 local cache = {}
-local last_time
 
-timer.Create("tod", 0.1, 0, function()	
-	local time = math.Round(tod.GetCycle(20), 3)
+local function get_config(time)
+	time = math.Round(time, 3)
+	
 	local cfg
 	
 	if cache[time] then
@@ -742,15 +765,39 @@ timer.Create("tod", 0.1, 0, function()
 		cfg = tod.LerpConfigs(
 			time, 
 			
-			night,night,night,night,night,night,night, -- hacky (or is it?) way to make the night last longer
+			night, night, night, night, night, night, night, 
 			dusk, 
-			day,day,day,day,day,day,day,day, 
-			dawn
+			day,day,day,day,day, day, day, day, dawn, 
+			night, night
 		)
 		cache[time] = cfg
 	end
 	
-	tod.SetConfig(cfg)	
+	return cfg
+end
+
+
+hook.Add("Think", "tod", function()
+
+	-- initialize tod
+	if SERVER and not tod.mode then
+		tod.SetMode(tod.cvar:GetInt())
+	end
+		
+	local time
+
+	if not tod.mode or tod.mode == 0 then -- manual
+		time = tod.GetCycle()
+	elseif tod.mode == 1 then -- realtime
+		local H, M, S = os.date("%H"), os.date("%M"), os.date("%S")
+		local fraction = (H*3600 + M*60 + S) / 86400
+
+		time = fraction%1
+	elseif tod.mode == 2 then -- demo
+		time = tod.GetCycle(20)
+	end
+	
+	tod.SetConfig(get_config(time))	
 end)
 
 do -- weather
