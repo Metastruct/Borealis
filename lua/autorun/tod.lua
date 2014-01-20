@@ -144,6 +144,8 @@ if SERVER then
 		
 		if ent:IsValid() then
 			ent:Fire("SetPattern", string.char(math.Round(math.Clamp(64+(val * 64), 64, 127))))
+		else
+			engine.LightStyle(math.Round(math.Clamp(64+(val * 64), 64, 127)), 0)
 		end
 	end
 end
@@ -478,100 +480,54 @@ function tod.SetConfig(data)
 	end
 end
 
-local last_time = 0
-
 function tod.GetCycle(scale)
-	if SERVER and tod.current_cycle and tod.current_cycle >= 0 then 
-		return tod.current_cycle 
+	if tod.current_cycle == -1 then	
+		return CurTime() / (scale or 1)
 	end
-	
-	scale = scale or 1
-	
-	local time = tod.time or 0
-		
-	if CLIENT and time and time >= 0 then 
-		time = time / 100 
-	else
-		time = (UnPredictedCurTime() / scale)
-	end
-		
-	return time
+	return tod.current_cycle  or 0
 end
 
 if CLIENT then
-	net.Receive("tod", function()
-		tod.time = net.ReadFloat()
+	net.Receive("tod_setcycle", function()
+		tod.current_cycle = net.ReadFloat() / 1000
+		timer.Simple(0.2, function()
+			render.RedownloadAllLightmaps() 
+		end)
 	end)
 end
 
 if SERVER then
-	util.AddNetworkString("tod")
+	util.AddNetworkString("tod_setcycle")
 	
 	function tod.SetCycle(time)
 		tod.current_cycle = time and (time%1) or -1
-		net.Start("tod")
-			net.WriteFloat(time and (time * 100) or -1)
-		net.Send()
+		print("?!??!!")
+		net.Start("tod_setcycle")
+			net.WriteFloat(tod.current_cycle * 1000)
+		net.Send(player.GetAll())
 	end
 end
 
-if CLIENT then
-	function tod.SetNWParameter(key, val)
-		tod.SetParameter(key, val)
-		RunConsoleCommand("set_tod_param", glon.encode({key, val})) -- lol
-	end
-	
-	usermessage.Hook("set_tod_param", function(umr)
-		local key, val = unpack(glon.decode(umr:ReadString())) -- lol
-		if key and val then
-			tod.SetParameter(key, val)
-		end
-	end)
-end
-
 if SERVER then
-	function tod.SetNWParameter(key, val)
-		tod.SetParameter(key, val)
-		umsg.Start("set_tod_param")
-			umsg.String(glon.encode{key, val}) -- lol
-		umsg.End()
-	end
-	
-	concommand.Add("set_tod_param", function(ply, _, args)
-		if ply:IsAdmin() then
-			local key, val = unpack(glon.decode(args[1])) -- lol
-			
-			if key and val then
-				tod.SetNWParameter(key, val)
-			end
-		end
-	end)
-end
-	
-if SERVER then
-	local enable = CreateConVar("sv_tod", "1", {FCVAR_ARCHIVE, FCVAR_NOTIFY, FCVAR_GAMEDLL})
+	local enable = CreateConVar("sv_tod", "1", {FCVAR_ARCHIVE, FCVAR_GAMEDLL})
 
 	local function cmd(val)
-		if val == "demo" then
+		local daytime = tonumber(val)
+		print(val, daytime, "huh")
+		
+		if daytime then
 			game.ConsoleCommand("sv_tod 0\n")
-			tod.SetCycle()
+			tod.SetCycle((daytime / 24)%1)
 		else
-			local daytime = tonumber(val)
-			
-			if daytime then
-				game.ConsoleCommand("sv_tod 0\n")
-				tod.SetCycle((daytime / 24)%1)
-			else
-				game.ConsoleCommand("sv_tod 1\n")
-				tod.SetCycle()
-			end
+			game.ConsoleCommand("sv_tod 1\n")
+			tod.SetCycle()
 		end
 	end
 	
 	if aowl then
 		aowl.AddCommand("settod", function(player, line, val)
 			cmd(val)
-		end, "moderators")
+		end, "admin")
 	else
 		concommand.Add("settod", function(ply, _, args)
 			if ply:IsAdmin() then
@@ -579,15 +535,6 @@ if SERVER then
 			end			
 		end)
 	end
-	
-	timer.Create("real_time_tod", 1, 0, function()
-		if not enable:GetBool() then return end
-		
-		local H, M, S = os.date("%H"), os.date("%M"), os.date("%S")
-		local fraction = (H*3600 + M*60 + S) / 86400
-
-		tod.SetCycle(fraction%1)
-	end)
 end
 
 -- finally, the actual config
@@ -787,7 +734,7 @@ local dawn =
 local cache = {}
 local last_time
 
-timer.Create("tod", 0.1, 0, function()
+timer.Create("tod", 0.1, 0, function()	
 	local time = math.Round(tod.GetCycle(20), 3)
 	local cfg
 	
@@ -803,13 +750,6 @@ timer.Create("tod", 0.1, 0, function()
 			dawn
 		)
 		cache[time] = cfg
-	end
-	
-	if CLIENT then
-		if last_time ~= time then	
-			render.RedownloadAllLightmaps()
-			last_time = time
-		end
 	end
 	
 	tod.SetConfig(cfg)	
