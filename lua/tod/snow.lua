@@ -46,9 +46,6 @@ local texture_replacements =
 	"custom/grasssandblend09",
 	"maps/gm_bluehills/custom/grasssandblend08_wvt_patch",
 	"maps/gm_bluehills/custom/grasssandblend09_wvt_patch",
-	"METASTRUCT_2/LOBBYFLOOR",
-	"maps/gm_construct_m_56/concrete/concretefloor039a_-13999_38_14371",
-	"maps/gm_construct_m_56/concrete/concretefloor039a_-13165_34_14392",
 	"de_cbble/grassfloor01",
 }
 
