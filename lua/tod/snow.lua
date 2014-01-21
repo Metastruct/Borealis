@@ -185,7 +185,7 @@ if CLIENT then
 
 		timer.Create("snow_sector_think", 0.1, 0, function()
 			math.randomseed(math.floor(CurTime()/100))
-			if math.random() < 0.5 then math.randomseed(SysTime()) return end
+			if math.random() > 0.5 then math.randomseed(SysTime()) return end
 			math.randomseed(SysTime())
 			
 			if not ply:IsValid() then
