@@ -28,18 +28,14 @@ end
 if CLIENT then	
 	-- emit the particles from points
 	local emt = ParticleEmitter(EyePos(), false)
-		
-	hook.Add("Think", "tod_snow", function()
-		local g = physenv.GetGravity().z
-		local b = tod.GetWeatherChance(0.5)
-
-		tod.EnableSectorThink(b)
-		
-		for k,v in pairs(player.GetAll()) do
-			if math.sin(RealTime() * 2.5 + v:UniqueID()) > 0.5 then
-				local i = v:LookupAttachment("mouth")
+	local time = RealTime()
+	
+	hook.Add("PostPlayerDraw", "tod_snow", function(ply)
+		if not ply.tod_last_snow_think or ply.tod_last_snow_think < time then
+			if math.sin(time * 2.5 + ply:UniqueID()) > 0.5 then
+				local i = ply:LookupAttachment("mouth")
 				if i ~= 0 then
-					local mouth = v:GetAttachment(i)
+					local mouth = ply:GetAttachment(i)
 					
 					local up = mouth.Ang:Up()
 					local p = emt:Add("particle/snow", mouth.Pos + up + VectorRand()*0.25)	
@@ -54,7 +50,15 @@ if CLIENT then
 					p:SetAngles(Angle(math.random(360), math.random(360), math.random(360)))
 				end
 			end
+			ply.tod_last_snow_think = time + 0.05
 		end
+	end)
+	
+	hook.Add("Think", "tod_snow", function()
+		time = RealTime()
+		local b = tod.GetWeatherChance(0.5)
+
+		tod.EnableSectorThink(b)
 		
 		if not b then return end
 
@@ -82,7 +86,7 @@ if CLIENT then
 		path = path:lower()
 		if path:find("grass") or path:find("mud") or path:find("sand") then
 			tod.ReplaceTexture(path, "nature/snowfloor002a")
-			tod.SetTextureColor(path, Vector(1,1,1)*0.3)
+			tod.SetTextureColor(path, Vector(1,1,1)*0.2)
 		end
 	end)
 end
