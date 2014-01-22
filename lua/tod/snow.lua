@@ -84,7 +84,17 @@ if CLIENT then
 	
 	hook.Add("TOD_ReplaceGrassTexture", "tod_snow", function(path)
 		path = path:lower()
-		if path:find("grass") or path:find("mud") or path:find("sand") then
+		if 
+			(
+				path:find("grass") or 
+				path:find("mud") or 
+				path:find("sand")
+			) and not
+			(
+				path:find("water") or 
+				path:find("gm_flatgrass")
+			)
+			then
 			tod.ReplaceTexture(path, "nature/snowfloor002a")
 			tod.SetTextureColor(path, Vector(1,1,1)*0.2)
 		end
