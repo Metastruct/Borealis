@@ -803,6 +803,8 @@ function tod.RemoveOverrideConfig(name)
 	tod.override_configs[name] = nil
 end
 
+local last_time
+
 hook.Add("Think", "tod", function()
 
 	-- initialize tod
@@ -860,7 +862,10 @@ hook.Add("Think", "tod", function()
 		cache[time] = cfg
 	end
 	
-	tod.SetConfig(cfg)	
+	if last_time ~= time then
+		tod.SetConfig(cfg)	
+		last_time = time
+	end
 end)
 
 include("tod/default_cycle.lua")
