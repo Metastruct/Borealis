@@ -4,7 +4,7 @@ local night =
 {	
 	["sun_angles"] = Angle(-90, 45, 0),
 	["moon_angles"] = -Angle(-90, 45, 0),
-	["world_light_multiplier"] = 0,
+	["world_light_multiplier"] = 0.001,
 	
 	["color_brightness"] = 0,
 	["color_contrast"] = 1,
@@ -33,8 +33,9 @@ local night =
 	["sharpen_contrast"] = 0,
 	["sharpen_distance"] = 0,
 	
-	["sky_topcolor"] = Vector(0, 0, 0),
-	["sky_bottomcolor"] = Vector(0, 0, 0),
+	["sky_topcolor"] = Vector(5, 12, 15) / 255 * 100,
+	["sky_bottomcolor"] = Vector(12, 14, 13) / 255 * 100,
+	
 	["sky_fadebias"] = 1,
 	["sky_sunsize"] = 0,
 	["sky_sunnormal"] = Vector(0.4, 0, 0.01),
@@ -52,7 +53,7 @@ local dusk =
 {
 	["sun_angles"] = Angle(0, 45, 0),
 	["moon_angles"] = -Angle(45, 45, 0),
-	["world_light_multiplier"] = 0.53,
+	["world_light_multiplier"] = 0.1,
 	
 	["color_brightness"] = 0,
 	["color_contrast"] = 1,
@@ -148,7 +149,7 @@ local dawn =
 {
 	["sun_angles"] = Angle(90*2, 45, 0),
 	["moon_angles"] = -Angle(90*2, 45, 0),
-	["world_light_multiplier"] = 0.53,
+	["world_light_multiplier"] = 0.005,
 	
 	["color_brightness"] = 0,
 	["color_contrast"] = 1,
@@ -177,14 +178,14 @@ local dawn =
 	["sharpen_contrast"] = 0,
 	["sharpen_distance"] = 0,
 	
-	["sky_topcolor"] = Vector(1, 0.25, 1) * 0.25,
-	["sky_bottomcolor"] = Vector(1, 0.5, 0.25),
+	["sky_topcolor"] = Vector(1, 0.25, 0.75)*2,
+	["sky_bottomcolor"] = Vector(1, 0.5, 0.25)*4,
 	["sky_fadebias"] = 0,
 	["sky_sunsize"] = 1,
 	["sky_sunnormal"] = Vector(0, 0, 0),
 	["sky_suncolor"] = Vector(0.2, 0.1, 0),
-	["sky_duskscale"] = 2,
-	["sky_duskintensity"] = 5,
+	["sky_duskscale"] = 1,
+	["sky_duskintensity"] = 0,
 	["sky_duskcolor"] = Vector(1, 0.1, 0.5),
 	["sky_starscale"] = 0.5,
 	["sky_starfade"] = 100,
@@ -194,9 +195,9 @@ local dawn =
 
 -- repeat to make the configs last longer
 tod.SetConfigCycle(
-	night, night, night, night, night, night, night, 
-	dusk, 
-	day,day,day,day,day, day, 
-	dawn, 
-	night, night
+	night, night, night, night, night,
+	dusk,
+	day,day,day,day,day, day, day, day, day,day,day,day,day,
+	dawn, dawn,
+	night, night, night
 )

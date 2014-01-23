@@ -454,10 +454,11 @@ if CLIENT then
 		end
 	end)
 	
-	local function SetupFog()
+	local function SetupFog(scale)
+		scale = scale or 1
 		render.FogMode(1)
-		render.FogStart(C.fog_start)
-		render.FogEnd(C.fog_end)
+		render.FogStart(C.fog_start * scale)
+		render.FogEnd(C.fog_end * scale)
 		render.FogColor(C.fog_color.r * C.world_light_multiplier, C.fog_color.g * C.world_light_multiplier, C.fog_color.b * C.world_light_multiplier)
 		render.FogMaxDensity(C.fog_max_density)
 				
@@ -796,6 +797,10 @@ tod.override_configs = {}
 
 function tod.AddOverrideConfig(name, config, probability)
 	tod.override_configs[name] = {config = config, probability = probability, lerp = 0}
+end
+
+function tod.RemoveOverrideConfig(name)
+	tod.override_configs[name] = nil
 end
 
 hook.Add("Think", "tod", function()
