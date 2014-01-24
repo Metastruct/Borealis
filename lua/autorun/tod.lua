@@ -788,7 +788,6 @@ function tod.SetConfigCycle(...)
 end
 
 function tod.SetOverrideConfig(config, lerp)
-	cache = {}
 	tod.override_config = config
 	tod.override_lerp =  lerp
 end
@@ -804,6 +803,7 @@ function tod.RemoveOverrideConfig(name)
 end
 
 local last_time
+local last_lerp 
 
 hook.Add("Think", "tod", function()
 
@@ -830,9 +830,10 @@ hook.Add("Think", "tod", function()
 			if data.last_lerp ~= data.lerp then
 				tod.SetOverrideConfig(data.config, data.lerp)
 				data.last_lerp = data.lerp
+				cache = {}
 			end
 		else			
-			data.lerp = math.max(data.lerp - FrameTime(), -1)
+			data.lerp = math.max(data.lerp - FrameTime(), 0)
 			
 			if data.last_lerp ~= data.lerp then
 				if data.lerp == -1 then
@@ -840,6 +841,7 @@ hook.Add("Think", "tod", function()
 				else							
 					tod.SetOverrideConfig(data.config, data.lerp)					
 				end
+				cache = {}
 				data.last_lerp = data.lerp
 			end
 		end
@@ -848,7 +850,7 @@ hook.Add("Think", "tod", function()
 	-- cache lerp results
 	-- good for realtime
 	time = math.Round(time, 3)
-	
+		
 	local cfg
 	
 	if cache[time] then
@@ -868,9 +870,10 @@ hook.Add("Think", "tod", function()
 		cache[time] = cfg
 	end
 	
-	if last_time ~= time then
+	if last_time ~= time or last_lerp ~= tod.override_lerp then
 		tod.SetConfig(cfg)	
 		last_time = time
+		last_lerp = tod.override_lerp
 	end
 end)
 
