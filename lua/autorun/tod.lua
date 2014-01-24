@@ -827,14 +827,20 @@ hook.Add("Think", "tod", function()
 		if tod.GetWeatherChance(data.probability) then 
 			data.lerp = math.min(data.lerp + FrameTime(), 1)
 			
-			tod.SetOverrideConfig(data.config, data.lerp)
+			if data.last_lerp ~= data.lerp then
+				tod.SetOverrideConfig(data.config, data.lerp)
+				data.last_lerp = data.lerp
+			end
 		else			
 			data.lerp = math.max(data.lerp - FrameTime(), -1)
 			
-			if data.lerp == -1 then
-				tod.SetOverrideConfig()
-			else							
-				tod.SetOverrideConfig(data.config, data.lerp)					
+			if data.last_lerp ~= data.lerp then
+				if data.lerp == -1 then
+					tod.SetOverrideConfig()
+				else							
+					tod.SetOverrideConfig(data.config, data.lerp)					
+				end
+				data.last_lerp = data.lerp
 			end
 		end
 	end
