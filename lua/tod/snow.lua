@@ -30,7 +30,7 @@ if CLIENT then
 	local emt = ParticleEmitter(EyePos(), false)
 	local time = RealTime()
 	
-	hook.Add("PostPlayerDraw", "tod_snow", function(ply)
+	--[[hook.Add("PostPlayerDraw", "tod_snow", function(ply)
 		if not ply.tod_last_snow_think or ply.tod_last_snow_think < time then
 			if math.sin(time * 2.5 + ply:UniqueID()) > 0.5 then
 				local i = ply:LookupAttachment("mouth")
@@ -52,7 +52,7 @@ if CLIENT then
 			end
 			ply.tod_last_snow_think = time + 0.05
 		end
-	end)
+	end)]]
 	
 	hook.Add("Think", "tod_snow", function()
 		time = RealTime()
