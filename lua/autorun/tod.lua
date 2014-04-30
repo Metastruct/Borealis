@@ -8,7 +8,7 @@ tod.CurrentParams = {}
 local P = tod.Params
 local C = tod.CurrentParams
 
--- sky paint	
+-- sky paint
 local function GetSky()
 	local ent = ents.FindByClass("env_skypaint")[1] or NULL
 	
@@ -22,7 +22,7 @@ local function GetSky()
 		ent:SetKeyValue("startexture", "skybox/starfield")
 	
 		RunConsoleCommand("sv_skyname", "painted")
-	end		
+	end
 	return ent
 end
 	
@@ -33,11 +33,11 @@ local function ADD_SKY_KEYVALUE(name, default, mult_by_world_light)
 	if SERVER then
 		local type = type(default)
 		if type == "Vector" then
-			P["sky_" .. name] = function(val) 
+			P["sky_" .. name] = function(val)
 				if mult_by_world_light then
 					val = val * C.world_light_multiplier
 				end
-				GetSky():SetKeyValue(name, val.x .. " " .. val.y .. " " .. val.z) 
+				GetSky():SetKeyValue(name, val.x .. " " .. val.y .. " " .. val.z)
 			end
 		elseif type == "number" then
 			P["sky_" .. name] = function(val) GetSky():SetKeyValue(name, val) end
@@ -110,16 +110,16 @@ end
 
 if SERVER then
 	
-	P.sun_angles = function(val)	
+	P.sun_angles = function(val)
 		local ent = ents.FindByClass("env_sun")[1] or NULL
 		
 		local n = -val:Forward()
 		GetSky():SetKeyValue("sunnormal", n.x .. " " .. n.y .. " " .. n.z)
 		
-		do 
+		do
 			local ent = ents.FindByClass("shadow_control")[1] or NULL
 			
-			if ent:IsValid() then	
+			if ent:IsValid() then
 				ent:Fire("SetAngles", math.Round(val.p).." "..math.Round(val.y).." "..math.Round(val.r))
 				
 				local fade = (val.p/180)
@@ -129,7 +129,7 @@ if SERVER then
 				else
 					ent:Fire("SetShadowsDisabled", "1")
 				end
-			end		
+			end
 		end
 		
 		if ent:IsValid() then
@@ -182,12 +182,12 @@ if CLIENT then
 					tex = to:GetTexture("$basetexture")
 				else return false end
 
-				tod.replaced_textures[path] = tod.replaced_textures[path] or {}	
+				tod.replaced_textures[path] = tod.replaced_textures[path] or {}
 
 				tod.replaced_textures[path].OldTexture = tod.replaced_textures[path].OldTexture or mat:GetTexture("$basetexture")
 				tod.replaced_textures[path].NewTexture = tex
 
-				mat:SetTexture("$basetexture",tex) 
+				mat:SetTexture("$basetexture",tex)
 
 				return mat
 			end
@@ -215,7 +215,7 @@ if CLIENT then
 
 		function tod.RestoreAllTextures()
 			for name, tbl in pairs(tod.replaced_textures) do
-				if 
+				if
 					not pcall(function()
 						if tbl.OldTexture then
 							tod.ReplaceTexture(name, tbl.OldTexture)
@@ -224,9 +224,9 @@ if CLIENT then
 						if tbl.OldColor then
 							tod.SetTextureColor(name, tbl.OldColor)
 						end
-					end) 
-				then 
-					print("Failed to restore: " .. tostring(name)) 
+					end)
+				then
+					print("Failed to restore: " .. tostring(name))
 				end
 			end
 		end
@@ -234,7 +234,7 @@ if CLIENT then
 
 	end
 
-	do -- texture collector		
+	do -- texture collector
 		local map_data = tod.OpenBSP()
 		local found = map_data:ReadLumpTextDataStringData()
 		
@@ -266,7 +266,7 @@ if CLIENT then
 		
 		if last_byte ~= byte then
 			-- this function is very slow
-			render.RedownloadAllLightmaps() 
+			render.RedownloadAllLightmaps()
 			last_byte = byte
 		end
 	end)
@@ -275,17 +275,17 @@ if CLIENT then
 	do -- stars	and moon
 		tod.moon_ent = NULL
 		
-		do		
+		do
 			local earth = Material("models/props_wasteland/rockcliff02c")
 			local atmosphere = Material("models/props/de_tides/clouds")
 			local atmosphere_outter = Material("models/debug/debugwhite")
 
 			local render = render
-			local SetMaterialOverride = function(m) 
-				if _G.net then 
-					render.MaterialOverride(m == 0 and nil or m) 
-				else 
-					SetMaterialOverride(m) 
+			local SetMaterialOverride = function(m)
+				if _G.net then
+					render.MaterialOverride(m == 0 and nil or m)
+				else
+					SetMaterialOverride(m)
 				end
 			end
 			
@@ -317,8 +317,8 @@ if CLIENT then
 						
 						render_SetColorModulation(0.7, 0.8, 0.9)
 						render_SetBlend(fraction)
-						render_MaterialOverride(earth) 
-						self:SetModelScale(normal_scale, 0) 
+						render_MaterialOverride(earth)
+						self:SetModelScale(normal_scale, 0)
 						self:DrawModel()
 					
 						render_SetColorModulation( 1,1,1 )
@@ -329,8 +329,8 @@ if CLIENT then
 												
 						render_SetColorModulation( 3.5,3.6,3.9 )
 						render_SetBlend(fraction)
-						render_MaterialOverride(atmosphere) 
-						self:SetModelScale(normal_scale * 1.1, 0) 
+						render_MaterialOverride(atmosphere)
+						self:SetModelScale(normal_scale * 1.1, 0)
 						self:DrawModel()
 												
 						render_SetColorModulation(1, 1, 1)
@@ -351,7 +351,7 @@ if CLIENT then
 				end
 			end
 			
-			function tod.InitializeSky()				
+			function tod.InitializeSky()
 				local origin = vector_origin
 				local angles = vector_origin
 				
@@ -369,7 +369,7 @@ if CLIENT then
 						tod.moon_ent:SetAngles((pos - origin):Angle() + Angle(-90,0,180))
 						tod.MoonRender(tod.moon_ent)
 					else
-						timer.Simple(0.1, function() 
+						timer.Simple(0.1, function()
 							local ent = ents.CreateClientProp()
 
 							ent:SetModel("models/dav0r/hoverball.mdl")
@@ -385,11 +385,11 @@ if CLIENT then
 			end
 			
 			if LocalPlayer():IsValid() then
-				tod.InitializeSky()	
+				tod.InitializeSky()
 			end
 				
 			hook.Add("InitPostEntity", "tod_moon", function()
-				tod.InitializeSky()	
+				tod.InitializeSky()
 				hook.Remove("InitPostEntity", "tod_moon")
 			end)
 		end
@@ -398,31 +398,31 @@ if CLIENT then
 	local enable = CreateClientConVar("tod_pp", "0")
 	local DrawColorModify = DrawColorModify
 	
-	hook.Add("RenderScreenspaceEffects", "tod_pp", function()	
+	hook.Add("RenderScreenspaceEffects", "tod_pp", function()
 				
 		if not enable:GetBool() then return end
 		
 		-- hack
 		-- DrawColorModify may exist after this script is ran
-		DrawColorModify = DrawColorModify or _G.DrawColorModify 
+		DrawColorModify = DrawColorModify or _G.DrawColorModify
 		
-		if 
+		if
 			C.sharpen_contrast ~= 0 or
 			C.sharpen_distance ~= 0
 		then
 			DrawSharpen(
 				C.sharpen_contrast,
-				C.sharpen_distance		
+				C.sharpen_distance
 			)
 		end
 		
-		if 
+		if
 			C.color_add ~= vector_origin or
 			C.color_multiply ~= vector_origin or
 			C.color_brightness ~= 0 or
 			C.color_contrast ~= 1 or
-			C.color_saturation ~= 1 
-		then			
+			C.color_saturation ~= 1
+		then
 			local params = {}
 				params["$pp_colour_addr"] = C.color_multiply.r
 				params["$pp_colour_addg"] = C.color_multiply.g
@@ -436,10 +436,10 @@ if CLIENT then
 			DrawColorModify(params)
 		end
 		
-		if 
+		if
 			C.bloom_darken ~= 1 or
 			C.bloom_multiply ~= 0
-		then			
+		then
 			DrawBloom(
 				C.bloom_darken,
 				C.bloom_multiply,
@@ -512,17 +512,17 @@ if CLIENT then
 		local movelen = 100 ^ 2
 		
 		local eyepos = Vector()
-		hook.Add("RenderScene", "tod_eyepos", function(pos, ang) 
-			eyepos = pos + LocalPlayer():GetVelocity() 
+		hook.Add("RenderScene", "tod_eyepos", function(pos, ang)
+			eyepos = pos + LocalPlayer():GetVelocity()
 		end)
 
-		local function sector_think()			
+		local function sector_think()
 			if lastpos == nil or fastlen(lastpos - eyepos) > movelen then
 				local c = #data
 				local r = math.min(iterations, c)
 				local completed = false
 				
-				for i = 1, r do				
+				for i = 1, r do
 					local key = lastkey + 1
 					if key > c then
 						completed = true
@@ -542,8 +542,8 @@ if CLIENT then
 					lastkey = key
 				end
 				
-				if completed then 
-					lastpos = eyepos 
+				if completed then
+					lastpos = eyepos
 				end
 			end
 		end
@@ -574,7 +574,7 @@ if CLIENT then
 	
 	function tod.IsOutside()
 		return smooth_outside > 0.5
-	end		
+	end
 	local cache = {}
 	timer.Create("tod_outside", 0.2, 0, function()
 		local outside = 0
@@ -584,14 +584,14 @@ if CLIENT then
 		a.y = math.Round(a.y/32)*32
 		a.z = math.Round(a.z/32)*32
 		
-		if cache[a.x..a.y..a.z] then 
+		if cache[a.x..a.y..a.z] then
 			outside = 1
 		else
 			local b = a + VectorRand() * 32000
 						
 			if util.TraceLine(
 				{
-					start = a, 
+					start = a,
 					endpos = b,
 					mask = MASK_OPAQUE,
 				}
@@ -610,17 +610,17 @@ end
 
 -- keep hidden entities
 -- light_environment won't update properly if the map didn't compile with it properly.
--- the light refreshes on full update (reconnecting for instance) 
+-- the light refreshes on full update (reconnecting for instance)
 -- or when you spawn a light somewhere on the map it will update that sector of the map
 
 -- so if you're using a realtime tod it shouldn't be that noticable
-do 
+do
 	tod.hidden_entities = {}
 
 	hook.Add("EntityKeyValue", "hidden_entities", function(ent, key, val)
 		local T = ent:GetClass():lower()
 		
-		if 
+		if
 			T == "shadow_control" or
 			T == "light_environment" or
 			T == "sky_camera" or
@@ -641,7 +641,7 @@ end
 
 -- lerping
 do
-	function tod.Lerp(mult, a, b)	
+	function tod.Lerp(mult, a, b)
 		local params = {}
 		for key, val in pairs(a) do
 			if type(val) == "number" then
@@ -663,15 +663,15 @@ do
 		end
 
 		if #out > 1 then
-			return lerp(mult, out) 
-		else 
-			return out[1] 
+			return lerp(mult, out)
+		else
+			return out[1]
 		end
-	end 
+	end
 
 	function tod.LerpConfigs(mult, ...)
 		return lerp(mult, {...})
-	end 
+	end
 end
 
 function tod.GetWeatherChance(probability)
@@ -701,7 +701,7 @@ function tod.SetConfig(data)
 end
 
 function tod.GetCycle()
-	if tod.mode == 2 then	
+	if tod.mode == 2 then
 		-- demo mode
 		return (CurTime() / (20))%1
 	end
@@ -769,7 +769,7 @@ if SERVER then
 		concommand.Add("settod", function(ply, _, args)
 			if ply:IsAdmin() then
 				cmd(args[1])
-			end			
+			end
 		end)
 	end
 	
@@ -803,7 +803,7 @@ function tod.RemoveOverrideConfig(name)
 end
 
 local last_time
-local last_lerp 
+local last_lerp
 
 hook.Add("Think", "tod", function()
 
@@ -824,7 +824,7 @@ hook.Add("Think", "tod", function()
 	end
 	
 	for name, data in pairs(tod.override_configs) do
-		if tod.GetWeatherChance(data.probability) then 
+		if tod.GetWeatherChance(data.probability) then
 			data.lerp = math.min(data.lerp + FrameTime(), 1)
 			
 			if data.last_lerp ~= data.lerp then
@@ -832,14 +832,14 @@ hook.Add("Think", "tod", function()
 				data.last_lerp = data.lerp
 				cache = {}
 			end
-		else			
+		else
 			data.lerp = math.max(data.lerp - FrameTime(), 0)
 			
 			if data.last_lerp ~= data.lerp then
 				if data.lerp == -1 then
 					tod.SetOverrideConfig()
-				else							
-					tod.SetOverrideConfig(data.config, data.lerp)					
+				else
+					tod.SetOverrideConfig(data.config, data.lerp)
 				end
 				cache = {}
 				data.last_lerp = data.lerp
@@ -857,7 +857,7 @@ hook.Add("Think", "tod", function()
 		cfg = cache[time]
 	else
 		cfg = tod.LerpConfigs(
-			time, 
+			time,
 			
 			unpack(tod.config_cycle)
 		)
@@ -871,7 +871,7 @@ hook.Add("Think", "tod", function()
 	end
 	
 	if last_time ~= time or last_lerp ~= tod.override_lerp then
-		tod.SetConfig(cfg)	
+		tod.SetConfig(cfg)
 		last_time = time
 		last_lerp = tod.override_lerp
 	end
@@ -888,7 +888,7 @@ do -- weather
 
 	if month >= 11 or month <= 2 then
 		include("tod/snow.lua")
-		if SERVER then 
+		if SERVER then
 			AddCSLuaFile("tod/snow.lua")
 		end
 	end

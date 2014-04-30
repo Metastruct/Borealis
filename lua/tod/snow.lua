@@ -1,11 +1,11 @@
 local snow_density = 0.05
 
-local config = 
-{				
+local config =
+{
 	["fog_start"] = 0,
 	["fog_end"] = 7000,
 	["fog_max_density"] = 0.25,
-	["fog_color"] = Vector(255,255,255)*0.8, 
+	["fog_color"] = Vector(255,255,255)*0.8,
 	["start_intensity"] = 0,
 	["sky_topcolor"] = Vector(1,1,1)*0.5,
 	["sky_bottomcolor"] = Vector(1,1,1)*0.5,
@@ -25,7 +25,7 @@ if SERVER then
 	end)
 end
 
-if CLIENT then	
+if CLIENT then
 	-- emit the particles from points
 	local emt = ParticleEmitter(EyePos(), false)
 	local time = RealTime()
@@ -38,7 +38,7 @@ if CLIENT then
 					local mouth = ply:GetAttachment(i)
 					
 					local up = mouth.Ang:Up()
-					local p = emt:Add("particle/snow", mouth.Pos + up + VectorRand()*0.25)	
+					local p = emt:Add("particle/snow", mouth.Pos + up + VectorRand()*0.25)
 					p:SetVelocity((up+VectorRand()*0.25)*-math.random()*30)
 					p:SetDieTime(2)
 					p:SetStartAlpha(6)
@@ -84,14 +84,14 @@ if CLIENT then
 	
 	hook.Add("TOD_ReplaceGrassTexture", "tod_snow", function(path)
 		path = path:lower()
-		if 
+		if
 			(
-				path:find("grass") or 
-				path:find("mud") or 
+				path:find("grass") or
+				path:find("mud") or
 				path:find("sand")
 			) and not
 			(
-				path:find("water") or 
+				path:find("water") or
 				path:find("gm_flatgrass")
 			)
 			then

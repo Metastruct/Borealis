@@ -1,7 +1,7 @@
 -- edit me!
 
-local night = 
-{	
+local night =
+{
 	["sun_angles"] = Angle(-90, 45, 0),
 	["moon_angles"] = -Angle(-90, 45, 0),
 	["world_light_multiplier"] = 0.001,
@@ -49,7 +49,7 @@ local night =
 	["sky_hdrscale"] = 0.66,
 }
 
-local dusk = 
+local dusk =
 {
 	["sun_angles"] = Angle(0, 45, 0),
 	["moon_angles"] = -Angle(45, 45, 0),
@@ -64,7 +64,7 @@ local dusk =
 	["fog_start"] = 0,
 	["fog_end"] = 10000,
 	["fog_max_density"] = 1,
-	["fog_color"] = Vector(1, 0.85, 0.6), 
+	["fog_color"] = Vector(1, 0.85, 0.6),
 	
 	["shadow_angles"] = Angle(0, 45, 0),
 	["shadow_color"] = Vector(0, 0, 0),
@@ -97,7 +97,7 @@ local dusk =
 	["sky_hdrscale"] = 0.66,
 }
 
-local day = 
+local day =
 {
 	["sun_angles"] = Angle(90, 45, 0),
 	["moon_angles"] = -Angle(90, 45, 0),
@@ -112,7 +112,7 @@ local day =
 	["fog_start"] = 0,
 	["fog_end"] = 30000,
 	["fog_max_density"] = -1,
-	["fog_color"] = Vector(1,1,1), 
+	["fog_color"] = Vector(1,1,1),
 	
 	["shadow_angles"] = Angle(0, 45, 0),
 	["shadow_color"] = Vector(0, 0, 0),
@@ -145,7 +145,7 @@ local day =
 	["sky_hdrscale"] = 0.66,
 }
 
-local dawn = 
+local dawn =
 {
 	["sun_angles"] = Angle(90*2, 45, 0),
 	["moon_angles"] = -Angle(90*2, 45, 0),
@@ -160,7 +160,7 @@ local dawn =
 	["fog_start"] = 0,
 	["fog_end"] = 10000,
 	["fog_max_density"] = -1,
-	["fog_color"] = Vector(1,1,1), 
+	["fog_color"] = Vector(1,1,1),
 	
 	["shadow_angles"] = Angle(0, 45, 0),
 	["shadow_color"] = Vector(0, 0, 0),
