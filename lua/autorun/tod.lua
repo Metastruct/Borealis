@@ -345,6 +345,7 @@ if CLIENT then
 						LocalPlayer():EmitSound("weapons/explode"..math.random(3, 5)..".wav", 0, math.random(4))
 					end
 					timer.Create("tod_moon_sound", 0.25, 1, function()
+						hook.Run("tod_moon_effect_end")
 						LocalPlayer():SetDSP(0)
 						LocalPlayer():ConCommand("stopsound")
 					end)
