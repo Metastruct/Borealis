@@ -372,7 +372,8 @@ if CLIENT then
 					else
 						timer.Simple(0.1, function()
 							local ent = ents.CreateClientProp()
-
+							if not ent:IsValid() then return end
+							
 							ent:SetModel("models/dav0r/hoverball.mdl")
 							ent:SetMaterial("models/gman/gman_face_map3")
 							ent:SetPos(origin)
