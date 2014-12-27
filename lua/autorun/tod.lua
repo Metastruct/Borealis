@@ -702,6 +702,10 @@ function tod.SetConfig(data)
 	end
 end
 
+function tod.GetMode()
+	return tod.mode
+end
+
 function tod.GetCycle()
 	if tod.mode == 2 then
 		-- demo mode
