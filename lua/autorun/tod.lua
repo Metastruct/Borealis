@@ -366,7 +366,7 @@ if CLIENT then
 				hook.Add("PostDrawSkyBox", "tod_moon", function()
 					if tod.moon_ent:IsValid() then
 						local pos = origin + C.moon_angles:Forward() * -8000
-						tod.moon_ent:SetPos(pos)
+						tod.moon_ent:SetLocalPos(pos)
 						tod.moon_ent:SetAngles((pos - origin):Angle() + Angle(-90,0,180))
 						tod.MoonRender(tod.moon_ent)
 					else
