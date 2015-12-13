@@ -13,7 +13,7 @@ local config =
 	["sky_duskintensity"] = 0,
 }
 
-tod.AddOverrideConfig("snow", config, 0.5)
+tod.AddOverrideConfig("snow", config, 0.2)
 
 if SERVER then
 	hook.Add("PlayerFootstep", "snow", function(ply, pos, foot, sound, volume, rf)
@@ -56,7 +56,7 @@ if CLIENT then
 	
 	hook.Add("Think", "tod_snow", function()
 		time = RealTime()
-		local b = tod.GetWeatherChance(0.5)
+		local b = tod.GetWeatherChance(0.2)
 
 		tod.EnableSectorThink(b)
 		
