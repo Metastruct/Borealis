@@ -282,11 +282,7 @@ if CLIENT then
 
 			local render = render
 			local SetMaterialOverride = function(m)
-				if _G.net then
-					render.MaterialOverride(m == 0 and nil or m)
-				else
-					SetMaterialOverride(m)
-				end
+				render.MaterialOverride(m == 0 and nil or m)
 			end
 
 			local render_SetColorModulation = render.SetColorModulation
@@ -363,7 +359,7 @@ if CLIENT then
 				local cam_Start3D = cam.Start3D
 				local cam_End3D = cam.End3D
 
-				hook.Add("PostDrawSkyBox", "tod_moon", function()
+				hook.Add("PostDraw2DSkyBox", "tod_moon", function()
 					if tod.moon_ent:IsValid() then
 						local pos = origin + C.moon_angles:Forward() * -8000
 						tod.moon_ent:SetLocalPos(pos)
@@ -552,7 +548,8 @@ if CLIENT then
 
 			local eyepos = Vector()
 			hook.Add("RenderScene", "tod_eyepos", function(pos, ang)
-				eyepos = pos + LocalPlayer():GetVelocity()
+				eyepos:Set(pos)
+				eye:Add(LocalPlayer():GetVelocity())
 			end)
 
 			local function sector_think()
