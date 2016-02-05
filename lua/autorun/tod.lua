@@ -547,9 +547,11 @@ if CLIENT then
 			local movelen = 100 ^ 2
 
 			local eyepos = Vector()
+			local localplayer
 			hook.Add("RenderScene", "tod_eyepos", function(pos, ang)
+				localplayer = localplayer or LocalPlayer()
 				eyepos:Set(pos)
-				eye:Add(LocalPlayer():GetVelocity())
+				eyepos:Add(localplayer:GetVelocity())
 			end)
 
 			local function sector_think()
