@@ -379,6 +379,7 @@ if CLIENT then
 							tod.moon_ent = ent
 						end)
 					end
+					render.ClearDepth()
 				end)
 			end
 
