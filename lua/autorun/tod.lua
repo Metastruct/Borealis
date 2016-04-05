@@ -830,7 +830,7 @@ if SERVER then
 	end
 
 	if aowl then
-		aowl.AddCommand("settod", function(player, line, val)
+		aowl.AddCommand({ "settod", "tod" }, function(player, line, val)
 			cmd(val)
 		end, "admin")
 	else
