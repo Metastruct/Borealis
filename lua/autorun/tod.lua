@@ -700,7 +700,7 @@ end
 
 
 
-do
+if SERVER then
 	tod.hidden_entities = {}
 	tod.is_hidden_entity = {}
 
@@ -724,6 +724,7 @@ do
 			tod.hidden_entities[T] = ent
 		end
 	end)
+	
 	hook.Add("InitPostEntity","tod_hack",function()
 		if not tod.is_hidden_entity.light_environment then
 			util.AddNetworkString("tod_le")
