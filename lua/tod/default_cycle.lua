@@ -1,5 +1,7 @@
 -- edit me!
 
+local SCOL = 170
+
 local night =
 {
 	["sun_angles"] = Angle(-90, 45, 0),
@@ -18,7 +20,7 @@ local night =
 	["fog_color"] = Vector(0.25, 0.20, 0.30),
 	
 	["shadow_angles"] = Angle(-90, 45, 0),
-	["shadow_color"] = Vector(0, 0, 0),
+	["shadow_color"] = Vector(SCOL,SCOL,SCOL),
 	
 	["star_intensity"] = 1,
 	
@@ -67,7 +69,7 @@ local dusk =
 	["fog_color"] = Vector(1, 0.85, 0.6),
 	
 	["shadow_angles"] = Angle(0, 45, 0),
-	["shadow_color"] = Vector(0, 0, 0),
+	["shadow_color"] = Vector(SCOL,SCOL,SCOL),
 	
 	["star_intensity"] = 0,
 	
@@ -115,7 +117,7 @@ local day =
 	["fog_color"] = Vector(1,1,1),
 	
 	["shadow_angles"] = Angle(0, 45, 0),
-	["shadow_color"] = Vector(0, 0, 0),
+	["shadow_color"] = Vector(SCOL,SCOL,SCOL),
 	
 	["star_intensity"] = 0,
 	
@@ -163,7 +165,7 @@ local dawn =
 	["fog_color"] = Vector(1,1,1),
 	
 	["shadow_angles"] = Angle(0, 45, 0),
-	["shadow_color"] = Vector(0, 0, 0),
+	["shadow_color"] = Vector(SCOL,SCOL,SCOL),
 	
 	["star_intensity"] = 0,
 	

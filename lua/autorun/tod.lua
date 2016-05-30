@@ -1,9 +1,22 @@
 tod = {}
+local tod=tod
 
 include("tod/bsp.lua")
 
 tod.Params = {}
 tod.CurrentParams = {}
+
+tod.light_environment_named = false
+if CLIENT then
+	for i=1,4096 do
+		local v = util.NetworkIDToString(i)
+		if v==nil then break end
+		if v=="tod_le" then
+			tod.light_environment_named = true
+			break
+		end
+	end
+end
 
 local P = tod.Params
 local C = tod.CurrentParams
@@ -120,7 +133,9 @@ if SERVER then
 			local ent = ents.FindByClass("shadow_control")[1] or NULL
 
 			if ent:IsValid() then
-				ent:Fire("SetAngles", math.Round(val.p).." "..math.Round(val.y).." "..math.Round(val.r))
+				local p = val.p
+				p=math.Clamp(p,50,130)
+				ent:Fire("SetAngles", math.Round(p).." "..math.Round(val.y).." "..math.Round(val.r))
 
 				local fade = (val.p/180)
 				ent:Fire("SetDistance", fade * 70)
@@ -260,17 +275,21 @@ if CLIENT then
 	end
 
 	local last_byte
+	
+	hook.Add("RenderScene","todhack",function()
+		hook.Remove("RenderScene","todhack")
+		timer.Create("tod_update_lightmap", 0.5, 0, function()
+			local byte = tod.MultToLightEnv(tod.GetCycle())
 
-	timer.Create("tod_update_lightmap", 0.1, 0, function()
-		local byte = tod.MultToLightEnv(tod.GetCycle())
-
-		if last_byte ~= byte then
-			-- this function is very slow
-			render.RedownloadAllLightmaps()
-			last_byte = byte
-		end
+			if last_byte ~= byte then
+				-- this function is very slow
+				if not tod.light_environment_named then
+					render.RedownloadAllLightmaps()
+				end
+				last_byte = byte
+			end
+		end)
 	end)
-
 
 	do -- stars	and moon
 		tod.moon_ent = NULL
@@ -678,8 +697,12 @@ end
 -- or when you spawn a light somewhere on the map it will update that sector of the map
 
 -- so if you're using a realtime tod it shouldn't be that noticable
+
+
+
 do
 	tod.hidden_entities = {}
+	tod.is_hidden_entity = {}
 
 	hook.Add("EntityKeyValue", "hidden_entities", function(ent, key, val)
 		local T = ent:GetClass():lower()
@@ -691,8 +714,20 @@ do
 			T == "env_sun" or
 			T == "env_fog_controller"
 		then
-			ent:SetKeyValue("targetname", T)
+			if key=="targetname" then
+				tod.is_hidden_entity[T]=false
+			elseif tod.is_hidden_entity[T] == nil then
+				tod.is_hidden_entity[T] = true
+			end
+			
+			ent:SetKeyValue("targetname", T) -- UUHHH
 			tod.hidden_entities[T] = ent
+		end
+	end)
+	hook.Add("InitPostEntity","tod_hack",function()
+		if not tod.is_hidden_entity.light_environment then
+			util.AddNetworkString("tod_le")
+			tod.light_environment_named = true
 		end
 	end)
 end
@@ -813,7 +848,7 @@ tod.cvar = CreateConVar("sv_tod", "1", bit.bor(FCVAR_REPLICATED, FCVAR_NOTIFY),
 
 if SERVER then
 	local function cmd(val)
-		local time24 = tonumber(val) or -1 // yes or no?
+		local time24 = val and tonumber(val)
 
 		if time24 then
 			RunConsoleCommand("sv_tod", "0")
@@ -835,9 +870,8 @@ if SERVER then
 		end, "admin")
 	else
 		concommand.Add("settod", function(ply, _, args)
-			if ply:IsAdmin() then
-				cmd(args[1])
-			end
+			if ply and  ply:IsValid() and not ply:IsAdmin() then return end
+			cmd(args[1])
 		end)
 	end
 
@@ -873,6 +907,7 @@ end
 local last_time
 local last_lerp
 
+hook.Add("Think", "tod", function()
 hook.Add("Think", "tod", function()
 
 	-- initialize tod
@@ -943,6 +978,7 @@ hook.Add("Think", "tod", function()
 		last_time = time
 		last_lerp = tod.override_lerp
 	end
+end)
 end)
 
 include("tod/default_cycle.lua")
