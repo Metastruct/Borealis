@@ -629,7 +629,7 @@ if CLIENT then
 			end
 		end -- thread
 		
-		local processing 
+		local processing
 		local function startproc()
 			if processing then return end
 			processing = true
