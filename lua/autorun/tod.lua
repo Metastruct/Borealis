@@ -1,4 +1,4 @@
-local async = require("async") or async
+local async = require("async") or _G.async
 
 tod = {}
 local tod=tod
