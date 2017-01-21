@@ -1,3 +1,5 @@
+local async = require("async") or async
+
 tod = {}
 local tod=tod
 
@@ -516,7 +518,6 @@ if CLIENT then
 		local sectorthink
 		local function thread()
 			
-			local co=co
 			local v = Vector(0,0,0)
 			local trash_up = Vector(0,0,1)
 			local function vec(a,b,c)
@@ -528,7 +529,7 @@ if CLIENT then
 			
 			for x = -range, range do
 				x = x * grid_size
-				if co then co.waittick() end
+				async.waitTick():await()
 				for y = -range, range do
 					y = y * grid_size
 					for z = -range, range do
@@ -633,7 +634,7 @@ if CLIENT then
 		local function startproc()
 			if processing then return end
 			processing = true
-			co(thread)
+			async.runTask(thread)
 		end
 		
 		-- wrappers
