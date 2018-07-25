@@ -863,6 +863,10 @@ if SERVER then
 
 		timer.Simple(0.1, function()
 			tod.SetMode(tod.cvar:GetInt())
+
+			timer.Simple(0.5, function()
+				BroadcastLua[[render.RedownloadAllLightmaps()]]
+			end)
 		end)
 	end
 
