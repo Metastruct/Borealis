@@ -277,7 +277,7 @@ if CLIENT then
 	end
 
 	local last_byte
-	
+
 	hook.Add("RenderScene","todhack",function()
 		hook.Remove("RenderScene","todhack")
 		timer.Create("tod_update_lightmap", 0.5, 0, function()
@@ -489,9 +489,9 @@ if CLIENT then
 	hook.Add("SetupSkyboxFog", "tod", SetupFog)
 
 	do -- sectors (to use with snow and such)
-		
+
 		-- help
-		
+
 		local trace = {}
 		local util=util
 		local function QuickTrace( origin, dir, filter )
@@ -499,14 +499,14 @@ if CLIENT then
 			trace.start = origin
 			trace.endpos = origin + dir
 			trace.filter = filter
-			
+
 			return util.TraceLine( trace )
-			
+
 		end
 
 		-- initialize points
-		
-		
+
+
 		local data = {}
 		local max = 32000
 		local grid_size = 768
@@ -517,7 +517,7 @@ if CLIENT then
 		local CONTENTS_TESTFOGVOLUME=CONTENTS_TESTFOGVOLUME
 		local sectorthink
 		local function thread()
-			
+
 			local v = Vector(0,0,0)
 			local trash_up = Vector(0,0,1)
 			local function vec(a,b,c)
@@ -526,7 +526,7 @@ if CLIENT then
 				v[3] = c
 				return v
 			end
-			
+
 			for x = -range, range do
 				x = x * grid_size
 				async.waitTick():await()
@@ -534,13 +534,13 @@ if CLIENT then
 					y = y * grid_size
 					for z = -range, range do
 						z = z * grid_size
-	
+
 						pos = vec(x,y,z)
 						local conents = util.PointContents(pos)
-	
+
 						if conents == CONTENTS_EMPTY or conents == CONTENTS_TESTFOGVOLUME then
 							trash_up[3] = max * 2
-							
+
 							local up = QuickTrace(pos, trash_up)
 							up.HitTexture = up.HitTexture:lower()
 							if up.HitTexture == "tools/toolsskybox" or up.HitTexture == "**empty**" then
@@ -551,8 +551,8 @@ if CLIENT then
 				end
 			end
 			local datal = #data
-		
-			
+
+
 			-- show or hide points
 			--local function fastlen(point)
 			--	return point.x * point.x + point.y * point.y + point.z * point.z
@@ -629,14 +629,14 @@ if CLIENT then
 				sectorthink = nil
 			end
 		end -- thread
-		
+
 		local processing
 		local function startproc()
 			if processing then return end
 			processing = true
 			async.runTask(thread)
 		end
-		
+
 		-- wrappers
 		function tod.EnableSectorThink(b)
 			startproc()
@@ -646,9 +646,9 @@ if CLIENT then
 			startproc()
 			return {}
 		end
-		
-		
-		
+
+
+
 	end -- do
 
 	-- todo!
@@ -720,12 +720,12 @@ if SERVER then
 			elseif tod.is_hidden_entity[T] == nil then
 				tod.is_hidden_entity[T] = true
 			end
-			
+
 			ent:SetKeyValue("targetname", T) -- UUHHH
 			tod.hidden_entities[T] = ent
 		end
 	end)
-	
+
 	hook.Add("InitPostEntity","tod_hack",function()
 		if not tod.is_hidden_entity.light_environment then
 			util.AddNetworkString("tod_le")
@@ -869,7 +869,7 @@ if SERVER then
 	if aowl then
 		aowl.AddCommand({ "settod", "tod" }, function(player, line, val)
 			cmd(val)
-		end, "admin")
+		end, "trusted")
 	else
 		concommand.Add("settod", function(ply, _, args)
 			if ply and  ply:IsValid() and not ply:IsAdmin() then return end
