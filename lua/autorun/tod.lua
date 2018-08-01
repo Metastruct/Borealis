@@ -1,3 +1,4 @@
+if string.find(game.GetMap(),"gm_construct_m") then
 local async = require("async") or _G.async
 
 tod = {}
@@ -1002,4 +1003,9 @@ do -- weather
 			AddCSLuaFile("tod/snow.lua")
 		end
 	end
+end
+
+
+else
+	print("Not a metastruct map, disabling TOD!")
 end
