@@ -16,13 +16,13 @@ local config =
 tod.AddOverrideConfig("snow", config, 0.2)
 
 if SERVER then
-	hook.Add("PlayerFootstep", "snow", function(ply, pos, foot, sound, volume, rf)
+	--[[hook.Add("PlayerFootstep", "snow", function(ply, pos, foot, sound, volume, rf)
 		sound = sound:lower()
 		if sound:find("grass", nil, true) or sound:find("dirt", nil, true) then
 			ply:EmitSound(("player/footsteps/snow%s.wav"):format(math.random(6)), 60, math.random(95,105))
 			return true
 		end
-	end)
+	end)]] -- why is this server side?
 end
 
 if CLIENT then
@@ -97,6 +97,14 @@ if CLIENT then
 			then
 			tod.ReplaceTexture(path, "nature/snowfloor002a")
 			tod.SetTextureColor(path, Vector(1,1,1)*0.2)
+		end
+	end)
+
+	hook.Add("PlayerFootstep", "snow", function(ply, pos, foot, sound, volume, rf)
+		sound = sound:lower()
+		if sound:find("grass", nil, true) or sound:find("dirt", nil, true) then
+			ply:EmitSound(("player/footsteps/snow%s.wav"):format(math.random(6)), 60, math.random(95,105))
+			return true
 		end
 	end)
 end
