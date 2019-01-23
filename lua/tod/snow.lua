@@ -107,4 +107,15 @@ if CLIENT then
 			return true
 		end
 	end)
+
+	local function removeIt()
+		hook.Remove('PlayerFootstep','snow')
+		hook.Remove('TOD_ReplaceGrassTexture','tod_snow')-- is this even needed?
+		hook.Remove('Think','tod_snow')
+		tod.RestoreAllTextures()-- maybe just replace the ones that were changed?
+		concommand.Remove('tod_removesnow')-- this really only needs to get ran once so we'll remove the command
+
+	end
+
+	concommand.Add('tod_removesnow',removeIt,nil,"Removes the winter modifications from the server, just in case you don't like them.")
 end
