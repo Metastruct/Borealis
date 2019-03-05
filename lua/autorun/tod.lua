@@ -873,7 +873,12 @@ if SERVER then
 
 	if aowl then
 		aowl.AddCommand({ "settod", "tod" }, function(player, line, val)
+		    if player.__lastTimeTOD and CurTime() - player.__lastTimeTOD < 60 then
+		        return false, "do not abuse the TOD command"
+		    end
+		    
 			cmd(val)
+			player.__lastTimeTOD = CurTime()
 		end, "trusted")
 	else
 		concommand.Add("settod", function(ply, _, args)
