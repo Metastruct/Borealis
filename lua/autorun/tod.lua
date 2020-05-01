@@ -85,7 +85,6 @@ RunConsoleCommand("sv_skyname", "painted")
 if SERVER then
 	hook.Add("InitPostEntity","tod",function()
 		GetSky()
-		hook.Remove("InitPostEntity", "tod")
 	end)
 end
 
