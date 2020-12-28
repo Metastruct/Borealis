@@ -1,6 +1,6 @@
-do return end
+require'skyboxer'
 
-
+local Tag='buildmovingsky'
 do
 	local sz = 8192 * 8 * 4
 	local q = sz * (1 / (8192 * 2 * 4))
@@ -49,7 +49,7 @@ do
 
 	-- Vertex 1
 	mesh:BuildFromTriangles(MeshVertexes)
-	local mat1 = CreateMaterial("asdaasqwsd_" .. os.clock(), "VertexLitGeneric", util.KeyValuesToTable[["Cloud"
+	local mat1 = CreateMaterial(Tag, "VertexLitGeneric", util.KeyValuesToTable[["Cloud"
 {
 	"$basetexture" "shadertest/cloud"
 	"$cloudalphatexture" "shadertest/cloudalpha"
@@ -65,7 +65,7 @@ do
 		}
 	}
 }]])
-	local mat2 = CreateMaterial("asdaasqwsd_" .. os.clock(), "VertexLitGeneric", util.KeyValuesToTable[["Cloud"
+	local mat2 = CreateMaterial(Tag..'2', "VertexLitGeneric", util.KeyValuesToTable[["Cloud"
 {
 	"$basetexture" "shadertest/cloud"
 	"$cloudalphatexture" "shadertest/cloudalpha"
@@ -85,58 +85,73 @@ do
 	local t = {
 		model = "models/props_junk/sawblade001a.mdl",
 		angle = Angle(0, 0, 0),
-		pos = here
+		pos = Vector(0,0,-4000)
 	}
 
 	local clm
-	local off = Vector(0, 0, 2048)
+	local off = Vector(0, 0, -1048)
+	local rotate_1 = Angle(0, 45, 0)
+	local rotate_2 = Angle(180, 0, 0)
+	local vector_origin = Vector(0, 0, 0)
+	local tmp = Vector(0, 0, 0)
+	local vec1 = Vector(1, 1, 1)
+	local translate_1 = Vector(2111, 1400, 475)
+	local translate_2 = Vector(-1123, -1223, 900)
+	local translate_3 = Vector(3123, 4123, 600)
+	local off2 = Vector(0, 0, 2000)
+	local off3 = Vector(0, 0, 4024)
+	local mat = Matrix()
+	local off_off2 = off + off2
+	local ms_build_skyclouds = CreateClientConVar("ms_build_skyclouds_wip","0",true,false,"Enable skybox moving clouds on build",0,1)
 
-	H.PostDraw2DSkyBox.tod_skyy = function()
+	local function PostDraw2DSkyBox()
+		
 		local ep = EyePos()
 		if ep.z > off.z then return end
 		if ep.z < -13812 then return end
+		if not ms_build_skyclouds:GetBool() then return end
 		local now = CurTime()
-		--cam.IgnoreZ(false)
-		--render.SuppressEngineLighting(true)
+		
 		local scale = 1 / 32
-		local mat = Matrix()
 		local q = 0.1
-		mat:Translate(-EyePos() + off + Vector(0, 0, 4024))
-		mat:Rotate(Angle(180, 0, 0))
-		mat:Scale(Vector(1, 1, 1))
+		local trans = EyePos()
+		trans:Mul(-1)
+		trans:Add(off)
+		trans:Add(off3)
+		mat:Identity()
+		mat:SetTranslation(trans)
+		mat:Rotate(rotate_2)
 		clm = clm and clm:IsValid() and clm or ClientsideModel(t.model, RENDERGROUP_OTHER)
+		clm:SetPos(off_off2)
 		render.SetBlend(0)
 		render.Model(t, clm)
 		render.SetBlend(1)
 		render.SetMaterial(mat1)
-		cam.Start3D(Vector(0, 0, 0), EyeAngles(), nil, nil, nil, nil, nil, 1024, 8192 * 2 * 2 * 2 * 2)
-		cam.PushModelMatrix(mat)
-		--render.PushFlashlightMode(true)
-		mesh:Draw()
-		--render.PopFlashlightMode()
-		cam.PopModelMatrix()
-		--render.SuppressEngineLighting(false)
-		--cam.IgnoreZ(false)
-		mat:Translate(Vector(2111, 1400, 475))
+		
+		-- enjoy black magic
+		cam.Start3D(vector_origin, EyeAngles(), nil, nil, nil, nil, nil, 256, 8192 * 2 * 2 * 2 * 2)
 		cam.PushModelMatrix(mat)
 		mesh:Draw()
 		cam.PopModelMatrix()
-		-- 45 degrees
-		mat:Rotate(Angle(0, 45, 0))
+		mat:Translate(translate_1)
+		cam.PushModelMatrix(mat)
+		mesh:Draw()
+		cam.PopModelMatrix()
+		mat:Rotate(rotate_1)
 		render.SetMaterial(mat2)
-		mat:Translate(Vector(-1123, -1223, 900))
+		
+		mat:Translate(translate_2)
 		cam.PushModelMatrix(mat)
-		--render.PushFlashlightMode(true)
 		mesh:Draw()
-		--render.PopFlashlightMode()
 		cam.PopModelMatrix()
-		--render.SuppressEngineLighting(false)
-		--cam.IgnoreZ(false)
-		mat:Translate(Vector(3123, 4123, 600))
+		mat:Translate(translate_3)
 		cam.PushModelMatrix(mat)
 		mesh:Draw()
 		cam.PopModelMatrix()
 		cam.End3D()
 		render.ClearDepth()
 	end
+	
+	-- moon draws before this
+	skyboxer.AddHook("d_"..Tag,PostDraw2DSkyBox)
 end
