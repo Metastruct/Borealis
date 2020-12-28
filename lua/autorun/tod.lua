@@ -380,7 +380,7 @@ if CLIENT then
 				local cam_Start3D = cam.Start3D
 				local cam_End3D = cam.End3D
 
-				hook.Add("PostDraw2DSkyBox", "tod_moon", function()
+				local function PostDraw2DSkyBox()
 					if tod.moon_ent:IsValid() then
 						local pos = origin + C.moon_angles:Forward() * -8000
 						tod.moon_ent:SetLocalPos(pos)
@@ -401,7 +401,14 @@ if CLIENT then
 						end)
 					end
 					render.ClearDepth()
-				end)
+				end
+				pcall(require,'skyboxer')
+				if skyboxer then
+					-- moon is FAR, but skybox could even be farther
+					skyboxer.AddHook("c_moon",PostDraw2DSkyBox)
+				else
+					hook.Add("PostDraw2DSkyBox", "tod_moon", PostDraw2DSkyBox)
+				end
 			end
 
 			if LocalPlayer():IsValid() then
