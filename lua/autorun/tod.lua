@@ -368,7 +368,7 @@ if CLIENT then
 					end)
 				end
 			end
-
+			local gmancol = Color(170,190,255,255)
 			function tod.InitializeSky()
 				local origin = vector_origin
 				local angles = vector_origin
@@ -394,7 +394,7 @@ if CLIENT then
 							ent:SetModel("models/dav0r/hoverball.mdl")
 							ent:SetMaterial("models/gman/gman_face_map3")
 							ent:SetPos(origin)
-							ent:SetColor(170,190,255,255)
+							ent:SetColor(gmancol)
 							ent:SetNoDraw(true)
 
 							tod.moon_ent = ent
