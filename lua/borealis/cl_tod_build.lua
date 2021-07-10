@@ -102,12 +102,12 @@ do
 	local off3 = Vector(0, 0, 4024)
 	local mat = Matrix()
 	local off_off2 = off + off2
-	local ms_build_skyclouds = CreateClientConVar("ms_build_skyclouds_wip","0",true,false,"Enable skybox moving clouds on build",0,1)
-
+	local ms_build_skyclouds = CreateClientConVar("ms_build_skyclouds","1",true,false,"Enable skybox moving clouds on build",0,1)
+	local maxz = off.z+1024
 	local function PostDraw2DSkyBox()
 		
 		local ep = EyePos()
-		if ep.z > off.z then return end
+		if ep.z > maxz then return end
 		if ep.z < -13812 then return end
 		if not ms_build_skyclouds:GetBool() then return end
 		local now = CurTime()
