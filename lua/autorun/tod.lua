@@ -857,7 +857,7 @@ tod.cvar = CreateConVar("sv_tod", "1", bit.bor(FCVAR_REPLICATED, FCVAR_NOTIFY),
 
 if SERVER then
 	local function cmd(val)
-		local time24 = val and tonumber(val)
+		local time24 = val and tonumber(val) or 1
 
 		if time24 then
 			RunConsoleCommand("sv_tod", "0")
