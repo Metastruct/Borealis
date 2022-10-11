@@ -4,6 +4,11 @@ local drawcvar = CreateClientConVar("cl_draw_auroras", 1, true, false, "show dra
 local Particle_Glow_04 = Material("particle/Particle_Glow_04")
 local tmpvec = Vector(0, 0, 0)
 local offset = Vector(-20870, 7008, 8000)
+local seed = 2147483646
+local function random32()
+	seed = seed * 16807 % 2147483647
+	return seed
+end
 
 local function onDraw()
 	if not drawcvar:GetBool() then return end
@@ -16,10 +21,12 @@ local function onDraw()
 	cam.Start3D() --nil, nil, nil, nil, nil, nil, nil, 1024, 65535)
 	local mode = render.GetFogMode()
 	render.FogMode(0)
-
+	seed = 2147483646
+	
 	for i = 1, 125 do
 		local w = math.cos(1 / 12 * (now + i)) * 1000
-		local h = 5000 + math.sin(now + (1 + (i * 223.423523) % 11)) * 2000
+		--TODO: math.floor seems to not be required?
+		local h = 5000 + math.sin(now + 1 + math.floor((random32()-1)*(11/2147483646))) * 2000
 		local sprite_pos = tmpvec
 		sprite_pos:SetUnpacked(i * 300, w, h * .25)
 		sprite_pos:Add(origin)
@@ -36,9 +43,12 @@ end
 pcall(require,"skyboxer")
 if skyboxer then
 	skyboxer.RemoveHook("cc_aurora")
+	skyboxer.RemoveHook("cc_aurora")
 	skyboxer.AddHook("cc_aurora", onDraw)
 	hook.Add("PreDrawEffects", tag, function() end)
 	hook.Remove("PreDrawEffects", tag)
+	hook.Remove("PreDrawEffects", "cl_aurora")
 else
 	hook.Add("PreDrawEffects", tag, onDraw)
 end
+
