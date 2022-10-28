@@ -24,13 +24,12 @@ local function get_tod_time()
 end
 
 local function onDraw()
+	if not drawcvar:GetBool() then return end
 	if not tod then return end
 
 	local time = get_tod_time()
 	if not time then return end
 	if time > .05 and time < .95 then return end
-
-	if not drawcvar:GetBool() then return end
 
 	local origin = EyePos()
 	origin:Mul(0.9) -- slight parallax effect to make it seem not infinitely far
