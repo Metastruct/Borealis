@@ -11,7 +11,7 @@ local function random32()
 end
 
 local function get_tod_time()
-	local mode = GetConVar("sv_tod")
+	local mode = GetConVar("sv_tod"):GetInt()
 
 	if mode == 0 or mode == 2 then
 		return tod.GetCycle()
