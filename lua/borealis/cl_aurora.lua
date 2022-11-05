@@ -25,7 +25,7 @@ end
 
 local function onDraw()
 	if not drawcvar:GetBool() then return end
-	if not tod then return end
+	if not tod or not tod.current_cycle then return end
 
 	local time = get_tod_time()
 	if not time then return end
