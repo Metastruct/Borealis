@@ -838,7 +838,7 @@ if string.find(game.GetMap(), "gm_construct_m") then
                 if not player.Unrestricted and player.__lastTimeTOD and CurTime() - player.__lastTimeTOD < 60 then return false, "do not abuse the TOD command" end
                 cmd(val)
                 player.__lastTimeTOD = CurTime()
-            end, "trusted")
+            end, "developers")
         else
             concommand.Add("settod", function(ply, _, args)
                 if ply and ply:IsValid() and not ply:IsAdmin() then return end
