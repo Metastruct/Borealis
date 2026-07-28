@@ -835,7 +835,7 @@ if string.find(game.GetMap(), "gm_construct_m") then
 
         if aowl then
             aowl.AddCommand({"settod", "tod"}, "set time of day", function(player, line, val)
-                if not player.Unrestricted and player.__lastTimeTOD and CurTime() - player.__lastTimeTOD < 60 then return false, "do not abuse the TOD command" end
+                if not player:IsAdmin() and not player.Unrestricted and player.__lastTimeTOD and CurTime() - player.__lastTimeTOD < 60 then return false, "do not abuse the TOD command" end
                 cmd(val)
                 player.__lastTimeTOD = CurTime()
             end, "developers")
