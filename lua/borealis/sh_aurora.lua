@@ -222,8 +222,16 @@ local function start(PIXEL_SHADER, SKY_SHADER)
 	end
 end
 
+local function shadersAvailable()
+	for _, name in ipairs({ "aurora_vs30", "aurora_ps30", "nightsky_ps30" }) do
+		if not file.Exists("shaders/fxc/" .. name .. ".vcs", "GAME") then return false end
+	end
+
+	return true
+end
+
 local function tryStart()
-	if not file.Exists("shaders/fxc/aurora_vs30.vcs", "GAME") then return false end
+	if not shadersAvailable() then return false end
 	start("aurora_ps30", "nightsky_ps30")
 
 	return true
