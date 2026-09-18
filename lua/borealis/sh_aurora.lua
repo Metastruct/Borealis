@@ -204,7 +204,11 @@ local function start(PIXEL_SHADER, SKY_SHADER)
 		skyboxer.RemoveHook("b_aurora_nightsky")
 		skyboxer.RemoveHook("d_aurora_curtains")
 		skyboxer.AddHook("b_aurora_nightsky", drawNightSky)
-		skyboxer.AddHook("d_aurora_curtains", drawAurora)
+		skyboxer.AddHook("d_aurora_curtains", function()
+			if not AURORA_ENABLED:GetBool() then return end
+
+			drawAurora()
+		end)
 	else
 		hook.Add("PostDraw2DSkyBox", "aurora_sky", function()
 			if not AURORA_ENABLED:GetBool() then return end
