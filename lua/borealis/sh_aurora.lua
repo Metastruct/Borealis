@@ -11,6 +11,7 @@ if SERVER then
 	resource.AddShader("aurora_vs30")
 	resource.AddShader("aurora_ps30")
 	resource.AddShader("nightsky_ps30")
+	resource.AddFile("materials/aurora/noise.vtf")
 
 	return
 end
@@ -55,6 +56,8 @@ local function start(PIXEL_SHADER, SKY_SHADER)
 	end
 
 	local MAT = shaderMaterial("aurora_sky", PIXEL_SHADER, {
+		["$basetexture"] = "aurora/noise",
+		["$linearread_basetexture"] = 1,
 		["$c0_x"] = 1, ["$c0_y"] = 0,
 		["$c0_z"] = 0, ["$c0_w"] = 0,
 		["$c1_x"] = 0, ["$c1_y"] = 1,
@@ -219,9 +222,8 @@ local function start(PIXEL_SHADER, SKY_SHADER)
 end
 
 local function tryStart()
-	local aurora, nightsky = "aurora_ps30", "nightsky_ps30"
 	if not file.Exists("shaders/fxc/aurora_vs30.vcs", "GAME") then return false end
-	start(aurora, nightsky)
+	start("aurora_ps30", "nightsky_ps30")
 
 	return true
 end
