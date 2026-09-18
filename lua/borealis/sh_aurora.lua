@@ -207,7 +207,7 @@ local function start(PIXEL_SHADER, SKY_SHADER)
 		skyboxer.AddHook("d_aurora_curtains", drawAurora)
 	else
 		hook.Add("PostDraw2DSkyBox", "aurora_sky", function()
-			if not AURORA_ENABLED:GetEnabled() then return end
+			if not AURORA_ENABLED:GetBool() then return end
 			drawNightSky()
 			drawAurora()
 		end)
