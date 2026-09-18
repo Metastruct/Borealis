@@ -16,7 +16,7 @@ if SERVER then
 	return
 end
 
-local AURORA_ENABLED = CreateClientConVar("cl_draw_auroras", 1, true, false, "should we draw auroras")
+local AURORA_ENABLED = CreateClientConVar("cl_draw_auroras", 0, true, false, "should we draw auroras")
 local INTENSITY = 0.35 -- brightness
 local SCALE = 2 -- pattern scale
 local HUE = 0.5 -- hue shift in radians
@@ -98,8 +98,9 @@ local function start(PIXEL_SHADER, SKY_SHADER)
 	local function nightFactor()
 		local t = dayFraction()
 		if not t then return 1 end
-		local d = math.min(t, 1 - t) -- distance from midnight
-		local x = math.Clamp((d - 0.17) / 0.08, 0, 1)
+		-- full from 21:30 to 02:30, gone by 20:00 / 04:00
+		local hours = math.min(t, 1 - t) * 24
+		local x = math.Clamp((hours - 2.5) / 1.5, 0, 1)
 
 		return 1 - x * x * (3 - 2 * x)
 	end
