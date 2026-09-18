@@ -39,6 +39,7 @@ local FILL_K = 0.5 -- ambient cube share added as fill light, not scaled by tod'
 local BUILD_BUDGET_MS = 3 -- generation work per frame
 local LOAD_BUDGET_MS = 8 -- BSP parse work per frame
 local MESH_BATCH = 60 -- tufts per IMesh
+local STRIDE = 6 -- numbers per tuft in a chunk's flat tuft array: x, y, z, seed, height scale, packed light
 local TRI_CELL = 1024 -- triangle index cell size
 
 --------------------------------------------------------------------------
@@ -256,12 +257,12 @@ end
 -- chunks
 --------------------------------------------------------------------------
 local chunks -- key -> { cx, cy, mesh = {IMesh}|false|nil, tufts }
-local tuftCache -- key -> tuft list, or false when empty, of evicted chunks
+local tuftCache -- key -> flat tuft array, or false when empty, of evicted chunks
 local buildQueue
 local current -- chunk being generated
 
 local function chunkKey(cx, cy)
-	return cx .. ":" .. cy
+	return cx * 65536 + cy
 end
 
 -- point (x, y) against triangle t: z and blend alpha when inside
@@ -307,7 +308,8 @@ end
 
 local UP = Vector(0, 0, 1)
 local traceStart, traceEnd, lightPos = Vector(0, 0, 0), Vector(0, 0, 0), Vector(0, 0, 0)
-local coverTrace = { mask = MASK_SOLID_BRUSHONLY, start = traceStart, endpos = traceEnd }
+local coverTraceRes = {}
+local coverTrace = { mask = MASK_SOLID_BRUSHONLY, start = traceStart, endpos = traceEnd, output = coverTraceRes }
 
 -- more generation work when the frame has headroom, less when it is already slow
 local lastThinkMs = 0
@@ -315,11 +317,12 @@ local function budget()
 	return math.Clamp(16 - RealFrameTime() * 1000 + lastThinkMs, BUILD_BUDGET_MS * 0.7, BUILD_BUDGET_MS * 2)
 end
 
--- rasterises the chunk into a tuft list, yielding when the frame budget is spent
+-- rasterises the chunk into a flat tuft array (STRIDE numbers per tuft),
+-- yielding when the frame budget is spent
 local function rasterChunk(ch, cand)
 	local x0, y0 = ch.cx * CHUNK, ch.cy * CHUNK
 	local x1, y1 = x0 + CHUNK, y0 + CHUNK
-	local tufts = {}
+	local tufts, n = {}, 0
 	local rng = ch.cx * 73856093 + ch.cy * 19349663
 	local function rand()
 		rng = (rng * 1103515245 + 12345) % 2147483648
@@ -327,7 +330,7 @@ local function rasterChunk(ch, cand)
 		return rng / 2147483648
 	end
 
-	local lightCache = {} -- one lighting sample per 2x2 cells, lightmap luxels are ~16 units
+	local lightCache = {} -- one lighting sample per 2x2 cells, lightmap luxels are ~16 units, packed as r * 65536 + g * 256 + b of light / 2
 	local sliceStart = SysTime()
 	for gy = y0, y1 - 1, SPACING do
 		if (SysTime() - sliceStart) * 1000 > budget() then
@@ -346,17 +349,20 @@ local function rasterChunk(ch, cand)
 						-- skip tufts under floors, roofs and other covering brushes
 						traceStart:SetUnpacked(x, y, z + QUAD_H + 2)
 						traceEnd:SetUnpacked(x, y, z + 1)
-						if not util.TraceLine(coverTrace).Hit then
+						util.TraceLine(coverTrace)
+						if not coverTraceRes.Hit then
 							local lkey = math.floor(x / (SPACING * 2)) * 4096 + math.floor(y / (SPACING * 2))
 							local light = lightCache[lkey]
 							if not light then
 								lightPos:SetUnpacked(x, y, z + 12)
-								light = render.ComputeLighting(lightPos, UP)
+								local l = render.ComputeLighting(lightPos, UP)
+								light = math.Clamp(math.floor(l.x * 127.5), 0, 255) * 65536 + math.Clamp(math.floor(l.y * 127.5), 0, 255) * 256 + math.Clamp(math.floor(l.z * 127.5), 0, 255)
 								lightCache[lkey] = light
 							end
 
 							-- mostly tall, some short
-							tufts[#tufts + 1] = { x, y, z, seed, 0.5 + r4 * r4 * 0.9, light }
+							tufts[n + 1], tufts[n + 2], tufts[n + 3], tufts[n + 4], tufts[n + 5], tufts[n + 6] = x, y, z, seed, 0.5 + r4 * r4 * 0.9, light
+							n = n + STRIDE
 						end
 					end
 				end
@@ -370,20 +376,28 @@ end
 local COS60, SIN60 = math.cos(math.rad(60)), math.sin(math.rad(60))
 local DIRS = { { 1, 0 }, { COS60, SIN60 }, { -COS60, SIN60 } } -- three crossed quads per tuft
 local vpos = Vector(0, 0, 0)
+local vr, vg, vb, va = 0, 0, 0, 0
+local function vert(px, py, pz, u, v)
+	vpos:SetUnpacked(px, py, pz)
+	mesh.Position(vpos)
+	mesh.TexCoord(0, u, v)
+	mesh.Color(vr, vg, vb, va)
+	mesh.AdvanceVertex()
+end
 
--- one IMesh for tufts[first .. last].  screenspace_general binds position,
--- colour and texcoord 0 only: colour rgb = light / 2, colour a = seed,
--- uv.x = blade u + 2 * height index
+-- one IMesh for tufts first .. last (tuft indices, 1-based).  screenspace_general
+-- binds position, colour and texcoord 0 only: colour rgb = light / 2,
+-- colour a = seed, uv.x = blade u + 2 * height index
 local function buildMesh(tufts, first, last)
 	local m = Mesh()
 	mesh.Begin(m, MATERIAL_QUADS, (last - first + 1) * #DIRS)
 	for i = first, last do
-		local tf = tufts[i]
-		local x, y, z, seed, hs, light = tf[1], tf[2], tf[3] + 0.5, tf[4], tf[5], tf[6]
-		local r = math.Clamp(math.floor(light.x * 127.5), 0, 255)
-		local g = math.Clamp(math.floor(light.y * 127.5), 0, 255)
-		local b = math.Clamp(math.floor(light.z * 127.5), 0, 255)
-		local a = math.floor(seed * 255)
+		local o = (i - 1) * STRIDE
+		local x, y, z, seed, hs, light = tufts[o + 1], tufts[o + 2], tufts[o + 3] + 0.5, tufts[o + 4], tufts[o + 5], tufts[o + 6]
+		vr = math.floor(light / 65536)
+		vg = math.floor(light / 256) % 256
+		vb = light % 256
+		va = math.floor(seed * 255)
 		local hIndex = math.Clamp(math.floor((hs - 0.5) / 0.9 * 7 + 0.5), 0, 7)
 		hs = 0.5 + hIndex / 7 * 0.9
 		local h = QUAD_H * hs
@@ -391,14 +405,6 @@ local function buildMesh(tufts, first, last)
 		local rot = seed * math.pi
 		local cr, sr = math.cos(rot), math.sin(rot)
 		local u0 = hIndex * 2
-		local function vert(px, py, pz, u, v)
-			vpos:SetUnpacked(px, py, pz)
-			mesh.Position(vpos)
-			mesh.TexCoord(0, u, v)
-			mesh.Color(r, g, b, a)
-			mesh.AdvanceVertex()
-		end
-
 		for _, d in ipairs(DIRS) do
 			local dx = (d[1] * cr - d[2] * sr) * w
 			local dy = (d[1] * sr + d[2] * cr) * w
@@ -422,9 +428,13 @@ local function destroyMeshes(ch)
 	end
 end
 
+local function byPrio(a, b)
+	return a.prio < b.prio
+end
+
 -- picks the next queued chunk: nearest first, chunks in front of the camera before the rest
 local function nextChunk()
-	local eye, fwd = EyePos(), EyeAngles():Forward()
+	local eye, fwd = EyePos(), EyeVector()
 	for _, ch in ipairs(buildQueue) do
 		local dx, dy = ch.cx * CHUNK + CHUNK * 0.5 - eye.x, ch.cy * CHUNK + CHUNK * 0.5 - eye.y
 		local dist = math.sqrt(dx * dx + dy * dy)
@@ -432,7 +442,7 @@ local function nextChunk()
 		ch.prio = dist + (behind and RADIUS or 0)
 	end
 
-	table.sort(buildQueue, function(a, b) return a.prio < b.prio end)
+	table.sort(buildQueue, byPrio)
 	local ch = table.remove(buildQueue, 1)
 	local key = chunkKey(ch.cx, ch.cy)
 	if ch.mesh ~= nil or chunks[key] ~= ch then return end
@@ -461,11 +471,12 @@ local function stepChunk()
 	local ch = current
 	if ch.pendingTufts then
 		local tufts = ch.pendingTufts
+		local total = #tufts / STRIDE
 		local first = ch.nextTuft
-		local last = math.min(first + MESH_BATCH - 1, #tufts)
+		local last = math.min(first + MESH_BATCH - 1, total)
 		ch.meshes[#ch.meshes + 1] = buildMesh(tufts, first, last)
-		if last >= #tufts then
-			ch.tufts = #tufts
+		if last >= total then
+			ch.tufts = total
 			ch.mesh = ch.meshes
 			ch.pendingTufts, ch.co = nil, nil
 			current = nil
@@ -505,8 +516,8 @@ local MAT
 local loader -- BSP parse coroutine
 local ready = false
 
-local function packColor(c)
-	return math.floor(math.Clamp(c[1], 0, 1) * 255) * 65536 + math.floor(math.Clamp(c[2], 0, 1) * 255) * 256 + math.floor(math.Clamp(c[3], 0, 1) * 255)
+local function packColor(r, g, b)
+	return math.floor(math.Clamp(r, 0, 1) * 255) * 65536 + math.floor(math.Clamp(g, 0, 1) * 255) * 256 + math.floor(math.Clamp(b, 0, 1) * 255)
 end
 
 -- tod rescales the lightmaps at runtime through the named light_environment's
@@ -549,18 +560,23 @@ local function think()
 	lastThinkMs = (SysTime() - t0) * 1000
 end
 
+local function byDrawDist(a, b)
+	return a.drawDist < b.drawDist
+end
+
+local visible = {}
 local evictNext = 0
 local function draw(_, _, sky3d)
 	if not ready or sky3d or render.GetRenderTarget() then return end
 	local eye = EyePos()
-	local fwd = EyeAngles():Forward()
+	local fwd = EyeVector()
 	local amb = render.GetAmbientLightColor()
 
 	MAT:SetFloat("$c0_x", eye.x)
 	MAT:SetFloat("$c0_y", eye.y)
 	MAT:SetFloat("$c0_z", eye.z)
 	MAT:SetFloat("$c0_w", CurTime() % 1000)
-	MAT:SetFloat("$c1_y", packColor({ amb.x * FILL_K, amb.y * FILL_K, amb.z * FILL_K }))
+	MAT:SetFloat("$c1_y", packColor(amb.x * FILL_K, amb.y * FILL_K, amb.z * FILL_K))
 	MAT:SetFloat("$c2_x", worldLightScale())
 	MAT:SetFloat("$c2_w", render.GetToneMappingScaleLinear().x)
 	render.SetMaterial(MAT)
@@ -568,7 +584,7 @@ local function draw(_, _, sky3d)
 	local n = math.ceil(RADIUS / CHUNK)
 	local ecx, ecy = math.floor(eye.x / CHUNK), math.floor(eye.y / CHUNK)
 	local half = CHUNK * 0.5
-	local visible = {}
+	local nvis = 0
 	for cy = ecy - n, ecy + n do
 		for cx = ecx - n, ecx + n do
 			local ddx, ddy = cx * CHUNK + half - eye.x, cy * CHUNK + half - eye.y
@@ -582,14 +598,19 @@ local function draw(_, _, sky3d)
 					buildQueue[#buildQueue + 1] = ch
 				elseif ch.mesh and (dist < CHUNK or (ddx * fwd.x + ddy * fwd.y) / dist > -0.35) then
 					ch.drawDist = dist
-					visible[#visible + 1] = ch
+					nvis = nvis + 1
+					visible[nvis] = ch
 				end
 			end
 		end
 	end
 
 	-- the material tests depth but does not write it; force both, near to far
-	table.sort(visible, function(a, b) return a.drawDist < b.drawDist end)
+	for i = #visible, nvis + 1, -1 do
+		visible[i] = nil
+	end
+
+	table.sort(visible, byDrawDist)
 	render.OverrideDepthEnable(true, true)
 	for _, ch in ipairs(visible) do
 		for _, m in ipairs(ch.mesh) do
@@ -622,6 +643,7 @@ local function stop()
 		end
 	end
 
+	table.Empty(visible)
 	chunks, tuftCache, buildQueue, current = nil, nil, nil, nil
 	tris, triGrid, loader, ready = nil, nil, nil, false
 end
@@ -643,8 +665,8 @@ local function start(PIXEL_SHADER, VERTEX_SHADER)
 		["<dx90"] = { ["$no_draw"] = 1 },
 		["$c0_x"] = 0, ["$c0_y"] = 0, ["$c0_z"] = 0, ["$c0_w"] = 0,
 		["$c1_x"] = WIND_ANGLE, ["$c1_y"] = 0, ["$c1_z"] = WIND, ["$c1_w"] = FADE_START,
-		["$c2_x"] = 1, ["$c2_y"] = packColor(ROOT_COLOR), ["$c2_z"] = packColor(TIP_COLOR), ["$c2_w"] = 1,
-		["$c3_x"] = TRANSLUCENCY, ["$c3_y"] = DRYNESS, ["$c3_z"] = packColor(DRY_COLOR), ["$c3_w"] = FADE_END,
+		["$c2_x"] = 1, ["$c2_y"] = packColor(unpack(ROOT_COLOR)), ["$c2_z"] = packColor(unpack(TIP_COLOR)), ["$c2_w"] = 1,
+		["$c3_x"] = TRANSLUCENCY, ["$c3_y"] = DRYNESS, ["$c3_z"] = packColor(unpack(DRY_COLOR)), ["$c3_w"] = FADE_END,
 	})
 
 	tris, triGrid = {}, {}
