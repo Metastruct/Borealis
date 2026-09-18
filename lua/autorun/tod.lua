@@ -849,6 +849,13 @@ if string.find(game.GetMap(), "gm_construct_m") then
         hook.Add("PlayerInitialSpawn", "tod_mode", function(ply)
             if not ply or not ply:IsValid() then return end
             tod.SetMode(tod.cvar:GetInt(), ply)
+
+            -- manual mode: the joiner's cycle is otherwise nil (midnight) until the next .tod
+            if tod.current_cycle then
+                net.Start("tod_setcycle")
+                net.WriteFloat(tod.current_cycle * 1000)
+                net.Send(ply)
+            end
         end)
     end
 
