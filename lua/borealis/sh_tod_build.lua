@@ -36,6 +36,10 @@ local function packColor(r, g, b)
 end
 
 local function lightInfo()
+	if procsky and procsky.IsActive() then
+		return procsky.GetCloudLighting()
+	end
+
 	local params = tod and tod.CurrentParams
 	local sun = params and isangle(params.sun_angles) and params.sun_angles
 	local moon = params and isangle(params.moon_angles) and params.moon_angles

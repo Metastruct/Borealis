@@ -95,7 +95,23 @@ local function start(PIXEL_SHADER, SKY_SHADER)
 		return tod.GetCycle and tod.GetCycle() or tod.current_cycle or 0
 	end
 
+	-- sun elevation in degrees from tod's sun, nil without tod
+	local function sunElevation()
+		local C = tod and tod.CurrentParams
+		if not (C and isangle(C.sun_angles)) then return nil end
+
+		return math.deg(math.asin(math.Clamp(-C.sun_angles:Forward().z, -1, 1)))
+	end
+
 	local function nightFactor()
+		local e = sunElevation()
+		if e then
+			-- stars from 3 degrees below the horizon, full at 9 (tod's twilight bottoms out at 12)
+			local x = math.Clamp((-e - 3) / 6, 0, 1)
+
+			return x * x * (3 - 2 * x)
+		end
+
 		local t = dayFraction()
 		if not t then return 1 end
 		-- full from 21:30 to 02:30, gone by 20:00 / 04:00
@@ -114,8 +130,15 @@ local function start(PIXEL_SHADER, SKY_SHADER)
 
 	local WORLD_UP = Vector(0, 0, 1)
 
-	-- from 22 to 02 full brightness
+	-- deep night only, clock fallback from 22 to 02 without tod
 	local function auroraWindow()
+		local e = sunElevation()
+		if e then
+			local x = math.Clamp((-e - 8) / 3, 0, 1)
+
+			return x * x * (3 - 2 * x)
+		end
+
 		local t = dayFraction()
 		if not t then return 1 end
 		local hours = math.min(t, 1 - t) * 24
