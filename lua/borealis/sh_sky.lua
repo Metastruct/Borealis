@@ -19,16 +19,20 @@ require("skyboxer")
 -- and moon.  The same model runs here in Lua for a few directions to colour
 -- the world fog from the horizon and to light the build clouds (sh_tod_build).
 -- The night sky, moon, auroras and clouds draw on top through skyboxer.
+-- procsky.SetTheme gives the season a look, see the theme section.
 
 local SKY_ENABLED = CreateClientConVar("cl_draw_procsky", "1", true, false, "draw the procedural atmosphere sky")
 
 local INTENSITY = 1
 local MOON_INTENSITY = 0.012 -- relative to the sun
+local moonGain = 1 -- 0 while the theme hides the moon
 local UPDATE_INTERVAL = 0.2 -- seconds between fog and cloud colour updates
 local HORIZON_ELEV = math.rad(2) -- fog colour is sampled this far above the horizon
 local CLOUD_H = 2 -- km, altitude the cloud light is computed at
 
 procsky = procsky or {}
+procsky.theme = procsky.theme or {}
+local ONE = { 1, 1, 1 }
 
 --------------------------------------------------------------------------
 -- atmosphere model, the shader's math for single directions.  Units are km.
@@ -139,7 +143,7 @@ local function radiance(dx, dy, dz, sun, moon)
 	local ground = b < 0 and disc > 0
 	local len = ground and (-b - sqrt(disc)) or exitDist(ox, oy, oz, dx, dy, dz, R_ATMO)
 
-	local si, mi = 20, 20 * MOON_INTENSITY
+	local si, mi = 20, 20 * MOON_INTENSITY * moonGain
 	local r, g, bl, t1, t2, t3 = scatter(ox, oy, oz, dx, dy, dz, len, sun.x, sun.y, sun.z, SUN_COL[1] * si, SUN_COL[2] * si, SUN_COL[3] * si)
 	local r2, g2, b2 = scatter(ox, oy, oz, dx, dy, dz, len, moon.x, moon.y, moon.z, MOON_COL[1] * mi, MOON_COL[2] * mi, MOON_COL[3] * mi)
 	r, g, bl = r + r2, g + g2, bl + b2
@@ -186,6 +190,10 @@ local function todLights()
 end
 
 local function updateState()
+	local theme = procsky.theme
+	local mul, fogK = theme.tintMul or ONE, theme.fogScale or 1
+	moonGain = theme.moonVisible == false and 0 or 1
+
 	local sun, moon, elev = todLights()
 	state.sun, state.moon, state.elev = sun, moon, elev
 
@@ -198,27 +206,29 @@ local function updateState()
 		fr, fg, fb = fr + r, fg + g, fb + b
 	end
 
-	state.fog[1], state.fog[2], state.fog[3] = toSRGB(fr / 8) * 255, toSRGB(fg / 8) * 255, toSRGB(fb / 8) * 255
+	state.fog[1] = toSRGB(fr / 8 * fogK * mul[1]) * 255
+	state.fog[2] = toSRGB(fg / 8 * fogK * mul[2]) * 255
+	state.fog[3] = toSRGB(fb / 8 * fogK * mul[3]) * 255
 
 	-- clouds: direct light through the air above the layer, ambient from the
 	-- sky halfway up opposite the sun and at the zenith
 	local s1, s2, s3 = transmittance(CLOUD_H, sun)
 	local m1, m2, m3 = transmittance(CLOUD_H, moon)
 	local sunUp = max(0, min(1, (elev + 2) / 6))
-	local moonUp = max(0, min(1, (moon.z + 0.02) / 0.1))
+	local moonUp = max(0, min(1, (moon.z + 0.02) / 0.1)) * moonGain
 	local light = state.light
-	light[1] = SUN_COL[1] * s1 * sunUp + MOON_COL[1] * m1 * moonUp * 0.25
-	light[2] = SUN_COL[2] * s2 * sunUp + MOON_COL[2] * m2 * moonUp * 0.25
-	light[3] = SUN_COL[3] * s3 * sunUp + MOON_COL[3] * m3 * moonUp * 0.25
+	light[1] = (SUN_COL[1] * s1 * sunUp + MOON_COL[1] * m1 * moonUp * 0.25) * mul[1]
+	light[2] = (SUN_COL[2] * s2 * sunUp + MOON_COL[2] * m2 * moonUp * 0.25) * mul[2]
+	light[3] = (SUN_COL[3] * s3 * sunUp + MOON_COL[3] * m3 * moonUp * 0.25) * mul[3]
 
 	local ax, ay = -sun.x, -sun.y
 	local al = sqrt(ax * ax + ay * ay)
 	if al < 0.01 then ax, ay, al = 1, 0, 1 end
 	local ar, ag, ab = radiance(ax / al * 0.7, ay / al * 0.7, 0.714, sun, moon)
 	local zr, zg, zb = radiance(0, 0, 1, sun, moon)
-	state.amb[1], state.amb[2], state.amb[3] = (ar + zr) * 0.5, (ag + zg) * 0.5, (ab + zb) * 0.5
+	state.amb[1], state.amb[2], state.amb[3] = (ar + zr) * 0.5 * mul[1], (ag + zg) * 0.5 * mul[2], (ab + zb) * 0.5 * mul[3]
 
-	state.lightDir = sunUp > 0.05 and sun or (moon.z > 0.05 and moon or Vector(0, 0, 1))
+	state.lightDir = sunUp > 0.05 and sun or (moonUp > 0 and moon or Vector(0, 0, 1))
 end
 
 function procsky.IsActive()
@@ -233,6 +243,45 @@ end
 -- light direction, direct light colour and ambient colour for the clouds
 function procsky.GetCloudLighting()
 	return state.lightDir, state.light, state.amb
+end
+
+--------------------------------------------------------------------------
+-- theme: the season's look (halloween/tod.lua).  Every key is optional.
+--   moonVisible  false hides the moon: its glow here and tod's moon model
+--   clouds       false hides the build clouds (sh_tod_build)
+--   auroraHue    hue shift of the auroras in radians (sh_aurora)
+--   stars        star brightness multiplier (sh_aurora)
+--   airglow      horizon glow brightness multiplier (sh_aurora)
+--   fogScale     fog colour multiplier
+--   tintMul      { r, g, b } multiplied into the fog colour and the cloud light
+--   tint         DrawColorModify params drawn every frame
+--------------------------------------------------------------------------
+
+-- tod's moon model draws through skyboxer's c_moon hook, held here while hidden
+local moonHook
+
+local function syncMoon()
+	if moonGain > 0 then
+		if moonHook then
+			skyboxer.AddHook("c_moon", moonHook)
+			moonHook = nil
+		end
+	else
+		local removed = skyboxer.RemoveHook("c_moon")
+		if removed then
+			moonHook = moonHook or removed[1]
+		end
+	end
+end
+
+function procsky.SetTheme(theme)
+	procsky.theme = theme or {}
+	updateState()
+	syncMoon()
+end
+
+function procsky.GetTheme()
+	return procsky.theme
 end
 
 --------------------------------------------------------------------------
@@ -286,7 +335,7 @@ local function drawSky()
 	MAT:SetFloat("$c3_x", moon.x)
 	MAT:SetFloat("$c3_y", moon.y)
 	MAT:SetFloat("$c3_z", moon.z)
-	MAT:SetFloat("$c3_w", MOON_INTENSITY)
+	MAT:SetFloat("$c3_w", MOON_INTENSITY * moonGain)
 
 	render.SetMaterial(MAT)
 	render.DrawScreenQuad(true)
@@ -297,12 +346,12 @@ local function think()
 	if RealTime() < nextUpdate then return end
 	nextUpdate = RealTime() + UPDATE_INTERVAL
 	updateState()
+	syncMoon()
 end
 
 local function stop()
 	active = false
 	skyboxer.RemoveHook("a_procsky")
-	hook.Remove("Think", "ms_procsky")
 	hook.Remove("SetupWorldFog", "ms_procsky")
 	hook.Remove("SetupSkyboxFog", "ms_procsky")
 	if tod and tod.CurrentParams then
@@ -332,7 +381,6 @@ local function start()
 	updateState()
 	active = true
 	skyboxer.AddHook("a_procsky", drawSky)
-	hook.Add("Think", "ms_procsky", think)
 	hook.Add("SetupWorldFog", "ms_procsky", setupFog)
 	hook.Add("SetupSkyboxFog", "ms_procsky", setupFog)
 	if tod and tod.CurrentParams then
@@ -362,7 +410,18 @@ local function apply()
 	end
 end
 
+-- the lights, the theme and the tint stay live while the sky itself is off:
+-- the sun shafts, the clouds and the night sky read them
+hook.Add("Think", "ms_procsky", think)
+hook.Add("RenderScreenspaceEffects", "ms_procsky_tint", function()
+	local tint = procsky.theme.tint
+	if tint then
+		DrawColorModify(tint)
+	end
+end)
+
 cvars.RemoveChangeCallback("cl_draw_procsky", "ms_procsky")
+
 cvars.AddChangeCallback("cl_draw_procsky", apply, "ms_procsky")
 hook.Remove("ShaderMounted", "ms_procsky")
 apply()

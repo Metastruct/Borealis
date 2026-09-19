@@ -20,6 +20,7 @@ local ms_build_skyclouds = CreateClientConVar("ms_build_skyclouds", "1", true, f
 local MIN_Z, MAX_Z = -13812, -24
 
 local function inBuildArea()
+	if procsky and procsky.theme and procsky.theme.clouds == false then return false end
 	local z = EyePos().z
 
 	return z <= MAX_Z and z >= MIN_Z and ms_build_skyclouds:GetBool()

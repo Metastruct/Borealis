@@ -18,7 +18,7 @@ end
 -- inside a per-frame budget, and drawn as analytic blades by grass_ps30.
 
 local GRASS_ENABLED = CreateClientConVar("cl_draw_grass", "0", true, false, "draw grass tufts on grass surfaces")
-local GRASS_DISTANCE = CreateClientConVar("cl_draw_grass_distnace", "3072", true, false, "grass draw distance in units", 1024, 16384)
+local GRASS_DISTANCE = CreateClientConVar("cl_draw_grass_distance", "3072", true, false, "grass draw distance in units", 1024, 16384)
 
 local CHUNK = 512 -- world units per chunk
 local SPACING = 18 -- tuft grid spacing

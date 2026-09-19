@@ -86,10 +86,8 @@ local function start(PIXEL_SHADER, SKY_SHADER)
 		if not tod then return nil end
 		local mode = GetConVar("sv_tod") and GetConVar("sv_tod"):GetInt() or 0
 
-		if mode == 1 then
-			local h, m, s = tonumber(os.date("%H")), tonumber(os.date("%M")), tonumber(os.date("%S"))
-
-			return (h * 3600 + m * 60 + s) / 86400
+		if mode == 1 and tod.GetRealTime then
+			return tod.GetRealTime()
 		end
 
 		return tod.GetCycle and tod.GetCycle() or tod.current_cycle or 0
@@ -149,6 +147,11 @@ local function start(PIXEL_SHADER, SKY_SHADER)
 
 	local SCROLL_X, SCROLL_Y, SCROLL_WRAP = 0.03, 0.008, 1024
 
+	local NO_THEME = {}
+	local function theme()
+		return procsky and procsky.theme or NO_THEME
+	end
+
 	local render_DrawScreenQuad = render.DrawScreenQuad
 	local render_SetMaterial = render.SetMaterial
 	-- basis from EyeAngles, which is right inside a RenderView too; the fan
@@ -174,6 +177,7 @@ local function start(PIXEL_SHADER, SKY_SHADER)
 		local sRight = turned(right, SKY_AXIS, skyTurn)
 		local sUp = turned(WORLD_UP, SKY_AXIS, skyTurn)
 		local gain = night * SKY_INTENSITY
+		local t = theme()
 
 		SKY_MAT:SetFloat("$c0_x", sFwd.x)
 		SKY_MAT:SetFloat("$c0_y", sFwd.y)
@@ -184,10 +188,10 @@ local function start(PIXEL_SHADER, SKY_SHADER)
 		SKY_MAT:SetFloat("$c1_z", sRight.z * halfW)
 		SKY_MAT:SetFloat("$c1_w", halfH)
 		SKY_MAT:SetFloat("$c2_x", sUp.x)
-		SKY_MAT:SetFloat("$c2_y", SKY_STARS * gain)
+		SKY_MAT:SetFloat("$c2_y", SKY_STARS * gain * (t.stars or 1))
 		SKY_MAT:SetFloat("$c2_z", SKY_MILKYWAY * gain)
 		SKY_MAT:SetFloat("$c2_w", sUp.y)
-		SKY_MAT:SetFloat("$c3_w", SKY_AIRGLOW * gain)
+		SKY_MAT:SetFloat("$c3_w", SKY_AIRGLOW * gain * (t.airglow or 1))
 		render_SetMaterial(SKY_MAT)
 		render_DrawScreenQuad(true)
 	end
@@ -214,6 +218,7 @@ local function start(PIXEL_SHADER, SKY_SHADER)
 		MAT:SetFloat("$c1_z", right.z * halfW)
 		MAT:SetFloat("$c1_w", halfH)
 		MAT:SetFloat("$c2_x", night * window * INTENSITY)
+		MAT:SetFloat("$c2_w", theme().auroraHue or HUE)
 		MAT:SetFloat("$c2_z", (drift * SCROLL_X) % SCROLL_WRAP)
 		MAT:SetFloat("$c3_w", (drift * SCROLL_Y) % SCROLL_WRAP)
 
