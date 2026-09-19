@@ -741,6 +741,37 @@ if string.find(game.GetMap(), "gm_construct_m") then
         end
     end
 
+    -- The cycle is a Bezier through its configs, so the lerped sun angle crosses
+    -- the horizon while the world is still lit (20:15 in the default cycle,
+    -- where the light multiplier reads sunset at 21:00).  The sun is put where
+    -- the light level says it is, so the sky, shadows and env_sun agree:
+    -- elevation follows asin above SUN_LIGHT_HORIZON, and runs down to
+    -- -SUN_TWILIGHT degrees as the light goes to zero.
+    tod.SUN_LIGHT_HORIZON = 0.15
+    tod.SUN_TWILIGHT = 12
+
+    function tod.AlignSunToLight(cfg, time)
+        local w = cfg.world_light_multiplier
+        local first = tod.config_cycle and tod.config_cycle[1]
+        local yaw = first and isangle(first.sun_angles) and first.sun_angles.y or 45
+        if not isnumber(w) then return cfg end
+
+        local h = tod.SUN_LIGHT_HORIZON
+        local elev
+        if w >= h then
+            elev = math.deg(math.asin(math.min(1, (w - h) / (1 - h))))
+        else
+            elev = (w - h) / h * tod.SUN_TWILIGHT
+        end
+
+        -- rises at yaw + 180, over the zenith, sets at yaw (pitch 0 .. 180)
+        cfg.sun_angles = Angle(time < 0.5 and elev or 180 - elev, yaw, 0)
+        cfg.moon_angles = -cfg.sun_angles
+        cfg.shadow_angles = cfg.sun_angles
+
+        return cfg
+    end
+
     function tod.GetWeatherChance(probability)
         if tod.force_weather ~= nil then return tod.force_weather end
         probability = probability or 0.5
@@ -948,6 +979,7 @@ if string.find(game.GetMap(), "gm_construct_m") then
                     cfg = tod.LerpConfigs(tod.override_lerp, cfg, tod.override_config)
                 end
 
+                tod.AlignSunToLight(cfg, time)
                 cache[time] = cfg
             end
 
