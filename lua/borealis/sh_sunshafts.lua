@@ -116,7 +116,8 @@ local function updateSun()
 	local elev = math.deg(math.asin(math.Clamp(sunDir.z, -1, 1)))
 	local risen = math.Clamp((elev + 1) / 4, 0, 1)
 	local low = 1 + 0.5 * (1 - math.Clamp(elev / 40, 0, 1)) -- stronger near the horizon
-	sunWeight = inView * risen * low
+	local overcast = procsky and procsky.GetOvercast and procsky.GetOvercast() or 0
+	sunWeight = inView * risen * low * (1 - overcast)
 end
 
 --------------------------------------------------------------------------

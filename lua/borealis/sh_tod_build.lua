@@ -94,11 +94,30 @@ local function startShader(PIXEL_SHADER)
 		return ang:Forward(), ang:Right(), halfW, halfW / vs.aspect
 	end
 
+	local deckLight, deckAmb = { 0, 0, 0 }, { 0, 0, 0 }
+
+	-- the build area's clouds, or a deck over the whole sky when procsky is overcast
 	local function drawClouds()
-		if not inBuildArea() then return end
+		local overcast = procsky and procsky.GetOvercast and procsky.GetOvercast() or 0
+		local build = inBuildArea()
+		if not build and overcast < 0.01 then return end
+		-- the shader lerps its threshold by coverage, so past 1 the deck closes up
+		local coverage = math.max(build and COVERAGE or 0, overcast * 1.8)
 
 		local fwd, right, halfW, halfH = viewRays()
 		local lightDir, light, amb = lightInfo()
+		if overcast > 0 then
+			-- a bright flat deck: the sun's colour drains so the noise barely
+			-- shades it, the ambient goes to a light grey well above the sky's own
+			local lum = 0.2126 * amb[1] + 0.7152 * amb[2] + 0.0722 * amb[3]
+			for i = 1, 3 do
+				deckLight[i] = light[i] * (1 - 0.8 * overcast)
+				deckAmb[i] = amb[i] + (lum * 3 - amb[i]) * overcast
+			end
+
+			light, amb = deckLight, deckAmb
+		end
+
 		local ep = EyePos()
 		local t = CurTime()
 
@@ -113,7 +132,7 @@ local function startShader(PIXEL_SHADER)
 		MAT:SetFloat("$c2_x", lightDir.x)
 		MAT:SetFloat("$c2_y", lightDir.y)
 		MAT:SetFloat("$c2_z", lightDir.z)
-		MAT:SetFloat("$c2_w", COVERAGE)
+		MAT:SetFloat("$c2_w", coverage)
 		MAT:SetFloat("$c3_x", (WIND[1] * t + ep.x * EYE_K) % NOISE_PERIOD)
 		MAT:SetFloat("$c3_y", (WIND[2] * t + ep.y * EYE_K) % NOISE_PERIOD)
 		MAT:SetFloat("$c3_z", packColor(light[1], light[2], light[3]))

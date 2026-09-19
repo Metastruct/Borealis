@@ -176,9 +176,14 @@ end
 --------------------------------------------------------------------------
 local state = {
 	sun = Vector(0, 0, 1), moon = Vector(0, 0, -1), elev = 90,
-	fog = { 255, 255, 255 },
+	fog = { 255, 255, 255 }, overcast = 0,
 	light = { 1, 1, 1 }, amb = { 0.3, 0.4, 0.6 }, lightDir = Vector(0, 0, 1),
 }
+
+local function overcastLevel()
+	return math.Clamp(procsky.theme.overcast or 0, 0, 1)
+end
+
 local active = false
 
 local function todLights()
@@ -196,8 +201,10 @@ local function updateState()
 
 	local sun, moon, elev = todLights()
 	state.sun, state.moon, state.elev = sun, moon, elev
+	local o = overcastLevel()
+	state.overcast = o
 
-	-- fog: the horizon averaged over 8 azimuths
+	-- fog: the horizon averaged over 8 azimuths, grey at its own brightness when overcast
 	local fr, fg, fb = 0, 0, 0
 	local ce, se = math.cos(HORIZON_ELEV), math.sin(HORIZON_ELEV)
 	for i = 0, 7 do
@@ -206,9 +213,12 @@ local function updateState()
 		fr, fg, fb = fr + r, fg + g, fb + b
 	end
 
-	state.fog[1] = toSRGB(fr / 8 * fogK * mul[1]) * 255
-	state.fog[2] = toSRGB(fg / 8 * fogK * mul[2]) * 255
-	state.fog[3] = toSRGB(fb / 8 * fogK * mul[3]) * 255
+	fr, fg, fb = fr / 8, fg / 8, fb / 8
+	local lum = 0.2126 * fr + 0.7152 * fg + 0.0722 * fb
+	fr, fg, fb = fr + (lum - fr) * o, fg + (lum - fg) * o, fb + (lum - fb) * o
+	state.fog[1] = toSRGB(fr * fogK * mul[1]) * 255
+	state.fog[2] = toSRGB(fg * fogK * mul[2]) * 255
+	state.fog[3] = toSRGB(fb * fogK * mul[3]) * 255
 
 	-- clouds: direct light through the air above the layer, ambient from the
 	-- sky halfway up opposite the sun and at the zenith
@@ -245,6 +255,10 @@ function procsky.GetCloudLighting()
 	return state.lightDir, state.light, state.amb
 end
 
+function procsky.GetOvercast()
+	return state.overcast
+end
+
 --------------------------------------------------------------------------
 -- theme: the season's look (halloween/tod.lua).  Every key is optional.
 --   moonVisible  false hides the moon: its glow here and tod's moon model
@@ -255,6 +269,8 @@ end
 --   fogScale     fog colour multiplier
 --   tintMul      { r, g, b } multiplied into the fog colour and the cloud light
 --   tint         DrawColorModify params drawn every frame
+--   overcast     0..1: grey fog, a dimmed atmosphere, a cloud deck over the
+--                sky (sh_tod_build) and no sun shafts (snow sets it)
 --------------------------------------------------------------------------
 
 -- tod's moon model draws through skyboxer's c_moon hook, held here while hidden
@@ -323,7 +339,7 @@ local function drawSky()
 	MAT:SetFloat("$c0_x", fwd.x)
 	MAT:SetFloat("$c0_y", fwd.y)
 	MAT:SetFloat("$c0_z", fwd.z)
-	MAT:SetFloat("$c0_w", INTENSITY * render.GetToneMappingScaleLinear().x)
+	MAT:SetFloat("$c0_w", INTENSITY * render.GetToneMappingScaleLinear().x * (1 - 0.3 * state.overcast))
 	MAT:SetFloat("$c1_x", right.x * halfW)
 	MAT:SetFloat("$c1_y", right.y * halfW)
 	MAT:SetFloat("$c1_z", right.z * halfW)
