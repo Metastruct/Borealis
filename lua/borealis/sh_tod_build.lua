@@ -83,16 +83,14 @@ local function startShader(PIXEL_SHADER)
 		["$c3_x"] = 0, ["$c3_y"] = 0, ["$c3_z"] = 0, ["$c3_w"] = 0,
 	})
 
+	-- basis from EyeAngles, which is right inside a RenderView too; the fan
+	-- from the view setup's fov (horizontal, aspect-adjusted)
 	local function viewRays()
 		local ang = EyeAngles()
-		local origin = EyePos()
-		local fwd, right, up = ang:Forward(), ang:Right(), ang:Up()
-		local probeR = (origin + (fwd + right) * 512):ToScreen()
-		local probeU = (origin + (fwd + up) * 512):ToScreen()
-		local ndcR = (probeR.x / ScrW()) * 2 - 1
-		local ndcU = 1 - (probeU.y / ScrH()) * 2
+		local vs = render.GetViewSetup()
+		local halfW = math.tan(math.rad(vs.fov) * 0.5)
 
-		return fwd, right, 1 / math.max(0.05, ndcR), 1 / math.max(0.05, ndcU)
+		return ang:Forward(), ang:Right(), halfW, halfW / vs.aspect
 	end
 
 	local function drawClouds()

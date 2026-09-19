@@ -40,7 +40,7 @@ local BETA_O = { 0.65e-3, 1.881e-3, 0.085e-3 } -- ozone, or twilight goes green
 local O_CENTER, O_WIDTH = 25, 15
 local BETA_M, MIE_G, MIE_EXT = 5e-3, 0.76, 1.1
 local N_VIEW, N_LIGHT = 8, 3
-local EXPOSURE = 1.2 -- soft shoulder, same as the shader
+local EXPOSURE = 1.2 -- soft shoulder per channel, same as the shader
 local SUN_COL = { 1, 0.96, 0.9 }
 local MOON_COL = { 0.55, 0.7, 1 }
 local exp, sqrt, max, min = math.exp, math.sqrt, math.max, math.min
@@ -122,8 +122,12 @@ local function scatter(ox, oy, oz, dx, dy, dz, len, lx, ly, lz, lr, lg, lb)
 		exp(-e1), exp(-e2), exp(-e3)
 end
 
-local function shoulder(v)
+local function shoulder1(v)
 	return 1 - exp(-max(v, 0) * EXPOSURE)
+end
+
+local function shoulder(r, g, b)
+	return shoulder1(r), shoulder1(g), shoulder1(b)
 end
 
 -- sky radiance in direction d (linear, after the shoulder like the shader)
@@ -145,7 +149,7 @@ local function radiance(dx, dy, dz, sun, moon)
 		r, g, bl = r + SUN_COL[1] * k * t1, g + SUN_COL[2] * k * t2, bl + SUN_COL[3] * k * t3
 	end
 
-	return shoulder(r), shoulder(g), shoulder(bl)
+	return shoulder(r, g, bl)
 end
 
 -- transmittance from altitude h km toward light l

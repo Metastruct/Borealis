@@ -151,22 +151,17 @@ local function start(PIXEL_SHADER, SKY_SHADER)
 
 	local render_DrawScreenQuad = render.DrawScreenQuad
 	local render_SetMaterial = render.SetMaterial
-	local math_max = math.max
+	-- basis from EyeAngles, which is right inside a RenderView too; the fan
+	-- from the view setup's fov (horizontal, aspect-adjusted)
 	local function viewRays()
 		local night = nightFactor() * render.GetToneMappingScaleLinear().x
 		if night <= 0.001 then return end
 
 		local ang = EyeAngles()
-		local origin = EyePos()
-		local fwd, right, up = ang:Forward(), ang:Right(), ang:Up()
+		local vs = render.GetViewSetup()
+		local halfW = math.tan(math.rad(vs.fov) * 0.5)
 
-		-- ray model against the real projection
-		local probeR = (origin + (fwd + right) * 512):ToScreen()
-		local probeU = (origin + (fwd + up) * 512):ToScreen()
-		local ndcR = (probeR.x / ScrW()) * 2 - 1
-		local ndcU = 1 - (probeU.y / ScrH()) * 2
-
-		return night, fwd, right, 1 / math_max(0.05, ndcR), 1 / math_max(0.05, ndcU)
+		return night, ang:Forward(), ang:Right(), halfW, halfW / vs.aspect
 	end
 
 	local function drawNightSky()
