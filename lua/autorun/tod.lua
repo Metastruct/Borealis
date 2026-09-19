@@ -766,7 +766,9 @@ if string.find(game.GetMap(), "gm_construct_m") then
 
         -- rises at yaw + 180, over the zenith, sets at yaw (pitch 0 .. 180)
         cfg.sun_angles = Angle(time < 0.5 and elev or 180 - elev, yaw, 0)
-        cfg.moon_angles = -cfg.sun_angles
+        -- the moon sits at the sun's antipode (negating the angle would mirror the yaw instead)
+        cfg.moon_angles = Angle(-cfg.sun_angles.p, yaw + 180, 0)
+
         cfg.shadow_angles = cfg.sun_angles
 
         return cfg
@@ -810,6 +812,44 @@ if string.find(game.GetMap(), "gm_construct_m") then
         return tod.current_cycle or 0
     end
 
+    -- Realtime runs on the server's clock.  os.date is local to each machine,
+    -- so clients in another timezone put the sun hours away from the engine's
+    -- (env_sun and the skypaint are set by the server).  The server's offset
+    -- from UTC travels with tod_setmode and os.time() is UTC everywhere.
+    tod.utc_offset = tod.utc_offset or 0
+
+    if SERVER then
+        local checked = -math.huge
+
+        -- rechecked every minute so a DST switch reaches the clients
+        function tod.GetUTCOffset()
+            local now = os.time()
+            if now - checked < 60 then return tod.utc_offset end
+            checked = now
+
+            local utc = os.date("!*t", now)
+            utc.isdst = os.date("*t", now).isdst
+            local offset = os.difftime(now, os.time(utc))
+            if offset ~= tod.utc_offset then
+                tod.utc_offset = offset
+                if tod.mode then
+                    tod.SetMode(tod.mode)
+                end
+            end
+
+            return offset
+        end
+    else
+        function tod.GetUTCOffset()
+            return tod.utc_offset
+        end
+    end
+
+    -- fraction of the day on the server's clock
+    function tod.GetRealTime()
+        return ((os.time() + tod.GetUTCOffset()) % 86400) / 86400
+    end
+
     if CLIENT then
         net.Receive("tod_setcycle", function()
             tod.current_cycle = net.ReadFloat() / 1000
@@ -817,6 +857,7 @@ if string.find(game.GetMap(), "gm_construct_m") then
 
         net.Receive("tod_setmode", function()
             tod.mode = net.ReadInt(4)
+            tod.utc_offset = net.ReadInt(32)
         end)
     end
 
@@ -836,6 +877,7 @@ if string.find(game.GetMap(), "gm_construct_m") then
             tod.mode = mode
             net.Start("tod_setmode")
             net.WriteInt(tod.mode, 4)
+            net.WriteInt(tod.GetUTCOffset(), 32)
             net.Send(filter or player.GetAll())
         end
     end
@@ -844,14 +886,15 @@ if string.find(game.GetMap(), "gm_construct_m") then
 
     if SERVER then
         local function cmd(val)
-            local time24 = val and tonumber(val) or 1
+            local time24 = tonumber(val)
 
-            if time24 then
+            if val == "demo" then
+                RunConsoleCommand("sv_tod", "2")
+            elseif time24 and time24 >= 0 then
                 RunConsoleCommand("sv_tod", "0")
                 tod.SetCycle((time24 / 24) % 1)
-            elseif val == "demo" then
-                RunConsoleCommand("sv_tod", "2")
-            elseif val == "realtime" or time24 < 0 then
+            else
+                -- "realtime", a negative hour or no argument
                 RunConsoleCommand("sv_tod", "1")
             end
 
@@ -933,10 +976,7 @@ if string.find(game.GetMap(), "gm_construct_m") then
             if not tod.mode or tod.mode == 0 or tod.mode == 2 then
                 time = tod.GetCycle()
             elseif tod.mode == 1 then
-                -- realtime
-                local H, M, S = os.date("%H"), os.date("%M"), os.date("%S")
-                local fraction = (H * 3600 + M * 60 + S) / 86400
-                time = fraction % 1
+                time = tod.GetRealTime()
             end
 
             for name, data in pairs(tod.override_configs) do
