@@ -774,14 +774,58 @@ if string.find(game.GetMap(), "gm_construct_m") then
         return cfg
     end
 
-    function tod.GetWeatherChance(probability)
-        if tod.force_weather ~= nil then return tod.force_weather end
-        probability = probability or 0.5
-        math.randomseed(math.floor(CurTime() / 100))
-        local b = math.random() < probability
-        math.randomseed(RealTime())
+    -- Weather runs on a schedule every realm computes alike from os.time:
+    -- each WEATHER_SLOT gets a deterministic roll per weather name, the
+    -- weather is on for the slots rolling under its probability, and each
+    -- slot edge is crossed over WEATHER_RAMP seconds.  tod.force_weather
+    -- overrides it: true, false or an amount 0..1.
+    tod.WEATHER_SLOT = 3 * 3600
+    tod.WEATHER_RAMP = 10 * 60
 
-        return b
+    local seeds = {}
+
+    local function nameSeed(name)
+        local s = seeds[name]
+        if s then return s end
+        s = 0
+        for i = 1, #name do
+            s = (s * 31 + name:byte(i)) % 2147483647
+        end
+
+        seeds[name] = s
+
+        return s
+    end
+
+    -- xorshift32 over the slot and the name, 0..1
+    local function slotRoll(seed, slot)
+        local x = bit.tobit(slot * 374761393 + seed)
+        x = bit.bxor(x, bit.lshift(x, 13))
+        x = bit.bxor(x, bit.rshift(x, 17))
+        x = bit.bxor(x, bit.lshift(x, 5))
+
+        return (x % 4294967296) / 4294967296
+    end
+
+    -- amount of a weather right now, 0..1
+    function tod.GetWeather(name, probability)
+        local force = tod.force_weather
+        if force ~= nil then
+            return isnumber(force) and math.Clamp(force, 0, 1) or (force and 1 or 0)
+        end
+
+        probability = probability or 0.5
+        local seed = nameSeed(name)
+        local now = os.time()
+        local slot = math.floor(now / tod.WEATHER_SLOT)
+        local on = slotRoll(seed, slot) < probability and 1 or 0
+        local into = now - slot * tod.WEATHER_SLOT
+        if into >= tod.WEATHER_RAMP then return on end
+
+        local before = slotRoll(seed, slot - 1) < probability and 1 or 0
+
+        -- in steps, so the config lerp is not recomputed every frame of the ramp
+        return math.Round(before + (on - before) * into / tod.WEATHER_RAMP, 2)
     end
 
     function tod.SetParameter(key, val)
@@ -979,28 +1023,18 @@ if string.find(game.GetMap(), "gm_construct_m") then
                 time = tod.GetRealTime()
             end
 
+            -- the override follows its weather's amount, off costs no lerp
             for name, data in pairs(tod.override_configs) do
-                if tod.GetWeatherChance(data.probability) then
-                    data.lerp = math.min(data.lerp + FrameTime(), 1)
-
-                    if data.last_lerp ~= data.lerp then
-                        tod.SetOverrideConfig(data.config, data.lerp)
-                        data.last_lerp = data.lerp
-                        cache = {}
+                local amount = tod.GetWeather(name, data.probability)
+                if data.lerp ~= amount then
+                    data.lerp = amount
+                    if amount > 0 then
+                        tod.SetOverrideConfig(data.config, amount)
+                    else
+                        tod.SetOverrideConfig()
                     end
-                else
-                    data.lerp = math.max(data.lerp - FrameTime(), 0)
 
-                    if data.last_lerp ~= data.lerp then
-                        if data.lerp == -1 then
-                            tod.SetOverrideConfig()
-                        else
-                            tod.SetOverrideConfig(data.config, data.lerp)
-                        end
-
-                        cache = {}
-                        data.last_lerp = data.lerp
-                    end
+                    cache = {}
                 end
             end
 
@@ -1020,6 +1054,14 @@ if string.find(game.GetMap(), "gm_construct_m") then
                 end
 
                 tod.AlignSunToLight(cfg, time)
+
+                -- an override's light_scale dims the world after the sun is
+                -- placed, so rain darkens the day without moving it
+                local o = tod.override_config
+                if o and isnumber(o.light_scale) and isnumber(cfg.world_light_multiplier) then
+                    cfg.world_light_multiplier = cfg.world_light_multiplier * Lerp(tod.override_lerp or 0, 1, o.light_scale)
+                end
+
                 cache[time] = cfg
             end
 
@@ -1046,6 +1088,12 @@ if string.find(game.GetMap(), "gm_construct_m") then
 
             if SERVER then
                 AddCSLuaFile("tod/snow.lua")
+            end
+        else
+            include("tod/rain.lua")
+
+            if SERVER then
+                AddCSLuaFile("tod/rain.lua")
             end
         end
     end

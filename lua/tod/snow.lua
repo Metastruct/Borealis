@@ -11,6 +11,7 @@ local config =
 	["sky_bottomcolor"] = Vector(1,1,1)*0.5,
 	["sky_starfade"] = 0,
 	["sky_duskintensity"] = 0,
+	["light_scale"] = 0.8,
 }
 
 tod.AddOverrideConfig("snow", config, 0.2)
@@ -58,7 +59,8 @@ if CLIENT then
 
 	hook.Add("Think", "tod_snow", function()
 		time = RealTime()
-		local b = tod.GetWeatherChance(0.2)
+		local amount = tod.GetWeather("snow", 0.2)
+		local b = amount > 0
 
 		tod.EnableSectorThink(b)
 
@@ -73,7 +75,7 @@ if CLIENT then
 		if not b then return end
 
 		for _, point in pairs(tod.GetOutsideSectors()) do
-			if math.random() > snow_density then continue end
+			if math.random() > snow_density * amount then continue end
 
 			local pos = point + VectorRand() * 50
 
