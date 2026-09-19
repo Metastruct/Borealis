@@ -150,13 +150,17 @@ local function drawMask(bDepth, bSkybox, b3DSky)
 	render.DrawQuadEasy(eye + fwd * NEAR_DIST, -fwd, halfW * NEAR_DIST * 4, halfH * NEAR_DIST * 4, ALPHA0, 0)
 	render.OverrideDepthEnable(true, true)
 	render.DrawQuadEasy(eye + fwd * far, -fwd, halfW * far * 4, halfH * far * 4, ALPHA1, 0)
+	render.CopyRenderTargetToTexture(maskRT)
+
+	-- alpha back to 1 everywhere: whoever snapshots the frame later reads it,
+	-- and the corrupted area's restore blit turned the world black on alpha 0
+	render.OverrideDepthEnable(true, false)
+	render.DrawQuadEasy(eye + fwd * NEAR_DIST, -fwd, halfW * NEAR_DIST * 4, halfH * NEAR_DIST * 4, ALPHA1, 0)
 	render.OverrideDepthEnable(false, false)
 
 	render.OverrideBlend(false)
 	render.OverrideAlphaWriteEnable(false, false)
 	render.OverrideColorWriteEnable(false, false)
-
-	render.CopyRenderTargetToTexture(maskRT)
 	maskValid = true
 end
 
