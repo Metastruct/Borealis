@@ -20,6 +20,13 @@ end
 local GRASS_ENABLED = CreateClientConVar("cl_draw_grass", "0", true, false, "draw grass tufts on grass surfaces")
 local GRASS_DISTANCE = CreateClientConVar("cl_draw_grass_distance", "3072", true, false, "grass draw distance in units", 1024, 16384)
 
+-- winter: tod swaps the ground for snow (tod/snow.lua, December to February),
+-- so the tufts thin out, shorten and go to dead straw poking through it
+local month = tonumber(os.date("%m")) or 0
+local WINTER = month >= 12 or month <= 2
+local DENSITY = WINTER and 0.35 or 1 -- share of the tufts kept
+local HEIGHT = WINTER and 0.7 or 1
+
 local CHUNK = 512 -- world units per chunk
 local SPACING = 18 -- tuft grid spacing
 local JITTER = 8
@@ -29,12 +36,12 @@ local MAX_SLOPE_Z = 0.7 -- skip faces steeper than this normal z
 local WIND_ANGLE = math.atan2(0.6, 0.8)
 local WIND = 0.45 -- bend at the tip, in quad widths
 local TRANSLUCENCY = 0.35
-local DRYNESS = 0.15 -- 0 green .. 1 golden
+local DRYNESS = WINTER and 1 or 0.15 -- 0 green .. 1 golden
 -- linear albedo, from gm_construct/grass1's average (0.061, 0.077, 0.020):
 -- tips 2.5x the ground, roots 1x
-local ROOT_COLOR = { 0.06, 0.075, 0.02 }
+local ROOT_COLOR = WINTER and { 0.09, 0.085, 0.06 } or { 0.06, 0.075, 0.02 }
 local TIP_COLOR = { 0.15, 0.19, 0.05 }
-local DRY_COLOR = { 0.24, 0.21, 0.09 } -- tip colour of dry blades
+local DRY_COLOR = WINTER and { 0.28, 0.25, 0.17 } or { 0.24, 0.21, 0.09 } -- tip colour of dry blades
 local FILL_K = 0.5 -- ambient cube share added as fill light, not scaled by tod's light style
 local BUILD_BUDGET_MS = 3 -- generation work per frame
 local LOAD_BUDGET_MS = 8 -- BSP parse work per frame
@@ -341,11 +348,11 @@ local function rasterChunk(ch, cand)
 		for gx = x0, x1 - 1, SPACING do
 			local x = gx + SPACING * 0.5 + (rand() - 0.5) * 2 * JITTER
 			local y = gy + SPACING * 0.5 + (rand() - 0.5) * 2 * JITTER
-			local seed, r3, r4 = rand(), rand(), rand()
+			local seed, r3, r4, r5 = rand(), rand(), rand(), rand()
 			for _, t in ipairs(cand) do
 				if x >= t[13] and x <= t[15] and y >= t[14] and y <= t[16] then
 					local z, alpha = sample(t, x, y)
-					if z and r3 * 255 > alpha then
+					if z and r3 * 255 > alpha and r5 <= DENSITY then
 						-- skip tufts under floors, roofs and other covering brushes
 						traceStart:SetUnpacked(x, y, z + QUAD_H + 2)
 						traceEnd:SetUnpacked(x, y, z + 1)
@@ -400,7 +407,7 @@ local function buildMesh(tufts, first, last)
 		va = math.floor(seed * 255)
 		local hIndex = math.Clamp(math.floor((hs - 0.5) / 0.9 * 7 + 0.5), 0, 7)
 		hs = 0.5 + hIndex / 7 * 0.9
-		local h = QUAD_H * hs
+		local h = QUAD_H * hs * HEIGHT
 		local w = QUAD_W * (0.7 + 0.3 * hs) * 0.5
 		local rot = seed * math.pi
 		local cr, sr = math.cos(rot), math.sin(rot)
@@ -756,8 +763,8 @@ end
 
 cvars.RemoveChangeCallback("cl_draw_grass", "ms_grass")
 cvars.AddChangeCallback("cl_draw_grass", apply, "ms_grass")
-cvars.RemoveChangeCallback("cl_grass_distance", "ms_grass")
-cvars.AddChangeCallback("cl_grass_distance", setDistance, "ms_grass")
+cvars.RemoveChangeCallback("cl_draw_grass_distance", "ms_grass")
+cvars.AddChangeCallback("cl_draw_grass_distance", setDistance, "ms_grass")
 hook.Remove("ShaderMounted", "ms_grass")
 
 -- the parse needs the map and its materials in, so the first apply waits for
