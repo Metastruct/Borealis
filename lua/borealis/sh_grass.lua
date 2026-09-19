@@ -18,12 +18,12 @@ end
 -- inside a per-frame budget, and drawn as analytic blades by grass_ps30.
 
 local GRASS_ENABLED = CreateClientConVar("cl_draw_grass", "0", true, false, "draw grass tufts on grass surfaces")
+local GRASS_DISTANCE = CreateClientConVar("cl_draw_grass_distnace", "3072", true, false, "grass draw distance in units", 1024, 16384)
 
 local CHUNK = 512 -- world units per chunk
 local SPACING = 18 -- tuft grid spacing
 local JITTER = 8
-local RADIUS = 3072 -- chunks kept and drawn within this distance
-local FADE_START, FADE_END = 2200, 3000
+local RADIUS, FADE_START, FADE_END -- chunks kept and drawn within RADIUS, blades fade out between the two, all from cl_grass_distance
 local QUAD_W, QUAD_H = 26, 40 -- quad size at height scale 1
 local MAX_SLOPE_Z = 0.7 -- skip faces steeper than this normal z
 local WIND_ANGLE = math.atan2(0.6, 0.8)
@@ -38,7 +38,7 @@ local DRY_COLOR = { 0.24, 0.21, 0.09 } -- tip colour of dry blades
 local FILL_K = 0.5 -- ambient cube share added as fill light, not scaled by tod's light style
 local BUILD_BUDGET_MS = 3 -- generation work per frame
 local LOAD_BUDGET_MS = 8 -- BSP parse work per frame
-local MESH_BATCH = 60 -- tufts per IMesh
+local MESH_BATCH = 240 -- tufts per IMesh, about 1 ms to build
 local STRIDE = 6 -- numbers per tuft in a chunk's flat tuft array: x, y, z, seed, height scale, packed light
 local TRI_CELL = 1024 -- triangle index cell size
 
@@ -432,17 +432,39 @@ local function byPrio(a, b)
 	return a.prio < b.prio
 end
 
--- picks the next queued chunk: nearest first, chunks in front of the camera before the rest
-local function nextChunk()
-	local eye, fwd = EyePos(), EyeVector()
-	for _, ch in ipairs(buildQueue) do
-		local dx, dy = ch.cx * CHUNK + CHUNK * 0.5 - eye.x, ch.cy * CHUNK + CHUNK * 0.5 - eye.y
-		local dist = math.sqrt(dx * dx + dy * dy)
-		local behind = dist > CHUNK and (dx * fwd.x + dy * fwd.y) / dist < -0.35
-		ch.prio = dist + (behind and RADIUS or 0)
+-- bounding sphere of a chunk's tufts, for the frustum test in draw
+local function chunkBounds(ch, tufts)
+	local zmin, zmax = math.huge, -math.huge
+	for o = 3, #tufts, STRIDE do
+		local z = tufts[o]
+		if z < zmin then zmin = z end
+		if z > zmax then zmax = z end
 	end
 
-	table.sort(buildQueue, byPrio)
+	local half = CHUNK * 0.5
+	local hz = (zmax - zmin) * 0.5 + QUAD_H
+	ch.cz = zmin + hz
+	ch.radius = math.sqrt(half * half * 2 + hz * hz)
+end
+
+-- picks the next queued chunk: nearest first, chunks in front of the camera
+-- before the rest.  The queue is re-sorted only when chunks were added or the
+-- eye moved a chunk, a large radius queues thousands of mostly empty chunks
+local queueDirty, queueEye = false, Vector()
+local function nextChunk()
+	local eye, fwd = EyePos(), EyeVector()
+	if queueDirty or eye:DistToSqr(queueEye) > CHUNK * CHUNK then
+		queueDirty, queueEye = false, eye
+		for _, ch in ipairs(buildQueue) do
+			local dx, dy = ch.cx * CHUNK + CHUNK * 0.5 - eye.x, ch.cy * CHUNK + CHUNK * 0.5 - eye.y
+			local dist = math.sqrt(dx * dx + dy * dy)
+			local behind = dist > CHUNK and (dx * fwd.x + dy * fwd.y) / dist < -0.35
+			ch.prio = dist + (behind and RADIUS or 0)
+		end
+
+		table.sort(buildQueue, byPrio)
+	end
+
 	local ch = table.remove(buildQueue, 1)
 	local key = chunkKey(ch.cx, ch.cy)
 	if ch.mesh ~= nil or chunks[key] ~= ch then return end
@@ -452,6 +474,7 @@ local function nextChunk()
 		ch.mesh, ch.tufts = false, 0
 	elseif cached then
 		ch.pendingTufts, ch.nextTuft, ch.meshes = cached, 1, {}
+		chunkBounds(ch, cached)
 		current = ch
 	else
 		local x0, y0 = ch.cx * CHUNK, ch.cy * CHUNK
@@ -501,6 +524,7 @@ local function stepChunk()
 		else
 			tuftCache[key] = tufts
 			ch.pendingTufts, ch.nextTuft, ch.meshes = tufts, 1, {}
+			chunkBounds(ch, tufts)
 		end
 	else
 		return false -- budget spent inside the raster
@@ -581,6 +605,14 @@ local function draw(_, _, sky3d)
 	MAT:SetFloat("$c2_w", render.GetToneMappingScaleLinear().x)
 	render.SetMaterial(MAT)
 
+	-- view frustum: the setup's fov is the horizontal one at this aspect
+	local vs = render.GetViewSetup()
+	local ang = EyeAngles()
+	local right, up = ang:Right(), ang:Up()
+	local tanH = math.tan(math.rad(vs.fov or 90) * 0.5)
+	local tanV = tanH / (vs.aspect or (ScrW() / ScrH()))
+	local kH, kV = math.sqrt(1 + tanH * tanH), math.sqrt(1 + tanV * tanV)
+
 	local n = math.ceil(RADIUS / CHUNK)
 	local ecx, ecy = math.floor(eye.x / CHUNK), math.floor(eye.y / CHUNK)
 	local half = CHUNK * 0.5
@@ -596,10 +628,20 @@ local function draw(_, _, sky3d)
 					ch = { cx = cx, cy = cy }
 					chunks[key] = ch
 					buildQueue[#buildQueue + 1] = ch
-				elseif ch.mesh and (dist < CHUNK or (ddx * fwd.x + ddy * fwd.y) / dist > -0.35) then
-					ch.drawDist = dist
-					nvis = nvis + 1
-					visible[nvis] = ch
+					queueDirty = true
+				elseif ch.mesh then
+					-- bounding sphere against the four side planes
+					local ddz, r = ch.cz - eye.z, ch.radius
+					local fz = ddx * fwd.x + ddy * fwd.y + ddz * fwd.z
+					if fz > -r then
+						local fx = ddx * right.x + ddy * right.y + ddz * right.z
+						local fy = ddx * up.x + ddy * up.y + ddz * up.z
+						if math.abs(fx) < fz * tanH + r * kH and math.abs(fy) < fz * tanV + r * kV then
+							ch.drawDist = dist
+							nvis = nvis + 1
+							visible[nvis] = ch
+						end
+					end
 				end
 			end
 		end
@@ -648,6 +690,19 @@ local function stop()
 	tris, triGrid, loader, ready = nil, nil, nil, false
 end
 
+-- draw distance: the chunk radius and the shader's fade range.  Chunks past a
+-- shrunk radius get evicted by draw, a grown one fills in through the queue
+local function setDistance()
+	RADIUS = math.Clamp(GRASS_DISTANCE:GetInt(), 1024, 16384)
+	FADE_START, FADE_END = RADIUS * 0.72, RADIUS * 0.98
+	if MAT then
+		MAT:SetFloat("$c1_w", FADE_START)
+		MAT:SetFloat("$c3_w", FADE_END)
+	end
+end
+
+setDistance()
+
 local function start(PIXEL_SHADER, VERTEX_SHADER)
 	stop()
 	MAT = MAT or CreateMaterial("ms_grass_" .. os.time(), "screenspace_general", {
@@ -668,6 +723,7 @@ local function start(PIXEL_SHADER, VERTEX_SHADER)
 		["$c2_x"] = 1, ["$c2_y"] = packColor(unpack(ROOT_COLOR)), ["$c2_z"] = packColor(unpack(TIP_COLOR)), ["$c2_w"] = 1,
 		["$c3_x"] = TRANSLUCENCY, ["$c3_y"] = DRYNESS, ["$c3_z"] = packColor(unpack(DRY_COLOR)), ["$c3_w"] = FADE_END,
 	})
+	setDistance()
 
 	tris, triGrid = {}, {}
 	chunks, tuftCache, buildQueue = {}, {}, {}
@@ -700,6 +756,8 @@ end
 
 cvars.RemoveChangeCallback("cl_draw_grass", "ms_grass")
 cvars.AddChangeCallback("cl_draw_grass", apply, "ms_grass")
+cvars.RemoveChangeCallback("cl_grass_distance", "ms_grass")
+cvars.AddChangeCallback("cl_grass_distance", setDistance, "ms_grass")
 hook.Remove("ShaderMounted", "ms_grass")
 
 -- the parse needs the map and its materials in, so the first apply waits for
