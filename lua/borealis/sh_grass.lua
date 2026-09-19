@@ -605,6 +605,7 @@ end
 
 local visible = {}
 local evictNext = 0
+local lastWet = 0
 local function draw(_, _, sky3d)
 	if not ready or sky3d or render.GetRenderTarget() then return end
 	local eye = EyePos()
@@ -617,6 +618,16 @@ local function draw(_, _, sky3d)
 	MAT:SetFloat("$c0_w", CurTime() % 1000)
 	MAT:SetFloat("$c1_y", packColor(amb.x * FILL_K, amb.y * FILL_K, amb.z * FILL_K))
 	MAT:SetFloat("$c2_x", worldLightScale())
+
+	-- wet blades go darker and greener while it rains (tod/rain.lua)
+	local wet = tod and tod.rain and tod.rain.amount or 0
+	if wet ~= lastWet then
+		lastWet = wet
+		local k = 1 - 0.3 * wet
+		MAT:SetFloat("$c2_y", packColor(ROOT_COLOR[1] * k, ROOT_COLOR[2] * k, ROOT_COLOR[3] * k))
+		MAT:SetFloat("$c2_z", packColor(TIP_COLOR[1] * k, TIP_COLOR[2] * (1 - 0.2 * wet), TIP_COLOR[3] * k))
+		MAT:SetFloat("$c3_z", packColor(DRY_COLOR[1] * k, DRY_COLOR[2] * k, DRY_COLOR[3] * k))
+	end
 	MAT:SetFloat("$c2_w", render.GetToneMappingScaleLinear().x)
 	render.SetMaterial(MAT)
 
@@ -742,6 +753,8 @@ local function start(PIXEL_SHADER, VERTEX_SHADER)
 	MAT:SetFloat("$c2_y", packColor(unpack(ROOT_COLOR)))
 	MAT:SetFloat("$c3_y", DRYNESS)
 	MAT:SetFloat("$c3_z", packColor(unpack(DRY_COLOR)))
+	lastWet = -1
+
 	setDistance()
 
 	tris, triGrid = {}, {}

@@ -102,7 +102,8 @@ local function startShader(PIXEL_SHADER)
 		local build = inBuildArea()
 		if not build and overcast < 0.01 then return end
 		-- the shader lerps its threshold by coverage, so past 1 the deck closes up
-		local coverage = math.max(build and COVERAGE or 0, overcast * 1.8)
+		-- and past 2 it has no thin spots for the sun to show through
+		local coverage = math.max(build and COVERAGE or 0, overcast * 2.2)
 
 		local fwd, right, halfW, halfH = viewRays()
 		local lightDir, light, amb = lightInfo()
@@ -110,9 +111,10 @@ local function startShader(PIXEL_SHADER)
 			-- a bright flat deck: the sun's colour drains so the noise barely
 			-- shades it, the ambient goes to a light grey well above the sky's own
 			local lum = 0.2126 * amb[1] + 0.7152 * amb[2] + 0.0722 * amb[3]
+			local bright = procsky.theme.overcastBrightness or 1
 			for i = 1, 3 do
-				deckLight[i] = light[i] * (1 - 0.8 * overcast)
-				deckAmb[i] = amb[i] + (lum * 3 - amb[i]) * overcast
+				deckLight[i] = light[i] * (1 - 0.8 * overcast) * bright
+				deckAmb[i] = amb[i] + (lum * 3 * bright - amb[i]) * overcast
 			end
 
 			light, amb = deckLight, deckAmb

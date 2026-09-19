@@ -270,7 +270,8 @@ end
 --   tintMul      { r, g, b } multiplied into the fog colour and the cloud light
 --   tint         DrawColorModify params drawn every frame
 --   overcast     0..1: grey fog, a dimmed atmosphere, a cloud deck over the
---                sky (sh_tod_build) and no sun shafts (snow sets it)
+--                sky (sh_tod_build) and no sun shafts (snow and rain set it)
+--   overcastBrightness  deck brightness, 1 is snow's white stratus
 --------------------------------------------------------------------------
 
 -- tod's moon model draws through skyboxer's c_moon hook, held here while hidden
