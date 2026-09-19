@@ -6,7 +6,7 @@ local config =
 	["fog_end"] = 7000,
 	["fog_max_density"] = 0.25,
 	["fog_color"] = Vector(255,255,255)*0.8,
-	["start_intensity"] = 0,
+	["star_intensity"] = 0,
 	["sky_topcolor"] = Vector(1,1,1)*0.5,
 	["sky_bottomcolor"] = Vector(1,1,1)*0.5,
 	["sky_starfade"] = 0,
@@ -29,14 +29,14 @@ if CLIENT then
 	-- emit the particles from points
 	local emt = ParticleEmitter(EyePos(), false)
 	local time = RealTime()
-	
+
 	--[[hook.Add("PostPlayerDraw", "tod_snow", function(ply)
 		if not ply.tod_last_snow_think or ply.tod_last_snow_think < time then
 			if math.sin(time * 2.5 + ply:UniqueID()) > 0.5 then
 				local i = ply:LookupAttachment("mouth")
 				if i ~= 0 then
 					local mouth = ply:GetAttachment(i)
-					
+
 					local up = mouth.Ang:Up()
 					local p = emt:Add("particle/snow", mouth.Pos + up + VectorRand()*0.25)
 					p:SetVelocity((up+VectorRand()*0.25)*-math.random()*30)
@@ -53,20 +53,30 @@ if CLIENT then
 			ply.tod_last_snow_think = time + 0.05
 		end
 	end)]]
-	
+
+	local lastOvercast
+
 	hook.Add("Think", "tod_snow", function()
 		time = RealTime()
 		local b = tod.GetWeatherChance(0.2)
 
 		tod.EnableSectorThink(b)
-		
+
+		-- procsky's grey sky follows the override as it fades in and out
+		local snow = tod.override_configs.snow
+		local overcast = snow and snow.lerp or 0
+		if procsky and procsky.SetTheme and overcast ~= lastOvercast then
+			lastOvercast = overcast
+			procsky.SetTheme(overcast > 0 and { overcast = overcast } or nil)
+		end
+
 		if not b then return end
 
 		for _, point in pairs(tod.GetOutsideSectors()) do
 			if math.random() > snow_density then continue end
-			
+
 			local pos = point + VectorRand() * 50
-			
+
 			local p = emt:Add("particle/snow", pos)
 			p:SetVelocity(VectorRand() * 100 * Vector(1,1,0))
 			p:SetAngles(Angle(math.random(360), math.random(360), math.random(360)))
@@ -81,7 +91,7 @@ if CLIENT then
 		--	p:SetLighting(true)]]
 		end
 	end)
-	
+
 	hook.Add("TOD_ReplaceGrassTexture", "tod_snow", function(path)
 		path = path:lower()
 		if
@@ -112,10 +122,16 @@ if CLIENT then
 		hook.Remove('PlayerFootstep','snow')
 		hook.Remove('TOD_ReplaceGrassTexture','tod_snow')-- is this even needed?
 		hook.Remove('Think','tod_snow')
+		tod.EnableSectorThink(false)
 		tod.RestoreAllTextures()-- maybe just replace the ones that were changed?
+		tod.RemoveOverrideConfig("snow")
+		tod.SetOverrideConfig()
+		tod.SetConfigCycle(unpack(tod.config_cycle)) -- drops the cached lerps that still hold the override
+		if procsky and procsky.SetTheme then procsky.SetTheme() end
+		hook.Run("TOD_WinterRemoved") -- the grass drops its winter palette
 		concommand.Remove('tod_removesnow')-- this really only needs to get ran once so we'll remove the command
-
 	end
+
 
 	concommand.Add('tod_removesnow',removeIt,nil,"Removes the winter modifications from the server, just in case you don't like them.")
 end
