@@ -54,14 +54,20 @@ local FILL_K = 0.5 -- ambient cube share added as fill light, not scaled by tod'
 local BUILD_BUDGET_MS = 3 -- generation work per frame
 local LOAD_BUDGET_MS = 8 -- BSP parse work per frame
 local MESH_BATCH = 240 -- tufts per IMesh, about 1 ms to build
-local STRIDE = 6 -- numbers per tuft in a chunk's flat tuft array: x, y, z, seed, height scale, packed light
+local STRIDE = 7 -- numbers per tuft in a chunk's flat tuft array: x, y, z, seed, height scale, packed light, vis cluster
 local TRI_CELL = 1024 -- triangle index cell size
+local SIGHT_TESTS_PER_FRAME = 40 -- line of sight tests per draw
 
 --------------------------------------------------------------------------
 -- BSP: grass triangles with per-vertex blend alpha (0 = grass, 255 = other),
 -- indexed by TRI_CELL grid cell.  Parsed in a coroutine over several frames.
 --------------------------------------------------------------------------
 local tris, triGrid
+
+-- BSP visibility: the node tree for point -> leaf, each leaf's cluster and the
+-- compressed PVS rows.  The engine hides world geometry beyond sky brushes by
+-- PVS, never by depth, so the tufts follow the same rule
+local bspNodes, bspPlanes, leafCluster, visData, numClusters
 
 -- little-endian decoders over lump strings (1-based positions)
 local byte = string.byte
@@ -171,10 +177,10 @@ local function loadGrassTriangles()
 
 	local function lump(i)
 		f:Seek(8 + i * 16)
-		local ofs, len = f:ReadLong(), f:ReadLong()
+		local ofs, len, ver = f:ReadLong(), f:ReadLong(), f:ReadLong()
 		f:Seek(ofs)
 
-		return f:Read(len) or "", len
+		return f:Read(len) or "", len, ver
 	end
 
 	local strData = lump(43)
@@ -187,7 +193,10 @@ local function loadGrassTriangles()
 	local verts = lump(3)
 	local edges = lump(12)
 	local surfedges = lump(13)
-	local planes = lump(1)
+	local planes, plLen = lump(1)
+	local nodesL, noLen = lump(5)
+	local leavesL, leLen, leVer = lump(10)
+	visData = lump(4)
 	f:Close()
 
 	local sliceStart = SysTime()
@@ -232,6 +241,28 @@ local function loadGrassTriangles()
 		if seen % 50 == 0 then breathe() end
 	end
 
+	bspPlanes = {}
+	for i = 0, plLen / 20 - 1 do
+		local p, o = i * 20 + 1, i * 4
+		bspPlanes[o + 1], bspPlanes[o + 2], bspPlanes[o + 3], bspPlanes[o + 4] = f32(planes, p), f32(planes, p + 4), f32(planes, p + 8), f32(planes, p + 12)
+		if i % 2048 == 0 then breathe() end
+	end
+
+	bspNodes = {}
+	for i = 0, noLen / 32 - 1 do
+		local p, o = i * 32 + 1, i * 3
+		bspNodes[o + 1], bspNodes[o + 2], bspNodes[o + 3] = i32(nodesL, p), i32(nodesL, p + 4), i32(nodesL, p + 8)
+		if i % 2048 == 0 then breathe() end
+	end
+
+	local leafSize = leVer == 0 and 56 or 32 -- version 0 leaves carry ambient lighting
+	leafCluster = {}
+	for i = 0, leLen / leafSize - 1 do
+		leafCluster[i] = i16(leavesL, i * leafSize + 5)
+	end
+
+	numClusters = #visData >= 4 and i32(visData, 1) or 0
+
 	local function vertex(idx)
 		local p = idx * 12 + 1
 
@@ -266,6 +297,54 @@ local function loadGrassTriangles()
 	end
 
 	return true
+end
+
+-- vis cluster of a point, -1 in solid
+local function clusterAt(x, y, z)
+	local n = 0
+	while n >= 0 do
+		local o = n * 3
+		local p = bspNodes[o + 1] * 4
+		n = bspNodes[(bspPlanes[p + 1] * x + bspPlanes[p + 2] * y + bspPlanes[p + 3] * z >= bspPlanes[p + 4]) and o + 2 or o + 3]
+	end
+
+	return leafCluster[-n - 1]
+end
+
+-- clusters visible from a cluster, decoded from the run-length zero packed row
+-- and kept until the cluster changes.  nil means everything (in solid, no vis)
+local pvsCluster, pvsSet
+local function pvsFor(cluster)
+	if cluster == pvsCluster then return pvsSet end
+	pvsCluster = cluster
+	if cluster < 0 or numClusters == 0 then
+		pvsSet = nil
+
+		return nil
+	end
+
+	pvsSet = {}
+	local p = i32(visData, 5 + cluster * 8) + 1
+	local rowBytes = math.ceil(numClusters / 8)
+	local c = 0
+	while c < rowBytes do
+		local b = byte(visData, p)
+		p = p + 1
+		if b == 0 then
+			c = c + byte(visData, p)
+			p = p + 1
+		else
+			local base = c * 8
+			for bit = 0, 7 do
+				if b % 2 == 1 then pvsSet[base + bit] = true end
+				b = math.floor(b / 2)
+			end
+
+			c = c + 1
+		end
+	end
+
+	return pvsSet
 end
 
 --------------------------------------------------------------------------
@@ -375,8 +454,12 @@ local function rasterChunk(ch, cand)
 								lightCache[lkey] = light
 							end
 
+							-- cluster sampled above the blade, a hair higher when that lands in solid
+							local cluster = clusterAt(x, y, z + 8)
+							if cluster < 0 then cluster = clusterAt(x, y, z + 24) end
+
 							-- mostly tall, some short
-							tufts[n + 1], tufts[n + 2], tufts[n + 3], tufts[n + 4], tufts[n + 5], tufts[n + 6] = x, y, z, seed, 0.5 + r4 * r4 * 0.9, light
+							tufts[n + 1], tufts[n + 2], tufts[n + 3], tufts[n + 4], tufts[n + 5], tufts[n + 6], tufts[n + 7] = x, y, z, seed, 0.5 + r4 * r4 * 0.9, light, cluster
 							n = n + STRIDE
 						end
 					end
@@ -385,7 +468,26 @@ local function rasterChunk(ch, cand)
 		end
 	end
 
-	return tufts
+	-- tufts sorted by cluster, so a mesh batch spans few clusters
+	local count = n / STRIDE
+	local order = {}
+	for i = 1, count do
+		order[i] = i
+	end
+
+	table.sort(order, function(a, b)
+		return tufts[(a - 1) * STRIDE + 7] < tufts[(b - 1) * STRIDE + 7]
+	end)
+
+	local sorted = {}
+	for i = 1, count do
+		local src, dst = (order[i] - 1) * STRIDE, (i - 1) * STRIDE
+		for k = 1, STRIDE do
+			sorted[dst + k] = tufts[src + k]
+		end
+	end
+
+	return sorted
 end
 
 local COS60, SIN60 = math.cos(math.rad(60)), math.sin(math.rad(60))
@@ -400,15 +502,25 @@ local function vert(px, py, pz, u, v)
 	mesh.AdvanceVertex()
 end
 
--- one IMesh for tufts first .. last (tuft indices, 1-based).  screenspace_general
--- binds position, colour and texcoord 0 only: colour rgb = light / 2,
--- colour a = seed, uv.x = blade u + 2 * height index
+-- one batch { m = IMesh, groups } for tufts first .. last (tuft indices,
+-- 1-based).  The tufts come sorted by vis cluster, each run is a group with
+-- its cluster (-1 for in solid), its centre and its first and last tuft.
+-- screenspace_general binds position, colour and texcoord 0 only: colour
+-- rgb = light / 2, colour a = seed, uv.x = blade u + 2 * height index
 local function buildMesh(tufts, first, last)
 	local m = Mesh()
+	local groups, g = {}, nil
 	mesh.Begin(m, MATERIAL_QUADS, (last - first + 1) * #DIRS)
 	for i = first, last do
 		local o = (i - 1) * STRIDE
-		local x, y, z, seed, hs, light = tufts[o + 1], tufts[o + 2], tufts[o + 3] + 0.5, tufts[o + 4], tufts[o + 5], tufts[o + 6]
+		local x, y, z, seed, hs, light, cluster = tufts[o + 1], tufts[o + 2], tufts[o + 3] + 0.5, tufts[o + 4], tufts[o + 5], tufts[o + 6], tufts[o + 7]
+		if not g or cluster ~= g.cluster then
+			g = { cluster = cluster, n = 0, x = 0, y = 0, z = 0, ax = x, ay = y, az = z, sightEpoch = -1, blocked = false }
+			groups[#groups + 1] = g
+		end
+
+		g.n, g.x, g.y, g.z = g.n + 1, g.x + x, g.y + y, g.z + z
+		g.bx, g.by, g.bz = x, y, z
 		vr = math.floor(light / 65536)
 		vg = math.floor(light / 256) % 256
 		vb = light % 256
@@ -433,13 +545,19 @@ local function buildMesh(tufts, first, last)
 
 	mesh.End()
 
-	return m
+	local lift = QUAD_H * HEIGHT * 0.5
+	for _, gr in ipairs(groups) do
+		gr.x, gr.y, gr.z = gr.x / gr.n, gr.y / gr.n, gr.z / gr.n + lift
+		gr.az, gr.bz = gr.az + lift, gr.bz + lift
+	end
+
+	return { m = m, groups = groups }
 end
 
 local function destroyMeshes(ch)
 	if not ch.mesh then return end
-	for _, m in ipairs(ch.mesh) do
-		m:Destroy()
+	for _, b in ipairs(ch.mesh) do
+		b.m:Destroy()
 	end
 end
 
@@ -606,6 +724,21 @@ end
 local visible = {}
 local evictNext = 0
 local lastWet = 0
+
+-- line of sight from the eye to a group, against world brushes only: a
+-- blocking face either draws (depth hides the blades) or does not (nodraw,
+-- sky, a back face) and the sky fills it, so the blades are skipped either
+-- way.  Windows and grates are passed through like the depth test does.
+-- Tests are redone when the eye moves or after a while, a few per frame
+local sightEpoch, sightEye, sightNext = 0, Vector(), 0
+local sightStart, sightEnd, sightRes = Vector(), Vector(), {}
+local sightTrace = { start = sightStart, endpos = sightEnd, mask = CONTENTS_SOLID, output = sightRes, filter = function() return false end }
+local function sightBlocked(x, y, z)
+	sightEnd:SetUnpacked(x, y, z)
+	util.TraceLine(sightTrace)
+
+	return sightRes.Hit and not sightRes.StartSolid
+end
 local function draw(_, _, sky3d)
 	if not ready or sky3d or render.GetRenderTarget() then return end
 	local eye = EyePos()
@@ -679,10 +812,42 @@ local function draw(_, _, sky3d)
 	end
 
 	table.sort(visible, byDrawDist)
+
+	-- a batch draws when one of its groups is in the eye's PVS and in line of
+	-- sight at its centre or either end.  An untested group counts as visible
+	local eyeCluster = clusterAt(eye.x, eye.y, eye.z)
+	local pvs = pvsFor(eyeCluster)
+	if RealTime() > sightNext or eye:DistToSqr(sightEye) > 64 * 64 then
+		sightEpoch, sightNext = sightEpoch + 1, RealTime() + 0.5
+		sightEye:Set(eye)
+	end
+
+	sightStart:Set(eye)
+	local tests = 0
 	render.OverrideDepthEnable(true, true)
 	for _, ch in ipairs(visible) do
-		for _, m in ipairs(ch.mesh) do
-			m:Draw()
+		for _, b in ipairs(ch.mesh) do
+			local show = false
+			for _, g in ipairs(b.groups) do
+				local c = g.cluster
+				if c == eyeCluster then
+					show = true
+					break
+				elseif pvs == nil or c < 0 or pvs[c] then
+					if g.sightEpoch ~= sightEpoch and tests < SIGHT_TESTS_PER_FRAME then
+						tests = tests + 1
+						g.sightEpoch = sightEpoch
+						g.blocked = sightBlocked(g.x, g.y, g.z) and sightBlocked(g.ax, g.ay, g.az) and sightBlocked(g.bx, g.by, g.bz)
+					end
+
+					if not g.blocked then
+						show = true
+						break
+					end
+				end
+			end
+
+			if show then b.m:Draw() end
 		end
 	end
 
@@ -714,6 +879,7 @@ local function stop()
 	table.Empty(visible)
 	chunks, tuftCache, buildQueue, current = nil, nil, nil, nil
 	tris, triGrid, loader, ready = nil, nil, nil, false
+	bspNodes, bspPlanes, leafCluster, visData, pvsCluster, pvsSet = nil, nil, nil, nil, nil, nil
 end
 
 -- draw distance: the chunk radius and the shader's fade range.  Chunks past a
