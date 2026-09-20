@@ -37,7 +37,8 @@ local PS, VS = "rain_ps30", "rain_vs30"
 local SPLASH_PS = "rainsplash_ps30"
 
 local TILE = 512 -- world units, the tiles' grid
-local STREAKS = 450 -- crossed quad pairs per tile
+local STREAKS = 450 -- crossed quad pairs per tile at full rain
+local DENSITY_STEPS = 4 -- levels of streak count between nothing and full rain
 local HALF_H = 560 -- half height of the field, matches the shader
 local PERIOD = 80 -- the streak pattern repeats on this height: HALF_H * 2 / the shader's REPEATS
 local FIELD_SLACK = 160 -- the tiles are rebuilt once the eye is this far above or below their centre, a jump never does
@@ -77,12 +78,17 @@ local MAT, SPLASH_MAT, coverRT, splashMesh
 --------------------------------------------------------------------------
 local tiles = {}
 local fieldZ -- the tiles' centre, a multiple of PERIOD so a rebuilt tile shows the same streaks
+local tileLevel -- the density level the tiles were built at, 1 .. DENSITY_STEPS
+
+local function densityLevel(amount)
+	return math.Clamp(math.ceil(amount * DENSITY_STEPS), 1, DENSITY_STEPS)
+end
 
 local function tileKey(ix, iy)
 	return ix * 65536 + iy
 end
 
-local function buildTile(ix, iy, fz)
+local function buildTile(ix, iy, fz, count)
 	local rng = bit.band(ix * 73856093 + iy * 19349663, 0x7fffffff)
 	local function rand()
 		rng = (rng * 1103515245 + 12345) % 2147483648
@@ -94,8 +100,8 @@ local function buildTile(ix, iy, fz)
 	local wx, wy = WIND[1] * HALF_H, WIND[2] * HALF_H
 	local top, bottom = fz + HALF_H, fz - HALF_H
 	local m = Mesh()
-	mesh.Begin(m, MATERIAL_QUADS, STREAKS * 2)
-	for _ = 1, STREAKS do
+	mesh.Begin(m, MATERIAL_QUADS, count * 2)
+	for _ = 1, count do
 		local x, y = tx + rand() * TILE, ty + rand() * TILE
 		-- colour: phase, speed step (0 .. 4 of 4), brightness
 		local phase, speed, bright = math.floor(rand() * 255), math.floor(rand() * 4 + 0.5) * 63, math.floor(rand() * 255)
@@ -125,7 +131,12 @@ end
 
 -- one build per frame, the nearest missing or outdated tile first; a tile at
 -- an old height still shows the same streaks until its turn
-local function updateTiles(eye)
+local function updateTiles(eye, level)
+	if level ~= tileLevel then
+		tileLevel = level
+		dropTiles()
+	end
+
 	if not fieldZ or math.abs(eye.z - fieldZ) > FIELD_SLACK then
 		fieldZ = math.floor(eye.z / PERIOD + 0.5) * PERIOD
 	end
@@ -150,7 +161,7 @@ local function updateTiles(eye)
 				t.mesh:Destroy()
 			end
 
-			tiles[key] = { ix = tix, iy = tiy, z = fz, mesh = buildTile(tix, tiy, fz) }
+			tiles[key] = { ix = tix, iy = tiy, z = fz, mesh = buildTile(tix, tiy, fz, math.floor(STREAKS * level / DENSITY_STEPS)) }
 			budget = budget - 1
 		end
 	end
@@ -363,7 +374,7 @@ local function prepare()
 
 	local eye = EyePos()
 	updateColumns(eye)
-	updateTiles(eye)
+	updateTiles(eye, densityLevel(rain.amount))
 
 	if ripplesDirty and RealTime() >= nextRipple then
 		ripplesDirty, nextRipple = false, RealTime() + SPLASH_REBUILD
@@ -387,7 +398,7 @@ local function draw(bDepth, _, b3DSky)
 	MAT:SetFloat("$c0_y", eye.y)
 	MAT:SetFloat("$c0_z", eye.z)
 	MAT:SetFloat("$c0_w", CurTime() % WRAP)
-	MAT:SetFloat("$c1_x", ALPHA * k * tonemap)
+	MAT:SetFloat("$c1_x", ALPHA * k * DENSITY_STEPS / (tileLevel or DENSITY_STEPS) * tonemap)
 	render.SetMaterial(MAT)
 	for _, t in pairs(tiles) do
 		t.mesh:Draw()
