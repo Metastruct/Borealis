@@ -1081,6 +1081,12 @@ if string.find(game.GetMap(), "gm_construct_m") then
 
     -- weather
     do
+        include("tod/fog.lua")
+
+        if SERVER then
+            AddCSLuaFile("tod/fog.lua")
+        end
+
         local month = tonumber(os.date("%m")) or -1
 
         if month >= 12 or month <= 2 then
