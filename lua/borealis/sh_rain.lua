@@ -71,6 +71,7 @@ local function packColor(r, g, b)
 end
 
 local MAT, SPLASH_MAT, coverRT, splashMesh
+local build -- the cover map and the materials, once the render targets are real
 
 --------------------------------------------------------------------------
 -- streak tiles: tiles[key] = { ix, iy, z, mesh }, the 3 x 3 around the eye,
@@ -372,6 +373,8 @@ local function prepare()
 		return
 	end
 
+	if not MAT and not build() then return end
+
 	local eye = EyePos()
 	updateColumns(eye)
 	updateTiles(eye, densityLevel(rain.amount))
@@ -391,9 +394,13 @@ local function draw(bDepth, _, b3DSky)
 	local k = rain.amount
 	if k <= 0.001 then return end
 
+	if not MAT then return end
+
 	local eye = EyePos()
 	local tonemap = render.GetToneMappingScaleLinear().x
 
+	-- bound again every frame: the targets are recreated across a map change
+	MAT:SetTexture("$basetexture", coverRT)
 	MAT:SetFloat("$c0_x", eye.x)
 	MAT:SetFloat("$c0_y", eye.y)
 	MAT:SetFloat("$c0_z", eye.z)
@@ -448,10 +455,26 @@ local function material(name, pixelShader)
 	})
 end
 
-local function start()
-	stop()
+-- The render targets do not exist yet while the map loads, and asking for one
+-- then hands back a texture that answers IsError with false and only becomes
+-- the cover map later.  A material bound to it samples black for good, so
+-- every column reads a cut of Z_MIN and the rain falls through every roof.
+-- The ripples come from Lua and keep obeying the traces, which is what the
+-- symptom looks like: cover works on the ground and nowhere else.
+local function usableRT(t)
+	return t ~= nil and not t:IsError() and t:Width() == COLUMNS
+end
+
+-- on the first frame the targets are real, never at load
+function build()
 	-- point sampled and wrapped: the shader addresses it by world column
 	coverRT = coverRT or GetRenderTargetEx("ms_rain_cover_" .. COLUMNS, COLUMNS, COLUMNS, RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE, 1, 0, IMAGE_FORMAT_RGBA8888)
+	if not usableRT(coverRT) then
+		coverRT = nil
+
+		return false
+	end
+
 	-- untraced columns rain everywhere
 	render.PushRenderTarget(coverRT)
 	render.Clear(0, 0, 0, 255)
@@ -463,6 +486,13 @@ local function start()
 	SPLASH_MAT = material("ms_rainsplash", SPLASH_PS)
 	SPLASH_MAT:SetFloat("$c1_y", SPLASH_FADE_START)
 	SPLASH_MAT:SetFloat("$c1_z", SPLASH_FADE_END)
+
+	return true
+end
+
+local function start()
+	stop()
+	MAT, SPLASH_MAT = nil, nil
 	hook.Add("PreRender", "ms_rain", prepare)
 	hook.Add("PostDrawTranslucentRenderables", "ms_rain", draw)
 end
