@@ -58,12 +58,26 @@ local function blurMaterial(name, src, falloff)
 	return mat
 end
 
+-- The render targets do not exist yet while the map loads, and asking for one
+-- then hands back a 32 x 32 error texture that answers IsError with false.  A
+-- material bound to it keeps that texture even once the target is real: the
+-- handle in hand heals, the binding inside the material does not.  So nothing
+-- is built until the targets are usable, and the bindings are made again in
+-- drawShafts every frame.
+local function usableRT(t, w, h)
+	return t ~= nil and not t:IsError() and t:Width() == w and t:Height() == h
+end
+
 local function build()
-	W, H = ScrW(), ScrH()
-	local bw, bh = math.floor(W * SCALE), math.floor(H * SCALE)
-	maskRT = GetRenderTargetEx("ms_sunshafts_mask_" .. bw .. "x" .. bh, bw, bh, RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE, CLAMP, 0, IMAGE_FORMAT_RGBA8888)
-	blurA = GetRenderTargetEx("ms_sunshafts_a_" .. bw .. "x" .. bh, bw, bh, RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE, CLAMP, 0, IMAGE_FORMAT_RGBA8888)
-	blurB = GetRenderTargetEx("ms_sunshafts_b_" .. bw .. "x" .. bh, bw, bh, RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE, CLAMP, 0, IMAGE_FORMAT_RGBA8888)
+	local w, h = ScrW(), ScrH()
+	local bw, bh = math.floor(w * SCALE), math.floor(h * SCALE)
+	local mask = GetRenderTargetEx("ms_sunshafts_mask_" .. bw .. "x" .. bh, bw, bh, RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE, CLAMP, 0, IMAGE_FORMAT_RGBA8888)
+	local a = GetRenderTargetEx("ms_sunshafts_a_" .. bw .. "x" .. bh, bw, bh, RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE, CLAMP, 0, IMAGE_FORMAT_RGBA8888)
+	local b = GetRenderTargetEx("ms_sunshafts_b_" .. bw .. "x" .. bh, bw, bh, RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE, CLAMP, 0, IMAGE_FORMAT_RGBA8888)
+	if not (usableRT(mask, bw, bh) and usableRT(a, bw, bh) and usableRT(b, bw, bh)) then return false end
+
+	W, H = w, h
+	maskRT, blurA, blurB = mask, a, b
 	BLUR1 = blurMaterial("ms_sunshafts_blur1", maskRT, 1)
 	BLUR2 = blurMaterial("ms_sunshafts_blur2", blurA, 0)
 	COMPOSITE = CreateMaterial("ms_sunshafts_composite_" .. W .. "x" .. H, "UnlitGeneric", {
@@ -73,7 +87,8 @@ local function build()
 		["$vertexalpha"] = 1,
 		["$ignorez"] = 1,
 	})
-	COMPOSITE:SetTexture("$basetexture", blurB)
+
+	return true
 end
 
 --------------------------------------------------------------------------
@@ -129,7 +144,7 @@ local maskValid = false
 local function drawMask(bDepth, bSkybox, b3DSky)
 	maskValid = false
 	if bDepth or bSkybox or b3DSky or render.GetRenderTarget() then return end
-	if ScrW() ~= W or ScrH() ~= H then build() end
+	if (ScrW() ~= W or ScrH() ~= H) and not build() then return end
 
 	updateSun()
 	if sunWeight <= 0 then return end
@@ -172,6 +187,11 @@ local function drawShafts()
 	if not maskValid then return end
 	maskValid = false
 
+	-- see usableRT: a material built before the targets existed holds the error
+	-- texture, and the targets are recreated across a map change
+	BLUR1:SetTexture("$basetexture", maskRT)
+	BLUR2:SetTexture("$basetexture", blurA)
+	COMPOSITE:SetTexture("$basetexture", blurB)
 	BLUR1:SetFloat("$c0_x", sunUV[1])
 	BLUR1:SetFloat("$c0_y", sunUV[2])
 	BLUR2:SetFloat("$c0_x", sunUV[1])
@@ -207,7 +227,7 @@ end
 
 local function start()
 	stop()
-	build()
+	W, H = nil, nil -- built on the first frame the targets are real, never at load
 	hook.Add("PostDrawTranslucentRenderables", "ms_sunshafts", drawMask)
 	hook.Add("RenderScreenspaceEffects", "ms_sunshafts", drawShafts)
 end
