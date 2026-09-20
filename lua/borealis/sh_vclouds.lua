@@ -41,7 +41,7 @@ local THICK = 3500 -- slab thickness in world units
 -- slow sines with periods that do not divide into each other, so the pattern
 -- never repeats cleanly, off a wall clock every client shares.  Weather takes
 -- it over entirely, which is the only time the flat deck closes up either.
-local COVERAGE_BASE = 0.3 -- 0 clear, 1 solid
+local COVERAGE_BASE = 0.38 -- 0 clear, 1 solid
 local COVERAGE_SWING = 0.1 -- how far it wanders either side of the base
 local COVERAGE_OVERCAST = 0.8 -- where tod's rain and snow take it
 local COVERAGE_PERIOD_A = 1200 -- seconds
