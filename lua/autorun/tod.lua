@@ -290,12 +290,8 @@ if string.find(game.GetMap(), "gm_construct_m") then
             do
                 local earth = Material("models/props_wasteland/rockcliff02c")
                 local atmosphere = Material("models/props/de_tides/clouds")
-                local atmosphere_outter = Material("models/debug/debugwhite")
+                --local atmosphere_outter = Material("models/debug/debugwhite")
                 local render = render
-
-                local SetMaterialOverride = function(m)
-                    render.MaterialOverride(m == 0 and nil or m)
-                end
 
                 local render_SetColorModulation = render.SetColorModulation
                 local render_SetBlend = render.SetBlend
@@ -360,17 +356,11 @@ if string.find(game.GetMap(), "gm_construct_m") then
 
                 function tod.InitializeSky()
                     local origin = vector_origin
-                    local angles = vector_origin
 
                     hook.Add("RenderScene", "tod_moon", function(pos, ang)
                         origin = pos
                         angles = ang
                     end)
-
-                    local render_DrawSprite = render.DrawSprite
-                    local render_SetMaterial = render.SetMaterial
-                    local cam_Start3D = cam.Start3D
-                    local cam_End3D = cam.End3D
 
                     local function PostDraw2DSkyBox()
                         if tod.moon_ent:IsValid() then
@@ -775,12 +765,18 @@ if string.find(game.GetMap(), "gm_construct_m") then
     end
 
     -- Weather runs on a schedule every realm computes alike from os.time:
-    -- each WEATHER_SLOT gets a deterministic roll per weather name, the
-    -- weather is on for the slots rolling under its probability, and each
-    -- slot edge is crossed over WEATHER_RAMP seconds.  tod.force_weather
-    -- overrides it: true, false or an amount 0..1.
+    -- each slot gets a deterministic roll per weather name, the weather is
+    -- on for the slots rolling under its probability, and each slot edge is
+    -- crossed over WEATHER_RAMP seconds.  A weather in WEATHER_SLOTS uses
+    -- its own slot length instead of WEATHER_SLOT: rain sits at full
+    -- strength the whole slot, so three hours of it is a long time to stand
+    -- in.  tod.force_weather overrides it all: true, false or an amount 0..1.
     tod.WEATHER_SLOT = 3 * 3600
     tod.WEATHER_RAMP = 10 * 60
+
+    tod.WEATHER_SLOTS = {
+        ["rain"] = 3600,
+    }
 
     local seeds = {}
 
@@ -817,9 +813,10 @@ if string.find(game.GetMap(), "gm_construct_m") then
         probability = probability or 0.5
         local seed = nameSeed(name)
         local now = os.time()
-        local slot = math.floor(now / tod.WEATHER_SLOT)
+        local length = tod.WEATHER_SLOTS[name] or tod.WEATHER_SLOT
+        local slot = math.floor(now / length)
         local on = slotRoll(seed, slot) < probability and 1 or 0
-        local into = now - slot * tod.WEATHER_SLOT
+        local into = now - slot * length
         if into >= tod.WEATHER_RAMP then return on end
 
         local before = slotRoll(seed, slot - 1) < probability and 1 or 0
@@ -851,7 +848,7 @@ if string.find(game.GetMap(), "gm_construct_m") then
     end
 
     function tod.GetCycle()
-        if tod.mode == 2 then return (CurTime() / (20)) % 1 end -- demo mode
+        if tod.mode == 2 then return (CurTime() / 20) % 1 end -- demo mode
 
         return tod.current_cycle or 0
     end
@@ -952,10 +949,10 @@ if string.find(game.GetMap(), "gm_construct_m") then
         end
 
         if aowl then
-            aowl.AddCommand({"settod", "tod"}, "set time of day", function(player, line, val)
-                if not player:IsAdmin() and not player.Unrestricted and player.__lastTimeTOD and CurTime() - player.__lastTimeTOD < 60 then return false, "do not abuse the TOD command" end
+            aowl.AddCommand({"settod", "tod"}, "set time of day", function(ply, line, val)
+                if not ply:IsAdmin() and not ply.Unrestricted and ply.__lastTimeTOD and CurTime() - ply.__lastTimeTOD < 60 then return false, "do not abuse the TOD command" end
                 cmd(val)
-                player.__lastTimeTOD = CurTime()
+                ply.__lastTimeTOD = CurTime()
             end, "developers")
         else
             concommand.Add("settod", function(ply, _, args)
@@ -992,10 +989,16 @@ if string.find(game.GetMap(), "gm_construct_m") then
 
     tod.override_configs = {}
 
-    function tod.AddOverrideConfig(name, config, probability)
+    -- curve shapes how fast the config reaches full as the weather's amount
+    -- rises, amount ^ curve.  Overcast is nearly binary outside: a light
+    -- rain still falls out of a flat grey sky, so rain wants a curve well
+    -- under 1, or half rain leaves half a blue sky behind the streaks.
+    function tod.AddOverrideConfig(name, config, probability, curve)
         tod.override_configs[name] = {
             config = config,
             probability = probability,
+            curve = curve or 1,
+            amount = 0,
             lerp = 0
         }
     end
@@ -1026,10 +1029,11 @@ if string.find(game.GetMap(), "gm_construct_m") then
             -- the override follows its weather's amount, off costs no lerp
             for name, data in pairs(tod.override_configs) do
                 local amount = tod.GetWeather(name, data.probability)
-                if data.lerp ~= amount then
-                    data.lerp = amount
+                if data.amount ~= amount then
+                    data.amount = amount
+                    data.lerp = amount > 0 and amount ^ data.curve or 0
                     if amount > 0 then
-                        tod.SetOverrideConfig(data.config, amount)
+                        tod.SetOverrideConfig(data.config, data.lerp)
                     else
                         tod.SetOverrideConfig()
                     end
@@ -1050,7 +1054,29 @@ if string.find(game.GetMap(), "gm_construct_m") then
 
                 -- for snow and such
                 if tod.override_config then
+                    local clear_fog = {
+                        fog_max_density = cfg.fog_max_density,
+                        fog_color = cfg.fog_color,
+                        fog_start = cfg.fog_start,
+                        fog_end = cfg.fog_end,
+                    }
+
                     cfg = tod.LerpConfigs(tod.override_lerp, cfg, tod.override_config)
+
+                    -- A weather's fog is written against a clear sky, so it
+                    -- only stands where it is thicker than the hour's own:
+                    -- fading to it instead thinned the air wherever the hour
+                    -- was the foggier of the two, and rain cleared both dusk
+                    -- and halloween's black fog rather than closing them in.
+                    -- The hour keeps its colour and range along with its
+                    -- density, or a weather that adds no fog would still
+                    -- repaint it.
+                    if isnumber(clear_fog.fog_max_density) and isnumber(cfg.fog_max_density)
+                        and clear_fog.fog_max_density >= cfg.fog_max_density then
+                        for key, val in pairs(clear_fog) do
+                            cfg[key] = val
+                        end
+                    end
                 end
 
                 tod.AlignSunToLight(cfg, time)

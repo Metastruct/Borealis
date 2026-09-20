@@ -3,6 +3,7 @@
 -- the darker fog and a flat cast, and the client plays the rumble outside,
 -- drips under cover and thunder with a flash when the rain is heavy.
 local PROBABILITY = 0.25
+local CURVE = 0.35 -- the sky greys over well before the rain is heavy
 
 local config = {
 	["fog_start"] = 0,
@@ -18,7 +19,7 @@ local config = {
 	["light_scale"] = 0.55, -- the world light at full rain, applied by tod after the sun is placed
 }
 
-tod.AddOverrideConfig("rain", config, PROBABILITY)
+tod.AddOverrideConfig("rain", config, PROBABILITY, CURVE)
 
 
 if not CLIENT then return end
@@ -57,6 +58,9 @@ local function applyTheme(a, flash)
 	local t = table.Copy(procsky.theme)
 
 	if a > 0 then
+		-- the deck greys over on the same curve tod puts the sky through, or
+		-- the engine sky is overcast while procsky's clouds are still thin
+		a = a ^ CURVE
 		saved = saved or { fogScale = t.fogScale, tint = t.tint }
 		t.overcast = a
 		t.overcastBrightness = DECK_BRIGHTNESS

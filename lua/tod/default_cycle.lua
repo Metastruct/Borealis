@@ -113,7 +113,7 @@ local day =
 	
 	["fog_start"] = 0,
 	["fog_end"] = 30000,
-	["fog_max_density"] = -1,
+	["fog_max_density"] = 0,
 	["fog_color"] = Vector(1,1,1),
 	
 	["shadow_angles"] = Angle(0, 45, 0),
@@ -161,7 +161,7 @@ local dawn =
 	
 	["fog_start"] = 0,
 	["fog_end"] = 10000,
-	["fog_max_density"] = -1,
+	["fog_max_density"] = 0,
 	["fog_color"] = Vector(1,1,1),
 	
 	["shadow_angles"] = Angle(0, 45, 0),
