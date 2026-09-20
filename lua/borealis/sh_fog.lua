@@ -28,7 +28,7 @@ end
 
 local FOG_ENABLED = CreateClientConVar("cl_draw_fog", "1", true, false, "draw volumetric fog in fog and rain weather")
 
-local FOG_PROFILE = { density = 0.0007, falloff = 250, noise = 0.8 } -- extinction per unit at the base, height falloff in units, noise strength
+local FOG_PROFILE = { density = 0.0002, falloff = 250, noise = 0.8 } -- extinction per unit at the base, height falloff in units, noise strength
 local RAIN_PROFILE = { density = 0.00025, falloff = 600, noise = 0.4 }
 local SUN_GAIN = 1 -- sun in-scatter share, 0..1
 local NEAR = 12 -- the fog quad sits this far in front of the eye
