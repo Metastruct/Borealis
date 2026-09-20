@@ -20,7 +20,11 @@ local AURORA_ENABLED = CreateClientConVar("cl_draw_auroras", 0, true, false, "sh
 local INTENSITY = 0.35 -- brightness
 local SCALE = 2 -- pattern scale
 local HUE = 0.5 -- hue shift in radians
-local HEIGHT = 0.8 -- height of the lowest curtain layer
+local HEIGHT = 0.8 -- height of the lowest curtain layer, seen from world z = 0
+-- the curtains hang at a world height instead of riding the camera: climbing
+-- toward them shrinks that height, which scales the whole band up
+local AURORA_SCALE = 30000 -- world units per curtain unit
+local AURORA_MIN = 0.15 -- the layers never collapse onto the eye
 local SHARPNESS = 1 -- curtain streak sharpness
 local WIDTH = 3 -- half-width of the band
 local HEADING = 10 -- world yaw the band runs along IN DEGREES
@@ -220,6 +224,7 @@ local function start(PIXEL_SHADER, SKY_SHADER)
 		MAT:SetFloat("$c2_x", night * window * INTENSITY)
 		MAT:SetFloat("$c2_w", theme().auroraHue or HUE)
 		MAT:SetFloat("$c2_z", (drift * SCROLL_X) % SCROLL_WRAP)
+		MAT:SetFloat("$c3_x", math.max(HEIGHT - EyePos().z / AURORA_SCALE, AURORA_MIN))
 		MAT:SetFloat("$c3_w", (drift * SCROLL_Y) % SCROLL_WRAP)
 
 		render_SetMaterial(MAT)

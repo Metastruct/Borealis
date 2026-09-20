@@ -29,8 +29,15 @@ end
 local COVERAGE = 0.5
 local INTENSITY = 1
 local WIND = { 0.012, 0.004 } -- noise units per second
-local EYE_K = 1 / 12000 -- noise units per world unit, parallax while moving
+local NOISE_SCALE = 20000 -- world units per noise unit, S_LO in clouds_ps30
+local EYE_K = 1 / NOISE_SCALE -- parallax while moving, the same at any deck height
 local NOISE_PERIOD = 64
+-- the decks sit at world heights instead of riding the camera, so climbing
+-- spreads them out and passing one leaves it below: the build area's deck is at
+-- its ceiling, the overcast one near the top of the world.  Overcast pulls the
+-- build deck up to the sky one, so crossing the build ceiling in the rain does
+-- not jump.
+local BUILD_DECK_Z, SKY_DECK_Z = 0, 14000
 
 local function packColor(r, g, b)
 	return math.floor(math.Clamp(r, 0, 1) * 255) * 65536 + math.floor(math.Clamp(g, 0, 1) * 255) * 256 + math.floor(math.Clamp(b, 0, 1) * 255)
@@ -122,6 +129,7 @@ local function startShader(PIXEL_SHADER)
 
 		local ep = EyePos()
 		local t = CurTime()
+		local deckZ = build and Lerp(overcast, BUILD_DECK_Z, SKY_DECK_Z) or SKY_DECK_Z
 
 		MAT:SetFloat("$c0_x", fwd.x)
 		MAT:SetFloat("$c0_y", fwd.y)
@@ -133,7 +141,7 @@ local function startShader(PIXEL_SHADER)
 		MAT:SetFloat("$c1_w", halfH)
 		MAT:SetFloat("$c2_x", lightDir.x)
 		MAT:SetFloat("$c2_y", lightDir.y)
-		MAT:SetFloat("$c2_z", lightDir.z)
+		MAT:SetFloat("$c2_z", deckZ - ep.z)
 		MAT:SetFloat("$c2_w", coverage)
 		MAT:SetFloat("$c3_x", (WIND[1] * t + ep.x * EYE_K) % NOISE_PERIOD)
 		MAT:SetFloat("$c3_y", (WIND[2] * t + ep.y * EYE_K) % NOISE_PERIOD)
