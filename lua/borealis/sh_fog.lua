@@ -28,7 +28,7 @@ end
 
 local FOG_ENABLED = CreateClientConVar("cl_draw_fog", "1", true, false, "draw volumetric fog in fog and rain weather")
 
-local FOG_PROFILE = { density = 0.0002, falloff = 250, noise = 0.8 } -- extinction per unit at the base, height falloff in units, noise strength
+local FOG_PROFILE = { density = 0.0007, falloff = 250, noise = 0.8 } -- extinction per unit at the base, height falloff in units, noise strength
 local RAIN_PROFILE = { density = 0.00025, falloff = 600, noise = 0.4 }
 local SUN_GAIN = 1 -- sun in-scatter share, 0..1
 local NEAR = 12 -- the fog quad sits this far in front of the eye
@@ -55,10 +55,17 @@ end
 local MAT
 local materialSerial = 0
 
-local function build()
-	local depth = render.GetResolvedFullFrameDepth()
-	if not depth or depth:IsError() then return false end
+-- The render targets do not exist yet while the map loads, and asking for one
+-- then hands back a 32 x 32 error texture that answers IsError with false.
+-- Bound as the depth, it reads as garbage and every pixel marches the full
+-- distance, so the frame comes out an opaque wall.  A retry hits this and a
+-- cold start does not: the shaders are already mounted on a retry, so start
+-- runs at load instead of waiting for ShaderMounted.
+local function usableRT(t)
+	return t ~= nil and not t:IsError() and t:Width() > 64
+end
 
+local function build()
 	materialSerial = materialSerial + 1
 	MAT = CreateMaterial("ms_fog_" .. os.time() .. "_" .. materialSerial, "screenspace_general", {
 		["$pixshader"] = PS,
@@ -82,9 +89,6 @@ local function build()
 		["$c2_x"] = 0, ["$c2_y"] = 0, ["$c2_z"] = 1, ["$c2_w"] = 0,
 		["$c3_x"] = 1, ["$c3_y"] = 1, ["$c3_z"] = 1, ["$c3_w"] = 1,
 	})
-	MAT:SetTexture("$basetexture", render.GetScreenEffectTexture())
-	MAT:SetTexture("$texture1", depth)
-
 	return true
 end
 
@@ -177,6 +181,15 @@ local function draw(bDepth, bSkybox, b3DSky)
 	local density, falloff, noise = weather()
 	if density <= 0 then return end
 
+	-- rebound every frame: the targets are recreated across a map change and a
+	-- material built before they existed holds the error texture forever
+	local depth, fb = render.GetResolvedFullFrameDepth(), render.GetScreenEffectTexture()
+	if not usableRT(depth) or not usableRT(fb) then return end
+	if not MAT and not build() then return end
+
+	MAT:SetTexture("$texture1", depth)
+	MAT:SetTexture("$basetexture", fb)
+
 	local eye = EyePos()
 	local fwd = EyeAngles():Forward()
 	local vs = render.GetViewSetup()
@@ -226,7 +239,6 @@ end
 
 local function start()
 	stop()
-	if not build() then return end
 	hook.Add("Think", "ms_fog", think)
 	hook.Add("NeedsDepthPass", "ms_fog", function() return active end)
 	hook.Add("PreDrawTranslucentRenderables", "ms_fog", draw)
