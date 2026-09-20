@@ -105,6 +105,8 @@ local function startShader(PIXEL_SHADER)
 
 	-- the build area's clouds, or a deck over the whole sky when procsky is overcast
 	local function drawClouds()
+		-- the volumetric clouds replace this deck, overcast included, while on
+		if vclouds and vclouds.IsActive() then return end
 		local overcast = procsky and procsky.GetOvercast and procsky.GetOvercast() or 0
 		local build = inBuildArea()
 		if not build and overcast < 0.01 then return end

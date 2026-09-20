@@ -16,10 +16,9 @@ end
 -- Volumetric fog: a height layer ray marched per pixel by fog_ps30 and
 -- composited over the frame before the translucent pass, so glass, particles
 -- and the viewmodel draw on top.  Depth comes from two sources and the nearer
--- wins: the engine's depth pass (exact, but only what the engine draws) and a
--- coarse slice capture of the real frame (SLICES depth-tested alpha-only quads
--- writing their index into the frame's alpha, so Lua-drawn things like PAC3
--- parts occlude the fog too).
+-- wins: the engine's depth pass (exact, but only what the engine draws) and the
+-- coarse slice capture in sh_depthslices, shared with the volumetric clouds, so
+-- Lua-drawn things like PAC3 parts occlude the fog too.
 --
 -- Density follows tod's weather: fog weather (tod.fog) is a ground layer,
 -- rain (tod.rain) a taller thin haze, the two profiles blended by their share
@@ -33,21 +32,10 @@ local RAIN_PROFILE = { density = 0.00025, falloff = 600, noise = 0.4 }
 local SUN_GAIN = 1 -- sun in-scatter share, 0..1
 local NEAR = 12 -- the fog quad sits this far in front of the eye
 local QUAD_OVERSIZE = 6 -- quads are sized past the frustum, the shader uses the clip position
-local SLICES = 64 -- log-spaced from SLICE_NEAR to SLICE_FAR, both baked into fog_ps30 too
-local SLICE_NEAR = 16
-local SLICE_FAR = 5000
 local BASE_LIFT = 40 -- fog base above the ground under the player
 local BASE_RATE = 0.5 -- share of the remaining gap closed per second when the ground changes
 local BASE_TRACE_INTERVAL = 0.25
 local PS, VS = "fog_ps30", "fog_vs30"
-
-local sliceDist = {}
-do
-	local ratio = (SLICE_FAR / SLICE_NEAR) ^ (1 / (SLICES - 1))
-	for k = 0, SLICES - 1 do
-		sliceDist[k] = SLICE_NEAR * ratio ^ k
-	end
-end
 
 --------------------------------------------------------------------------
 -- material, a new one every start so a kept one never lacks a constant
@@ -149,32 +137,7 @@ end
 --------------------------------------------------------------------------
 -- rendering
 --------------------------------------------------------------------------
-local ALPHA0 = Color(0, 0, 0, 0)
-local sliceColor = Color(0, 0, 0, 0)
 local quadColor = Color(SUN_GAIN * 255, 0, 0, 255)
-
--- frame alpha = index of the farthest slice in front of the surface, 0 nearer
--- than the first.  Alpha writes only, blending forced to replace, the near
--- quad ignores depth to clear, the slices are depth tested with the colour
--- material which does not write depth.  3D quads: the surface library ignores
--- the overrides.
-local function captureSlices(eye, fwd, halfW, halfH)
-	render.OverrideColorWriteEnable(true, false)
-	render.OverrideAlphaWriteEnable(true, true)
-	render.OverrideBlend(true, BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD, BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD)
-	render.SetColorMaterial()
-	render.OverrideDepthEnable(true, false)
-	render.DrawQuadEasy(eye + fwd * NEAR, -fwd, halfW * NEAR * QUAD_OVERSIZE, halfH * NEAR * QUAD_OVERSIZE, ALPHA0, 0)
-	render.OverrideDepthEnable(false, false)
-	for k = 0, SLICES - 1 do
-		local t = sliceDist[k]
-		sliceColor.a = k + 1
-		render.DrawQuadEasy(eye + fwd * t, -fwd, halfW * t * QUAD_OVERSIZE, halfH * t * QUAD_OVERSIZE, sliceColor, 0)
-	end
-	render.OverrideBlend(false)
-	render.OverrideAlphaWriteEnable(false, false)
-	render.OverrideColorWriteEnable(false, false)
-end
 
 local function draw(bDepth, bSkybox, b3DSky)
 	if bDepth or bSkybox or b3DSky or render.GetRenderTarget() then return end
@@ -216,15 +179,18 @@ local function draw(bDepth, bSkybox, b3DSky)
 	MAT:SetFloat("$c3_z", toLinear(fb) * tonemap)
 	MAT:SetFloat("$c3_w", falloff)
 
-	captureSlices(eye, fwd, halfW, halfH)
+	depthslices.Capture()
 	render.UpdateScreenEffectTexture()
 
-	-- the fog quad writes alpha 1 everywhere, restoring the frame's alpha
+	-- alpha writes stay off so the slice indices survive for the next effect;
+	-- sh_depthslices puts the frame's alpha back after the translucent pass
 	quadColor.g = noise * 255
-	render.OverrideDepthEnable(true, false)
-	render.SetMaterial(MAT)
-	render.DrawQuadEasy(eye + fwd * NEAR, -fwd, halfW * NEAR * QUAD_OVERSIZE, halfH * NEAR * QUAD_OVERSIZE, quadColor, 0)
-	render.OverrideDepthEnable(false, false)
+	depthslices.KeepAlpha(function()
+		render.OverrideDepthEnable(true, false)
+		render.SetMaterial(MAT)
+		render.DrawQuadEasy(eye + fwd * NEAR, -fwd, halfW * NEAR * QUAD_OVERSIZE, halfH * NEAR * QUAD_OVERSIZE, quadColor, 0)
+		render.OverrideDepthEnable(false, false)
+	end)
 end
 
 --------------------------------------------------------------------------

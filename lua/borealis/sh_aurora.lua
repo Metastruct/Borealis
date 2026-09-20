@@ -16,7 +16,7 @@ if SERVER then
 	return
 end
 
-local AURORA_ENABLED = CreateClientConVar("cl_draw_auroras", 0, true, false, "should we draw auroras")
+local AURORA_ENABLED = CreateClientConVar("cl_draw_auroras", 1, true, false, "should we draw auroras")
 local INTENSITY = 0.35 -- brightness
 local SCALE = 2 -- pattern scale
 local HUE = 0.5 -- hue shift in radians
