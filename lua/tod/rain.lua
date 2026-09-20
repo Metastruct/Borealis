@@ -27,6 +27,7 @@ if not CLIENT then return end
 local DECK_BRIGHTNESS = 0.6 -- the deck sits darker than snow's stratus
 local FOG_SCALE = 0.75
 local RUMBLE = "ambient/weather/rumble_rain.wav"
+local VOLUME = 0.7 -- rumble at full rain
 local COVER_VOLUME = 0.3 -- rumble share heard under a roof
 local DRIP_INTERVAL = { 0.6, 1.8 }
 local THUNDER_AMOUNT = 0.8 -- heavy rain only
@@ -41,6 +42,7 @@ local FLASH = {
 tod.rain = tod.rain or { amount = 0, covered = false } -- read by sh_rain for the streaks
 
 local amount = 0 -- last amount pushed into the theme
+local rumbleOwner -- the entity the patch was made on, replaced on a map change
 local saved -- the season's own fogScale and tint while rain overrides them
 local flashUntil = 0
 local covered = false
@@ -92,10 +94,35 @@ local function underCover()
 	return tr.Hit and not tr.HitSky
 end
 
-local function stopRumble()
+local function stopRumble(fade)
 	if not tod.rain_rumble then return end
-	tod.rain_rumble:FadeOut(2)
+	if fade then
+		tod.rain_rumble:FadeOut(fade)
+	else
+		tod.rain_rumble:Stop()
+	end
+
 	tod.rain_rumble = nil
+end
+
+-- the engine drops the patch on its own, on a focus loss, a soundscape or a
+-- stopsound, and hands the dead one back, so the loop is picked up from
+-- IsPlaying rather than from the reference still being there
+local function updateRumble(ply, volume)
+	local s = tod.rain_rumble
+	if s and (rumbleOwner ~= ply or not s:IsPlaying()) then
+		s:Stop()
+		s, tod.rain_rumble = nil, nil
+	end
+
+	if not s then
+		rumbleOwner = ply
+		s = CreateSound(ply, RUMBLE)
+		tod.rain_rumble = s
+		s:PlayEx(0, 100)
+	end
+
+	s:ChangeVolume(volume, 0.5)
 end
 
 hook.Add("Think", "tod_rain", function()
@@ -116,7 +143,7 @@ hook.Add("Think", "tod_rain", function()
 
 	tod.rain.amount = a
 	if a <= 0 then
-		stopRumble()
+		stopRumble(2)
 		return
 	end
 
@@ -129,12 +156,14 @@ hook.Add("Think", "tod_rain", function()
 		tod.rain.covered = covered
 	end
 
-	if not tod.rain_rumble then
-		tod.rain_rumble = CreateSound(ply, RUMBLE)
-		tod.rain_rumble:PlayEx(0, 100)
+	-- nothing is heard while another window has the focus
+	if not system.HasFocus() then
+		stopRumble()
+
+		return
 	end
 
-	tod.rain_rumble:ChangeVolume(a * (covered and COVER_VOLUME or 1), 0.5)
+	updateRumble(ply, a * VOLUME * (covered and COVER_VOLUME or 1))
 
 	if covered and now >= nextDrip then
 		nextDrip = now + math.Rand(DRIP_INTERVAL[1], DRIP_INTERVAL[2]) / a
@@ -146,7 +175,7 @@ hook.Add("Think", "tod_rain", function()
 		flashUntil = now + FLASH_TIME
 		applyTheme(a, true)
 		timer.Simple(math.Rand(0.8, 3), function()
-			if amount > 0 and IsValid(ply) then
+			if amount > 0 and IsValid(ply) and system.HasFocus() then
 				ply:EmitSound("ambient/weather/thunder" .. math.random(6) .. ".wav", 0, math.random(90, 110), 0.7, CHAN_STATIC)
 			end
 		end)
@@ -155,7 +184,7 @@ end)
 
 local function removeIt()
 	hook.Remove("Think", "tod_rain")
-	stopRumble()
+	stopRumble(2)
 	tod.RemoveOverrideConfig("rain")
 	tod.SetOverrideConfig()
 	tod.SetConfigCycle(unpack(tod.config_cycle)) -- drops the cached lerps that still hold the override
