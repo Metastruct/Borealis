@@ -23,7 +23,9 @@ end
 -- at (a roof, a bridge, the ground, or the top of the world when the sky is
 -- blocked), from two traces per column that include props.  The streak
 -- shader discards everything below it, so rain falls outside a doorway and
--- not inside, and stops on roofs.  The amount comes from tod/rain.lua.
+-- not inside, and stops on roofs.  The window is traced again continuously
+-- at a low rate, so a roof built or moved after the trace still counts.  The
+-- amount comes from tod/rain.lua.
 --
 -- Nothing is set between draws: with the threaded material system a draw
 -- reads a material constant whenever the render thread gets to it, so a
@@ -46,15 +48,18 @@ local ALPHA = 0.24
 local COLOR = { 0.62, 0.66, 0.72 } -- mid grey: darker than the sky, lighter than the world
 local WRAP = 5 -- seconds, the streak shader's time period
 
-local COLUMN = 48 -- cover map cell, matches the shader
-local COLUMNS = 32 -- cover map size in cells, covers the fade distance around the eye
+local COLUMN = 24 -- cover map cell, matches the shader
+local COLUMNS = 64 -- cover map size in cells, covers the fade distance around the eye
 local Z_MIN, Z_RANGE = -16384, 32768 -- the cut height's 16 bit range, matches the shader
 local TRACE_SLOT = 80 -- every column is traced again when the eye moves this far in z
 local TRACE_HALF = 480 -- the traces look this far above and below the eye
 local TRACES_PER_FRAME = 60
-local SOLID = bit.bor(CONTENTS_SOLID, CONTENTS_MOVEABLE, CONTENTS_WINDOW, CONTENTS_GRATE) -- props included, players not
+local IDLE_TRACES_PER_FRAME = 24 -- the whole window again while nothing is pending, so props built or moved after the trace count
+-- MASK_SOLID: without CONTENTS_MONSTER a trace hits brushes only and every prop is missed; players are filtered per batch
+local SOLID = MASK_SOLID
 
-local SPLASH_QUAD = 1.5 -- ripple quad size in cells: overlapping, so spots cross cell borders
+local SPLASH_STEP = 2 -- ripples on a coarser grid than the cover map, one quad per block of columns
+local SPLASH_QUAD = 3 -- ripple quad size in cells: overlapping, so spots cross block borders
 local SPLASH_ALPHA = 0.5
 local SPLASH_FADE_START, SPLASH_FADE_END = 420, 720 -- inside the column window
 local SPLASH_WRAP = 3600 -- seconds, a multiple of the ripple shader's cycle
@@ -157,6 +162,7 @@ end
 --------------------------------------------------------------------------
 local owner, ground, queue, queued = {}, {}, {}, {}
 local traceZ, winX, winY
+local idle = false -- the queue holds a refresh, not a window change
 local ripplesDirty, nextRipple = false, 0
 local upTrace = { mask = SOLID, start = Vector(), endpos = Vector() }
 local downTrace = { mask = SOLID, start = Vector(), endpos = Vector() }
@@ -253,13 +259,25 @@ local function updateColumns(eye)
 		end
 
 		rebuildQueue()
+		idle = false
 	end
 
-	if #queue == 0 then return end
+	if #queue == 0 then
+		for cy = winY, winY + COLUMNS - 1 do
+			for cx = winX, winX + COLUMNS - 1 do
+				queued[columnKey(cx, cy)] = true
+			end
+		end
+
+		rebuildQueue()
+		idle = true
+	end
 
 	local top, bottom = traceZ + TRACE_HALF, traceZ - TRACE_HALF
+	local players = player.GetAll()
+	upTrace.filter, downTrace.filter = players, players
 	render.PushRenderTarget(coverRT)
-	for _ = 1, TRACES_PER_FRAME do
+	for _ = 1, idle and IDLE_TRACES_PER_FRAME or TRACES_PER_FRAME do
 		local key = table.remove(queue)
 		if not key then break end
 		queued[key] = nil
@@ -288,9 +306,9 @@ local function updateColumns(eye)
 end
 
 --------------------------------------------------------------------------
--- ripples: one quad per column with level ground, larger than the column and
--- centred on it, the column's seed in the vertex colour; the shader never
--- restarts a ripple on a rebuild
+-- ripples: one quad per block of columns whose first column has level
+-- ground, larger than the block and centred on it, the column's seed in the
+-- vertex colour; the shader never restarts a ripple on a rebuild
 --------------------------------------------------------------------------
 local function dropSplashes()
 	if not splashMesh then return end
@@ -300,14 +318,15 @@ end
 
 local function buildSplashes()
 	local quads, count = {}, 0
-	for cy = winY, winY + COLUMNS - 1 do
-		for cx = winX, winX + COLUMNS - 1 do
+	-- blocks aligned to the world, not the window, so they keep their seeds as it moves
+	for cy = winY + winY % SPLASH_STEP, winY + COLUMNS - 1, SPLASH_STEP do
+		for cx = winX + winX % SPLASH_STEP, winX + COLUMNS - 1, SPLASH_STEP do
 			local z = ground[columnKey(cx, cy)]
 			if z then
 				local seed = (cx * 73856093 + cy * 19349663) % 65536
 				count = count + 1
 				-- overlapping quads never share a plane: no z-fighting where they cross
-				quads[count] = { (cx + 0.5 - SPLASH_QUAD * 0.5) * COLUMN, (cy + 0.5 - SPLASH_QUAD * 0.5) * COLUMN, z + seed % 7 * 0.15, seed % 256, math.floor(seed / 256) }
+				quads[count] = { (cx + SPLASH_STEP * 0.5 - SPLASH_QUAD * 0.5) * COLUMN, (cy + SPLASH_STEP * 0.5 - SPLASH_QUAD * 0.5) * COLUMN, z + seed % 7 * 0.15, seed % 256, math.floor(seed / 256) }
 			end
 		end
 	end
@@ -421,7 +440,7 @@ end
 local function start()
 	stop()
 	-- point sampled and wrapped: the shader addresses it by world column
-	coverRT = coverRT or GetRenderTargetEx("ms_rain_cover", COLUMNS, COLUMNS, RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE, 1, 0, IMAGE_FORMAT_RGBA8888)
+	coverRT = coverRT or GetRenderTargetEx("ms_rain_cover_" .. COLUMNS, COLUMNS, COLUMNS, RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE, 1, 0, IMAGE_FORMAT_RGBA8888)
 	-- untraced columns rain everywhere
 	render.PushRenderTarget(coverRT)
 	render.Clear(0, 0, 0, 255)
