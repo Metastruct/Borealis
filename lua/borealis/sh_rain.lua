@@ -27,6 +27,10 @@ end
 -- at a low rate, so a roof built or moved after the trace still counts.  The
 -- amount comes from tod/rain.lua.
 --
+-- The ripples are shaded, not drawn: each one is a height field and the quad
+-- shows the wet ground's mirror of the sky bent by its slopes, so they need
+-- the horizon's colour and the light's direction every frame.
+--
 -- Nothing is set between draws: with the threaded material system a draw
 -- reads a material constant whenever the render thread gets to it, so a
 -- constant set per tile lands on the wrong tiles.  The constants are set once
@@ -37,17 +41,20 @@ local PS, VS = "rain_ps30", "rain_vs30"
 local SPLASH_PS = "rainsplash_ps30"
 
 local TILE = 512 -- world units, the tiles' grid
-local STREAKS = 450 -- crossed quad pairs per tile at full rain
+local STREAKS = 1100 -- crossed quad pairs per tile at full rain
 local DENSITY_STEPS = 4 -- levels of streak count between nothing and full rain
 local HALF_H = 560 -- half height of the field, matches the shader
-local PERIOD = 80 -- the streak pattern repeats on this height: HALF_H * 2 / the shader's REPEATS
+local PERIOD = 80 -- world units between drop slots, matches the shader
 local FIELD_SLACK = 160 -- the tiles are rebuilt once the eye is this far above or below their centre, a jump never does
-local HALF_W = 1.2
+local HALF_W = 2.6 -- half width of a strip: the drops scatter across it, so a wide one does not read as a line
+local CROSS_SPREAD = 24 -- how far the second plane of a cross sits from the first, so a pair is two streaks and not one column
 local WIND = { 0.16, 0.05 } -- lean of the streaks, xy per unit of height
 local FADE_START, FADE_END = 560, 760
 local ALPHA = 0.24
-local COLOR = { 0.62, 0.66, 0.72 } -- mid grey: darker than the sky, lighter than the world
-local WRAP = 5 -- seconds, the streak shader's time period
+local COLOR_BODY = 0.5 -- a streak's body as a share of the sky behind it: rain reads dark against daylight
+local COLOR_HEAD = 1.5 -- and its head, which is what shows against the world instead
+local COLOR_HEAD_FLOOR = 0.22 -- the head never goes under this, or night rain has nothing left
+local WRAP = 20 -- seconds, the streak shader's time period: every speed in it moves a whole number of slot hash periods over this
 
 local COLUMN = 24 -- cover map cell, matches the shader
 local COLUMNS = 64 -- cover map size in cells, covers the fade distance around the eye
@@ -63,8 +70,17 @@ local SPLASH_STEP = 2 -- ripples on a coarser grid than the cover map, one quad 
 local SPLASH_QUAD = 3 -- ripple quad size in cells: overlapping, so spots cross block borders
 local SPLASH_ALPHA = 0.5
 local SPLASH_FADE_START, SPLASH_FADE_END = 420, 720 -- inside the column window
-local SPLASH_WRAP = 3600 -- seconds, a multiple of the ripple shader's cycle
+local SPLASH_WRAP = 64 -- seconds, a multiple of every ripple rate's cycle and of the shader's cycle hash period
+local SPLASH_SKY = 1.35 -- how much of the horizon's colour the wet ground mirrors
+local SPLASH_GREY = 0.45 -- and how far toward its own brightness that colour is pulled: the sky over the horizon is paler than the fog at it
+local SPLASH_OVERCAST = 0.85 -- how far a closed sky drains the glints off the ripples
 local SPLASH_REBUILD = 0.5 -- seconds between ripple mesh rebuilds while columns come in
+local SPLASH_SLOPE = 0.8 -- steepest ground the rain still rings on, as the surface normal's z
+local SPLASH_FLAT = 10 -- how far a corner may sit off the plane through the other three before the quad is dropped
+local SPLASH_NSCALE = 0.75 -- the normal's xy range in the vertex colour, matches the shader
+-- the columns under a quad's first and last corner, from the block it sits on
+local SPLASH_C0 = math.floor((SPLASH_STEP - SPLASH_QUAD) * 0.5)
+local SPLASH_C1 = SPLASH_C0 + SPLASH_QUAD
 
 local function packColor(r, g, b)
 	return math.floor(math.Clamp(r, 0, 1) * 255) * 65536 + math.floor(math.Clamp(g, 0, 1) * 255) * 256 + math.floor(math.Clamp(b, 0, 1) * 255)
@@ -73,13 +89,48 @@ end
 local MAT, SPLASH_MAT, coverRT, splashMesh
 local build -- the cover map and the materials, once the render targets are real
 
+local UP = Vector(0, 0, 1)
+local DIM = { 0.12, 0.13, 0.16 } -- no procsky: a dull light, the glints barely show
+local skyCol, lightCol = { 0, 0, 0 }, { 0, 0, 0 }
+local bodyCol, headCol = { 0, 0, 0 }, { 0, 0, 0 }
+
+-- a fixed grey held its own at dusk and vanished at noon: both streak colours
+-- follow the hour's own sky instead, so the contrast survives the whole day
+local function streakColor()
+	local r, g, b = render.GetFogColor()
+	bodyCol[1], bodyCol[2], bodyCol[3] = r / 255 * COLOR_BODY, g / 255 * COLOR_BODY, b / 255 * COLOR_BODY
+	headCol[1] = math.max(r / 255 * COLOR_HEAD, COLOR_HEAD_FLOOR)
+	headCol[2] = math.max(g / 255 * COLOR_HEAD, COLOR_HEAD_FLOOR)
+	headCol[3] = math.max(b / 255 * COLOR_HEAD, COLOR_HEAD_FLOOR)
+
+	return bodyCol, headCol
+end
+
+-- what the wet ground mirrors and what glints off it: the horizon's own colour,
+-- which tod already matches to the hour, and the sun or moon behind the cloud
+local function wetLight()
+	local r, g, b = render.GetFogColor()
+	local lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
+	skyCol[1] = Lerp(SPLASH_GREY, r / 255, lum) * SPLASH_SKY
+	skyCol[2] = Lerp(SPLASH_GREY, g / 255, lum) * SPLASH_SKY
+	skyCol[3] = Lerp(SPLASH_GREY, b / 255, lum) * SPLASH_SKY
+	if not procsky or not procsky.GetCloudLighting then
+		return UP, skyCol, DIM
+	end
+
+	local dir, light = procsky.GetCloudLighting()
+	local k = 1 - SPLASH_OVERCAST * (procsky.GetOvercast and procsky.GetOvercast() or 0)
+	lightCol[1], lightCol[2], lightCol[3] = light[1] * k, light[2] * k, light[3] * k
+
+	return dir, skyCol, lightCol
+end
+
 --------------------------------------------------------------------------
 -- streak tiles: tiles[key] = { ix, iy, z, mesh }, the 3 x 3 around the eye,
 -- built in world space at the field's current height
 --------------------------------------------------------------------------
 local tiles = {}
-local fieldZ -- the tiles' centre, a multiple of PERIOD so a rebuilt tile shows the same streaks
-local tileLevel -- the density level the tiles were built at, 1 .. DENSITY_STEPS
+local fieldZ -- the tiles' centre, snapped to PERIOD; the drops hang off world height, so a rebuild never moves them
 
 local function densityLevel(amount)
 	return math.Clamp(math.ceil(amount * DENSITY_STEPS), 1, DENSITY_STEPS)
@@ -89,7 +140,11 @@ local function tileKey(ix, iy)
 	return ix * 65536 + iy
 end
 
-local function buildTile(ix, iy, fz, count)
+local function buildTile(ix, iy, fz, level)
+	local count = math.floor(STREAKS * level / DENSITY_STEPS)
+	-- the tile's own level rides along in the vertex alpha, so a tile still at
+	-- the old one draws at its own weight instead of the whole field jumping
+	local weight = math.floor(255 * level / DENSITY_STEPS)
 	local rng = bit.band(ix * 73856093 + iy * 19349663, 0x7fffffff)
 	local function rand()
 		rng = (rng * 1103515245 + 12345) % 2147483648
@@ -98,23 +153,33 @@ local function buildTile(ix, iy, fz, count)
 	end
 
 	local tx, ty = ix * TILE, iy * TILE
-	local wx, wy = WIND[1] * HALF_H, WIND[2] * HALF_H
 	local top, bottom = fz + HALF_H, fz - HALF_H
 	local m = Mesh()
 	mesh.Begin(m, MATERIAL_QUADS, count * 2)
 	for _ = 1, count do
-		local x, y = tx + rand() * TILE, ty + rand() * TILE
-		-- colour: phase, speed step (0 .. 4 of 4), brightness
-		local phase, speed, bright = math.floor(rand() * 255), math.floor(rand() * 4 + 0.5) * 63, math.floor(rand() * 255)
+		local cx, cy = tx + rand() * TILE, ty + rand() * TILE
+		local ox, oy = (rand() - 0.5) * CROSS_SPREAD, (rand() - 0.5) * CROSS_SPREAD
+		-- each streak leans its own amount and a little across the wind, so the
+		-- field is not one comb of parallel lines
+		local lean, swing = 0.65 + rand() * 0.8, (rand() - 0.5) * 0.5
+		local wx = (WIND[1] * lean - WIND[2] * swing) * HALF_H
+		local wy = (WIND[2] * lean + WIND[1] * swing) * HALF_H
 		local ang = rand() * math.pi
 		for k = 0, 1 do
+			-- colour: phase, speed step (0 .. 4 of 4), brightness, drawn again
+			-- for the second plane so the cross does not show the same drops twice
+			local phase, speed, bright = math.floor(rand() * 255), math.floor(rand() * 4 + 0.5) * 63, math.floor(rand() * 255)
 			local a = ang + k * math.pi * 0.5
+			-- the two planes hold a point each instead of crossing on one: a
+			-- cross puts every lane of both into the same column of air
+			local x, y = cx + ox * k, cy + oy * k
 			local dx, dy = math.cos(a) * HALF_W, math.sin(a) * HALF_W
-			-- v runs 0 at the top to 1 at the bottom, the top leans into the wind
-			mesh.Position(Vector(x - dx + wx, y - dy + wy, top)) mesh.TexCoord(0, 0, 0) mesh.Color(phase, speed, bright, 255) mesh.AdvanceVertex()
-			mesh.Position(Vector(x + dx + wx, y + dy + wy, top)) mesh.TexCoord(0, 1, 0) mesh.Color(phase, speed, bright, 255) mesh.AdvanceVertex()
-			mesh.Position(Vector(x + dx - wx, y + dy - wy, bottom)) mesh.TexCoord(0, 1, 1) mesh.Color(phase, speed, bright, 255) mesh.AdvanceVertex()
-			mesh.Position(Vector(x - dx - wx, y - dy - wy, bottom)) mesh.TexCoord(0, 0, 1) mesh.Color(phase, speed, bright, 255) mesh.AdvanceVertex()
+			-- the top leans into the wind; the shader reads u across the strip
+			-- and takes the drops' height from the world, not from v
+			mesh.Position(Vector(x - dx + wx, y - dy + wy, top)) mesh.TexCoord(0, 0, 0) mesh.Color(phase, speed, bright, weight) mesh.AdvanceVertex()
+			mesh.Position(Vector(x + dx + wx, y + dy + wy, top)) mesh.TexCoord(0, 1, 0) mesh.Color(phase, speed, bright, weight) mesh.AdvanceVertex()
+			mesh.Position(Vector(x + dx - wx, y + dy - wy, bottom)) mesh.TexCoord(0, 1, 1) mesh.Color(phase, speed, bright, weight) mesh.AdvanceVertex()
+			mesh.Position(Vector(x - dx - wx, y - dy - wy, bottom)) mesh.TexCoord(0, 0, 1) mesh.Color(phase, speed, bright, weight) mesh.AdvanceVertex()
 		end
 	end
 
@@ -131,13 +196,9 @@ local function dropTiles()
 end
 
 -- one build per frame, the nearest missing or outdated tile first; a tile at
--- an old height still shows the same streaks until its turn
+-- an old height or density still draws until its turn, so a step in the amount
+-- costs one tile a frame instead of rebuilding the whole field at once
 local function updateTiles(eye, level)
-	if level ~= tileLevel then
-		tileLevel = level
-		dropTiles()
-	end
-
 	if not fieldZ or math.abs(eye.z - fieldZ) > FIELD_SLACK then
 		fieldZ = math.floor(eye.z / PERIOD + 0.5) * PERIOD
 	end
@@ -157,12 +218,12 @@ local function updateTiles(eye, level)
 		local tix, tiy = ix + d[1], iy + d[2]
 		local key = tileKey(tix, tiy)
 		local t = tiles[key]
-		if not t or t.z ~= fz then
+		if not t or t.z ~= fz or t.level ~= level then
 			if t then
 				t.mesh:Destroy()
 			end
 
-			tiles[key] = { ix = tix, iy = tiy, z = fz, mesh = buildTile(tix, tiy, fz, math.floor(STREAKS * level / DENSITY_STEPS)) }
+			tiles[key] = { ix = tix, iy = tiy, z = fz, level = level, mesh = buildTile(tix, tiy, fz, level) }
 			budget = budget - 1
 		end
 	end
@@ -210,7 +271,7 @@ local function traceColumn(cx, cy, top, bottom)
 		return Z_MIN, false
 	end
 
-	return down.HitPos.z, down.HitNormal.z > 0.9 and down.HitPos.z + 0.4
+	return down.HitPos.z, down.HitNormal.z > SPLASH_SLOPE and down.HitPos.z + 0.4
 end
 
 -- a clear inside a one texel viewport: the surface library's draws go through
@@ -318,10 +379,16 @@ local function updateColumns(eye)
 end
 
 --------------------------------------------------------------------------
--- ripples: one quad per block of columns whose first column has level
--- ground, larger than the block and centred on it, the column's seed in the
--- vertex colour; the shader never restarts a ripple on a rebuild
+-- ripples: one quad per block of columns, larger than the block and centred
+-- on it, the column's seed in the vertex colour; the shader never restarts a
+-- ripple on a rebuild.  The quad takes its four corner heights from the
+-- columns under those corners, so it lies in the ground instead of cutting
+-- through it, and carries that plane's normal for the shader's sheen.
 --------------------------------------------------------------------------
+local function packNormal(v)
+	return math.floor(math.Clamp(v / SPLASH_NSCALE * 0.5 + 0.5, 0, 1) * 255 + 0.5)
+end
+
 local function dropSplashes()
 	if not splashMesh then return end
 	splashMesh:Destroy()
@@ -330,31 +397,43 @@ end
 
 local function buildSplashes()
 	local quads, count = {}, 0
+	local q = COLUMN * SPLASH_QUAD
 	-- blocks aligned to the world, not the window, so they keep their seeds as it moves
 	for cy = winY + winY % SPLASH_STEP, winY + COLUMNS - 1, SPLASH_STEP do
 		for cx = winX + winX % SPLASH_STEP, winX + COLUMNS - 1, SPLASH_STEP do
-			local z = ground[columnKey(cx, cy)]
-			if z then
+			-- the columns under the quad's own corners, which are its corner
+			-- heights; one missing means the quad reaches out past an edge
+			local z00 = ground[columnKey(cx + SPLASH_C0, cy + SPLASH_C0)]
+			local z10 = ground[columnKey(cx + SPLASH_C1, cy + SPLASH_C0)]
+			local z11 = ground[columnKey(cx + SPLASH_C1, cy + SPLASH_C1)]
+			local z01 = ground[columnKey(cx + SPLASH_C0, cy + SPLASH_C1)]
+			-- and a corner off the plane through the other three is a step, a
+			-- ridge or a hole: nothing one flat quad can lie on
+			if z00 and z10 and z11 and z01 and math.abs(z00 - z10 + z11 - z01) * 0.5 <= SPLASH_FLAT then
 				local seed = (cx * 73856093 + cy * 19349663) % 65536
-				count = count + 1
+				local dzdx, dzdy = (z10 - z00 + z11 - z01) * 0.5 / q, (z01 - z00 + z11 - z10) * 0.5 / q
+				local nz = 1 / math.sqrt(dzdx * dzdx + dzdy * dzdy + 1)
 				-- overlapping quads never share a plane: no z-fighting where they cross
-				quads[count] = { (cx + SPLASH_STEP * 0.5 - SPLASH_QUAD * 0.5) * COLUMN, (cy + SPLASH_STEP * 0.5 - SPLASH_QUAD * 0.5) * COLUMN, z + seed % 7 * 0.15, seed % 256, math.floor(seed / 256) }
+				local lift = seed % 7 * 0.15
+				count = count + 1
+				quads[count] = { (cx + SPLASH_C0 + 0.5) * COLUMN, (cy + SPLASH_C0 + 0.5) * COLUMN,
+					z00 + lift, z10 + lift, z11 + lift, z01 + lift,
+					seed % 256, math.floor(seed / 256), packNormal(-dzdx * nz), packNormal(-dzdy * nz) }
 			end
 		end
 	end
 
 	if count == 0 then return nil end
 
-	local q = COLUMN * SPLASH_QUAD
 	local m = Mesh()
 	mesh.Begin(m, MATERIAL_QUADS, count)
 	for i = 1, count do
 		local e = quads[i]
-		local x, y, z, r, g = e[1], e[2], e[3], e[4], e[5]
-		mesh.Position(Vector(x, y, z)) mesh.TexCoord(0, 0, 0) mesh.Color(r, g, 0, 255) mesh.AdvanceVertex()
-		mesh.Position(Vector(x + q, y, z)) mesh.TexCoord(0, 1, 0) mesh.Color(r, g, 0, 255) mesh.AdvanceVertex()
-		mesh.Position(Vector(x + q, y + q, z)) mesh.TexCoord(0, 1, 1) mesh.Color(r, g, 0, 255) mesh.AdvanceVertex()
-		mesh.Position(Vector(x, y + q, z)) mesh.TexCoord(0, 0, 1) mesh.Color(r, g, 0, 255) mesh.AdvanceVertex()
+		local x, y, r, g, nx, ny = e[1], e[2], e[7], e[8], e[9], e[10]
+		mesh.Position(Vector(x, y, e[3])) mesh.TexCoord(0, 0, 0) mesh.Color(r, g, nx, ny) mesh.AdvanceVertex()
+		mesh.Position(Vector(x + q, y, e[4])) mesh.TexCoord(0, 1, 0) mesh.Color(r, g, nx, ny) mesh.AdvanceVertex()
+		mesh.Position(Vector(x + q, y + q, e[5])) mesh.TexCoord(0, 1, 1) mesh.Color(r, g, nx, ny) mesh.AdvanceVertex()
+		mesh.Position(Vector(x, y + q, e[6])) mesh.TexCoord(0, 0, 1) mesh.Color(r, g, nx, ny) mesh.AdvanceVertex()
 	end
 
 	mesh.End()
@@ -405,13 +484,22 @@ local function draw(bDepth, _, b3DSky)
 	MAT:SetFloat("$c0_y", eye.y)
 	MAT:SetFloat("$c0_z", eye.z)
 	MAT:SetFloat("$c0_w", CurTime() % WRAP)
-	MAT:SetFloat("$c1_x", ALPHA * k * DENSITY_STEPS / (tileLevel or DENSITY_STEPS) * tonemap)
+	local body, head = streakColor()
+	MAT:SetFloat("$c1_w", packColor(body[1], body[2], body[3]))
+	MAT:SetFloat("$c2_x", packColor(head[1], head[2], head[3]))
+	MAT:SetFloat("$c1_x", ALPHA * k * tonemap)
 	render.SetMaterial(MAT)
 	for _, t in pairs(tiles) do
 		t.mesh:Draw()
 	end
 
 	if splashMesh then
+		local dir, sky, light = wetLight()
+		SPLASH_MAT:SetFloat("$c2_x", dir.x)
+		SPLASH_MAT:SetFloat("$c2_y", dir.y)
+		SPLASH_MAT:SetFloat("$c2_z", dir.z)
+		SPLASH_MAT:SetFloat("$c2_w", packColor(sky[1], sky[2], sky[3]))
+		SPLASH_MAT:SetFloat("$c3_x", packColor(light[1], light[2], light[3]))
 		SPLASH_MAT:SetFloat("$c0_x", eye.x)
 		SPLASH_MAT:SetFloat("$c0_y", eye.y)
 		SPLASH_MAT:SetFloat("$c0_z", eye.z)
@@ -451,7 +539,9 @@ local function material(name, pixelShader)
 		["$nocull"] = 1,
 		["<dx90"] = { ["$no_draw"] = 1 },
 		["$c0_x"] = 0, ["$c0_y"] = 0, ["$c0_z"] = 0, ["$c0_w"] = 0,
-		["$c1_x"] = 0, ["$c1_y"] = FADE_START, ["$c1_z"] = FADE_END, ["$c1_w"] = packColor(unpack(COLOR)),
+		["$c1_x"] = 0, ["$c1_y"] = FADE_START, ["$c1_z"] = FADE_END, ["$c1_w"] = 0,
+		["$c2_x"] = 0, ["$c2_y"] = 0, ["$c2_z"] = 1, ["$c2_w"] = 0,
+		["$c3_x"] = 0, ["$c3_y"] = 0, ["$c3_z"] = 0, ["$c3_w"] = 0,
 	})
 end
 
