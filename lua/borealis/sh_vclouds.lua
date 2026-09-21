@@ -20,8 +20,8 @@ end
 -- perspective, and flying into the layer puts the camera inside them.
 --
 -- Off by default, and while on it replaces the skybox deck (sh_tod_build reads
--- vclouds.IsActive).  The layer sits inside the build area's own height range
--- so it is reachable there, and above the ground on the open map.
+-- vclouds.IsActive).  The slab's height comes from the level the eye is in, see
+-- BASE_OVER_FLOOR below.
 --
 -- It shares the fog's vertex shader (a near-plane quad passing its world and
 -- clip position) and the fog's depth handling twice over: the engine's depth
@@ -33,9 +33,13 @@ end
 
 local ENABLED = CreateClientConVar("cl_draw_vclouds", "0", true, false, "draw volumetric clouds instead of the skybox deck")
 
-local BUILD_MIN_Z, BUILD_MAX_Z = -13812, -24
-local BUILD_BASE = -8000 -- slab base in the build area, reachable by flying up
-local SKY_BASE = 3000 -- slab base everywhere else
+-- The slab stands this far over the floor of whichever outdoor level the camera
+-- is in (sh_skylevels), which puts it inside the build area's own air, the one
+-- place where flying into the layer makes sense, and over the sky of the
+-- fishing level, which has barely 3000 units of air beneath it.  Sitting above
+-- a sky costs nothing, since sky pixels never clip the march.
+local BASE_OVER_FLOOR = 5000
+local SKY_BASE = 3000 -- slab base outside every level
 local THICK = 3500 -- slab thickness in world units
 -- Coverage drifts instead of sitting still, and sits low most of the time: two
 -- slow sines with periods that do not divide into each other, so the pattern
@@ -122,9 +126,9 @@ local function coverage()
 end
 
 local function baseZ()
-	local z = EyePos().z
+	local lvl = skylevels and skylevels.Get()
 
-	return (z <= BUILD_MAX_Z and z >= BUILD_MIN_Z) and BUILD_BASE or SKY_BASE
+	return lvl and lvl.floor + BASE_OVER_FLOOR or SKY_BASE
 end
 
 local function packColor(r, g, b)

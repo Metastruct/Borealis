@@ -17,13 +17,14 @@ require("skyboxer")
 
 local Tag = "buildmovingsky"
 local ms_build_skyclouds = CreateClientConVar("ms_build_skyclouds", "1", true, false, "Enable skybox moving clouds on build", 0, 1)
-local MIN_Z, MAX_Z = -13812, -24
 
-local function inBuildArea()
-	if procsky and procsky.theme and procsky.theme.clouds == false then return false end
-	local z = EyePos().z
+-- the outdoor level the camera is in, from sh_skylevels, or nil for indoors
+-- and the dead space between levels, neither of which has a sky to draw on
+local function level()
+	if procsky and procsky.theme and procsky.theme.clouds == false then return end
+	if not ms_build_skyclouds:GetBool() then return end
 
-	return z <= MAX_Z and z >= MIN_Z and ms_build_skyclouds:GetBool()
+	return skylevels and skylevels.Get()
 end
 
 local COVERAGE = 0.5
@@ -32,12 +33,21 @@ local WIND = { 0.012, 0.004 } -- noise units per second
 local NOISE_SCALE = 20000 -- world units per noise unit, S_LO in clouds_ps30
 local EYE_K = 1 / NOISE_SCALE -- parallax while moving, the same at any deck height
 local NOISE_PERIOD = 64
--- the decks sit at world heights instead of riding the camera, so climbing
--- spreads them out and passing one leaves it below: the build area's deck is at
--- its ceiling, the overcast one near the top of the world.  Overcast pulls the
--- build deck up to the sky one, so crossing the build ceiling in the rain does
--- not jump.
-local BUILD_DECK_Z, SKY_DECK_Z = 0, 14000
+-- The decks sit at world heights instead of riding the camera, so climbing
+-- spreads them out and passing one leaves it below.  A level's deck sits at its
+-- sky, unless that sky hangs so close over the level's floor that the shader's
+-- own fade would have dissolved the deck before you saw it: the fishing level
+-- has barely 3000 units of air, so its deck goes above its sky instead.
+-- Overcast pulls a low deck up to the sky deck, so crossing the build area's
+-- sky in the rain does not jump.
+local DECK_CLEAR = 4800 -- least a deck stands over its level's floor, past FADE_H in clouds_ps30
+local SKY_DECK_Z = 14000 -- the overcast deck, and the deck outside every level
+
+local function deckHeight(lvl, overcast)
+	local z = math.max(lvl.ceiling, lvl.floor + DECK_CLEAR)
+
+	return Lerp(overcast, z, math.max(z, SKY_DECK_Z))
+end
 
 local function packColor(r, g, b)
 	return math.floor(math.Clamp(r, 0, 1) * 255) * 65536 + math.floor(math.Clamp(g, 0, 1) * 255) * 256 + math.floor(math.Clamp(b, 0, 1) * 255)
@@ -108,11 +118,11 @@ local function startShader(PIXEL_SHADER)
 		-- the volumetric clouds replace this deck, overcast included, while on
 		if vclouds and vclouds.IsActive() then return end
 		local overcast = procsky and procsky.GetOvercast and procsky.GetOvercast() or 0
-		local build = inBuildArea()
-		if not build and overcast < 0.01 then return end
+		local lvl = level()
+		if not lvl and overcast < 0.01 then return end
 		-- the shader lerps its threshold by coverage, so past 1 the deck closes up
 		-- and past 2 it has no thin spots for the sun to show through
-		local coverage = math.max(build and COVERAGE or 0, overcast * 2.2)
+		local coverage = math.max(lvl and COVERAGE or 0, overcast * 2.2)
 
 		local fwd, right, halfW, halfH = viewRays()
 		local lightDir, light, amb = lightInfo()
@@ -131,7 +141,7 @@ local function startShader(PIXEL_SHADER)
 
 		local ep = EyePos()
 		local t = CurTime()
-		local deckZ = build and Lerp(overcast, BUILD_DECK_Z, SKY_DECK_Z) or SKY_DECK_Z
+		local deckZ = lvl and deckHeight(lvl, overcast) or SKY_DECK_Z
 
 		MAT:SetFloat("$c0_x", fwd.x)
 		MAT:SetFloat("$c0_y", fwd.y)
@@ -212,7 +222,7 @@ local function startMesh()
 	local off_off2 = off + off2
 
 	local function drawMesh()
-		if not inBuildArea() then return end
+		if not level() then return end
 
 		local trans = EyePos()
 		trans:Mul(-1)
