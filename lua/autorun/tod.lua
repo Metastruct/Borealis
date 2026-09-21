@@ -146,6 +146,8 @@ if string.find(game.GetMap(), "gm_construct_m") then
                     ent:SetAngles(val)
                     ent:Fire("addoutput", "pitch " .. -val.p)
                     ent:Activate()
+                    -- we KILL 🔪 the sun when its below horizon so it doesnt leak through skyboxes and whatnot
+                    ent:Fire(n.z > 0 and "TurnOn" or "TurnOff")
                 end)
             end
         end
