@@ -4,7 +4,6 @@
 -- drips under cover and thunder with a flash when the rain is heavy.
 local PROBABILITY = 0.25
 local CURVE = 0.35 -- the sky greys over well before the rain is heavy
-
 local config = {
 	["fog_start"] = 0,
 	["fog_end"] = 6000,
@@ -20,16 +19,13 @@ local config = {
 }
 
 tod.AddOverrideConfig("rain", config, PROBABILITY, CURVE)
-
--- the loop is baked rather than stock, by gen_rain_wav.py beside this addon
-if SERVER then
-	resource.AddFile("sound/tod/rain_loop.wav")
-end
+if SERVER then resource.AddFile("sound/tod/rain_loop.wav") end
 
 if not CLIENT then return end
 
 local DECK_BRIGHTNESS = 0.6 -- the deck sits darker than snow's stratus
 local FOG_SCALE = 0.75
+
 -- ambient/weather/rumble_rain.wav is 2.43 seconds long and comes round often
 -- enough to recognise; this one is ten and joins to itself. The stock file
 -- stands in if the bake has not reached the client.
@@ -38,23 +34,35 @@ local COVER_VOLUME = 0.3 -- rumble share heard under a roof
 local SKY_RANGE = 8192 -- the look straight up for open sky
 local WAY_OUT = 1400 -- how far to either side to look for a way out from under a roof
 local WAY_NEAR = 300 -- a way out this close is as loud as standing in it
-local WAY_STEPS = { 0.45, 0.95 } -- how far along a clear probe to look up from, nearest first
+local WAY_STEPS = {
+	0.45, -- how far along a clear probe to look up from, nearest first
+	0.95
+}
+
 local WAY_FAN = 8 -- probes per look, spun a little each time so a doorway is not missed forever
 local WAY_SPIN = math.rad(17)
 local WAY_WINDOW = 12 -- looks kept, the best of them being what is heard
-local DRIP_INTERVAL = { 0.6, 1.8 }
+local DRIP_INTERVAL = {0.6, 1.8}
 local THUNDER_AMOUNT = 0.8 -- heavy rain only
-local THUNDER_INTERVAL = { 25, 70 }
+local THUNDER_INTERVAL = {25, 70}
 local FLASH_TIME = 0.12
 local FLASH = {
-	["$pp_colour_addr"] = 0.35, ["$pp_colour_addg"] = 0.35, ["$pp_colour_addb"] = 0.4,
-	["$pp_colour_brightness"] = 0, ["$pp_colour_contrast"] = 1, ["$pp_colour_colour"] = 1,
-	["$pp_colour_mulr"] = 0, ["$pp_colour_mulg"] = 0, ["$pp_colour_mulb"] = 0,
+	["$pp_colour_addr"] = 0.35,
+	["$pp_colour_addg"] = 0.35,
+	["$pp_colour_addb"] = 0.4,
+	["$pp_colour_brightness"] = 0,
+	["$pp_colour_contrast"] = 1,
+	["$pp_colour_colour"] = 1,
+	["$pp_colour_mulr"] = 0,
+	["$pp_colour_mulg"] = 0,
+	["$pp_colour_mulb"] = 0,
 }
 
 local VOLUME = CreateClientConVar("cl_rain_volume", "0.4", true, false, "rain volume: the rumble, the drips under cover and the thunder, 0 to 1")
-
-tod.rain = tod.rain or { amount = 0, covered = false } -- read by sh_rain for the streaks
+tod.rain = tod.rain or {
+	amount = 0, -- read by sh_rain for the streaks
+	covered = false
+}
 
 local amount = 0 -- last amount pushed into the theme
 local rumbleOwner -- the entity the patch was made on, replaced on a map change
@@ -63,7 +71,6 @@ local flashUntil = 0
 local covered = false
 local exposure = 0 -- how much of the rain is in earshot, 0 under enough rock
 local nextCover, nextDrip, nextThunder = 0, 0, 0
-
 local UP = Vector(0, 0, 1)
 local wayPhase = 0
 local wayLog, wayAt = {}, 1
@@ -81,19 +88,28 @@ end
 local function applyTheme(a, flash)
 	if not (procsky and procsky.SetTheme) then return end
 	local t = table.Copy(procsky.theme)
-
 	if a > 0 then
 		-- the deck greys over on the same curve tod puts the sky through, or
 		-- the engine sky is overcast while procsky's clouds are still thin
 		a = a ^ CURVE
-		saved = saved or { fogScale = t.fogScale, tint = t.tint }
+		saved = saved or {
+			fogScale = t.fogScale,
+			tint = t.tint
+		}
+
 		t.overcast = a
 		t.overcastBrightness = DECK_BRIGHTNESS
 		t.fogScale = (saved.fogScale or 1) * (1 - (1 - FOG_SCALE) * a)
 		t.tint = flash and FLASH or {
-			["$pp_colour_addr"] = 0, ["$pp_colour_addg"] = 0, ["$pp_colour_addb"] = 0,
-			["$pp_colour_brightness"] = -0.03 * a, ["$pp_colour_contrast"] = 1, ["$pp_colour_colour"] = 1 - 0.2 * a,
-			["$pp_colour_mulr"] = 0, ["$pp_colour_mulg"] = 0, ["$pp_colour_mulb"] = 0,
+			["$pp_colour_addr"] = 0,
+			["$pp_colour_addg"] = 0,
+			["$pp_colour_addb"] = 0,
+			["$pp_colour_brightness"] = -0.03 * a,
+			["$pp_colour_contrast"] = 1,
+			["$pp_colour_colour"] = 1 - 0.2 * a,
+			["$pp_colour_mulr"] = 0,
+			["$pp_colour_mulg"] = 0,
+			["$pp_colour_mulb"] = 0,
 		}
 	else
 		t.overcast, t.overcastBrightness = nil, nil
@@ -106,7 +122,9 @@ local function applyTheme(a, flash)
 	procsky.SetTheme(next(t) and t or nil)
 end
 
-local coverTrace = { mask = bit.bor(CONTENTS_SOLID, CONTENTS_MOVEABLE, CONTENTS_WINDOW, CONTENTS_GRATE) } -- props count as cover, players do not
+local coverTrace = {
+	mask = bit.bor(CONTENTS_SOLID, CONTENTS_MOVEABLE, CONTENTS_WINDOW, CONTENTS_GRATE) -- props count as cover, players do not
+}
 
 -- How near the rain is, and whether anything stands over the head.  A slanted
 -- ray is no use here: a roof a hundred units up stops every one of them within
@@ -118,10 +136,9 @@ local function skyReach()
 	local eye = EyePos()
 	coverTrace.start = eye
 	coverTrace.endpos = eye + UP * SKY_RANGE
+
 	local up = util.TraceLine(coverTrace)
-	if not up.Hit or up.HitSky then
-		return 1, true
-	end
+	if not up.Hit or up.HitSky then return 1, true end
 
 	local near = WAY_OUT
 	wayPhase = wayPhase + WAY_SPIN
@@ -144,7 +161,6 @@ local function skyReach()
 			end
 		end
 	end
-
 	return 1 - math.Clamp((near - WAY_NEAR) / (WAY_OUT - WAY_NEAR), 0, 1), false
 end
 
@@ -182,12 +198,8 @@ end
 hook.Add("Think", "tod_rain", function()
 	local a = tod.GetWeather("rain", PROBABILITY)
 	local now = RealTime()
-
 	if a ~= amount then
-		if amount == 0 then
-			nextThunder = now + math.Rand(THUNDER_INTERVAL[1], THUNDER_INTERVAL[2])
-		end
-
+		if amount == 0 then nextThunder = now + math.Rand(THUNDER_INTERVAL[1], THUNDER_INTERVAL[2]) end
 		amount = a
 		applyTheme(a, now < flashUntil)
 	elseif flashUntil > 0 and now >= flashUntil then
@@ -203,7 +215,6 @@ hook.Add("Think", "tod_rain", function()
 
 	local ply = LocalPlayer()
 	if not IsValid(ply) then return end
-
 	if now >= nextCover then
 		nextCover = now + 0.25
 		local target, sky = skyReach()
@@ -224,19 +235,16 @@ hook.Add("Think", "tod_rain", function()
 	local vol = math.Clamp(VOLUME:GetFloat(), 0, 1)
 	if vol <= 0 or not system.HasFocus() then
 		stopRumble()
-
 		return
 	end
 
 	-- none of it is within earshot: no rumble to fade, no drips, no thunder
 	if exposure <= 0 then
 		stopRumble(1.5)
-
 		return
 	end
 
 	updateRumble(ply, a * vol * (covered and COVER_VOLUME or 1) * exposure)
-
 	if covered and now >= nextDrip then
 		nextDrip = now + math.Rand(DRIP_INTERVAL[1], DRIP_INTERVAL[2]) / a
 		sound.Play("ambient/weather/rain_drip" .. math.random(5) .. ".wav", ply:GetPos() + VectorRand() * 200, 65, math.random(90, 110), 0.6 * vol)
@@ -249,9 +257,7 @@ hook.Add("Think", "tod_rain", function()
 		timer.Simple(math.Rand(0.8, 3), function()
 			-- read again: the volume can have moved in the seconds since the flash
 			local v = math.Clamp(VOLUME:GetFloat(), 0, 1)
-			if amount > 0 and v > 0 and IsValid(ply) and system.HasFocus() then
-				ply:EmitSound("ambient/weather/thunder" .. math.random(6) .. ".wav", 0, math.random(90, 110), 0.7 * v * exposure, CHAN_STATIC)
-			end
+			if amount > 0 and v > 0 and IsValid(ply) and system.HasFocus() then ply:EmitSound("ambient/weather/thunder" .. math.random(6) .. ".wav", 0, math.random(90, 110), 0.7 * v * exposure, CHAN_STATIC) end
 		end)
 	end
 end)
