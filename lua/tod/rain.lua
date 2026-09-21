@@ -38,7 +38,7 @@ local FLASH = {
 	["$pp_colour_mulr"] = 0, ["$pp_colour_mulg"] = 0, ["$pp_colour_mulb"] = 0,
 }
 
-local VOLUME = CreateClientConVar("cl_rain_volume", "0.7", true, false, "rain volume: the rumble, the drips under cover and the thunder, 0 to 1")
+local VOLUME = CreateClientConVar("cl_rain_volume", "0.4", true, false, "rain volume: the rumble, the drips under cover and the thunder, 0 to 1")
 
 tod.rain = tod.rain or { amount = 0, covered = false } -- read by sh_rain for the streaks
 
