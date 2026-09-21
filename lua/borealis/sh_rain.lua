@@ -65,6 +65,10 @@ local TRACES_PER_FRAME = 60
 local IDLE_TRACES_PER_FRAME = 24 -- the whole window again while nothing is pending, so props built or moved after the trace count
 -- MASK_SOLID: without CONTENTS_MONSTER a trace hits brushes only and every prop is missed; players are filtered per batch
 local SOLID = MASK_SOLID
+-- water is not in MASK_SOLID, so a solid trace runs straight through a lake and
+-- lands on its bed: the rain stopped under the water and rippled down there
+local WATER = MASK_WATER
+local IN_WATER = CONTENTS_WATER
 
 local SPLASH_STEP = 2 -- ripples on a coarser grid than the cover map, one quad per block of columns
 local SPLASH_QUAD = 3 -- ripple quad size in cells: overlapping, so spots cross block borders
@@ -237,8 +241,11 @@ local owner, ground, queue, queued = {}, {}, {}, {}
 local traceZ, winX, winY
 local idle = false -- the queue holds a refresh, not a window change
 local ripplesDirty, nextRipple = false, 0
+local submerged = false -- the eye is under a surface: there is no rain to see from down there
 local upTrace = { mask = SOLID, start = Vector(), endpos = Vector() }
 local downTrace = { mask = SOLID, start = Vector(), endpos = Vector() }
+local waterTrace = { mask = WATER, start = Vector(), endpos = Vector() }
+local probe = Vector()
 
 -- both axes offset so negative columns pack and unpack cleanly
 local KEY_OFFSET = 32768
@@ -254,7 +261,10 @@ local function columnFromKey(key)
 end
 
 -- where the rain stops in this column: the top of the world when the sky over
--- it is blocked, else the first surface below, else nowhere
+-- it is blocked, else the water's surface or the first solid below it, else
+-- nowhere.  A solid standing in air is what the rain lands on; one standing in
+-- water is a bed the rain never reaches, and the surface over it is, so the
+-- second trace only runs where the first came up wet.
 local function traceColumn(cx, cy, top, bottom)
 	local x, y = (cx + 0.5) * COLUMN, (cy + 0.5) * COLUMN
 	upTrace.start:SetUnpacked(x, y, top)
@@ -267,11 +277,29 @@ local function traceColumn(cx, cy, top, bottom)
 	downTrace.start:SetUnpacked(x, y, top)
 	downTrace.endpos:SetUnpacked(x, y, bottom)
 	local down = util.TraceLine(downTrace)
-	if not down.Hit then
-		return Z_MIN, false
+	if down.Hit then
+		local hit = down.HitPos
+		probe:SetUnpacked(hit.x, hit.y, hit.z + 1)
+		if bit.band(util.PointContents(probe), IN_WATER) == 0 then
+			return hit.z, down.HitNormal.z > SPLASH_SLOPE and hit.z + 0.4
+		end
 	end
 
-	return down.HitPos.z, down.HitNormal.z > SPLASH_SLOPE and down.HitPos.z + 0.4
+	waterTrace.start:SetUnpacked(x, y, top)
+	waterTrace.endpos:SetUnpacked(x, y, bottom)
+	local water = util.TraceLine(waterTrace)
+	-- the trace began under the surface: this whole column is water, and the
+	-- rain landed on it somewhere above
+	if water.StartSolid then
+		return Z_MIN + Z_RANGE, false
+	end
+
+	-- a water surface is always level, so the ripples ride it whatever the bed does
+	if water.Hit then
+		return water.HitPos.z, water.HitPos.z + 0.4
+	end
+
+	return down.Hit and down.HitPos.z or Z_MIN, false
 end
 
 -- a clear inside a one texel viewport: the surface library's draws go through
@@ -455,6 +483,7 @@ local function prepare()
 	if not MAT and not build() then return end
 
 	local eye = EyePos()
+	submerged = bit.band(util.PointContents(eye), IN_WATER) ~= 0
 	updateColumns(eye)
 	updateTiles(eye, densityLevel(rain.amount))
 
@@ -466,7 +495,7 @@ local function prepare()
 end
 
 local function draw(bDepth, _, b3DSky)
-	if bDepth or b3DSky or render.GetRenderTarget() then return end
+	if bDepth or b3DSky or submerged or render.GetRenderTarget() then return end
 	local rain = tod and tod.rain
 	if not rain or next(tiles) == nil then return end
 
