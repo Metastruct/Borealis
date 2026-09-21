@@ -244,7 +244,12 @@ end
 local function start()
 	stop()
 	active = true
-	hook.Add("NeedsDepthPass", "ms_vclouds", function() return active end)
+	-- NeedsDepthPass takes the FIRST non-nil return of all its hooks, so
+	-- returning false here would cancel another consumer's true and leave the
+	-- depth buffer stale.  Ask when it is needed, stay silent otherwise.
+	hook.Add("NeedsDepthPass", "ms_vclouds", function()
+		if active then return true end
+	end)
 	hook.Add("PreDrawTranslucentRenderables", "ms_vclouds", draw)
 end
 
