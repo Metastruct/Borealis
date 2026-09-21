@@ -28,6 +28,13 @@ local DECK_BRIGHTNESS = 0.6 -- the deck sits darker than snow's stratus
 local FOG_SCALE = 0.75
 local RUMBLE = "ambient/weather/rumble_rain.wav"
 local COVER_VOLUME = 0.3 -- rumble share heard under a roof
+local SKY_RANGE = 8192 -- the look straight up for open sky
+local WAY_OUT = 1400 -- how far to either side to look for a way out from under a roof
+local WAY_NEAR = 300 -- a way out this close is as loud as standing in it
+local WAY_STEPS = { 0.45, 0.95 } -- how far along a clear probe to look up from, nearest first
+local WAY_FAN = 8 -- probes per look, spun a little each time so a doorway is not missed forever
+local WAY_SPIN = math.rad(17)
+local WAY_WINDOW = 12 -- looks kept, the best of them being what is heard
 local DRIP_INTERVAL = { 0.6, 1.8 }
 local THUNDER_AMOUNT = 0.8 -- heavy rain only
 local THUNDER_INTERVAL = { 25, 70 }
@@ -47,7 +54,15 @@ local rumbleOwner -- the entity the patch was made on, replaced on a map change
 local saved -- the season's own fogScale and tint while rain overrides them
 local flashUntil = 0
 local covered = false
+local exposure = 0 -- how much of the rain is in earshot, 0 under enough rock
 local nextCover, nextDrip, nextThunder = 0, 0, 0
+
+local UP = Vector(0, 0, 1)
+local wayPhase = 0
+local wayLog, wayAt = {}, 1
+for i = 1, WAY_WINDOW do
+	wayLog[i] = 0
+end
 
 -- a reload must not leave the old rumble playing
 if tod.rain_rumble then
@@ -86,13 +101,44 @@ end
 
 local coverTrace = { mask = bit.bor(CONTENTS_SOLID, CONTENTS_MOVEABLE, CONTENTS_WINDOW, CONTENTS_GRATE) } -- props count as cover, players do not
 
-local function underCover()
+-- How near the rain is, and whether anything stands over the head.  A slanted
+-- ray is no use here: a roof a hundred units up stops every one of them within
+-- a hundred more, whatever is past it.  So the probes run flat, out to where
+-- each one is stopped, and look up from along the way: a porch or a doorway
+-- finds sky a few hundred units out and keeps its rumble, while a sealed room
+-- or anywhere far underground finds none and falls silent.
+local function skyReach()
 	local eye = EyePos()
 	coverTrace.start = eye
-	coverTrace.endpos = eye + Vector(0, 0, 8192)
-	local tr = util.TraceLine(coverTrace)
+	coverTrace.endpos = eye + UP * SKY_RANGE
+	local up = util.TraceLine(coverTrace)
+	if not up.Hit or up.HitSky then
+		return 1, true
+	end
 
-	return tr.Hit and not tr.HitSky
+	local near = WAY_OUT
+	wayPhase = wayPhase + WAY_SPIN
+	for i = 0, WAY_FAN - 1 do
+		local a = wayPhase + i * math.pi * 2 / WAY_FAN
+		local dir = Vector(math.cos(a), math.sin(a), 0)
+		coverTrace.start = eye
+		coverTrace.endpos = eye + dir * WAY_OUT
+		local out = util.TraceLine(coverTrace)
+		local clear = out.Fraction * WAY_OUT - 8 -- short of whatever stopped it
+		for _, k in ipairs(WAY_STEPS) do
+			local d = clear * k
+			if d <= 0 or d >= near then break end
+			coverTrace.start = eye + dir * d
+			coverTrace.endpos = coverTrace.start + UP * SKY_RANGE
+			local u = util.TraceLine(coverTrace)
+			if not u.Hit or u.HitSky then
+				near = d
+				break
+			end
+		end
+	end
+
+	return 1 - math.Clamp((near - WAY_NEAR) / (WAY_OUT - WAY_NEAR), 0, 1), false
 end
 
 local function stopRumble(fade)
@@ -153,8 +199,18 @@ hook.Add("Think", "tod_rain", function()
 
 	if now >= nextCover then
 		nextCover = now + 0.25
-		covered = underCover()
+		local target, sky = skyReach()
+		covered = not sky
 		tod.rain.covered = covered
+		-- a narrow way out slips between the probes for a second or two at a time
+		-- even while standing still, so the best of the last few looks is what
+		-- holds: reading each one on its own pumps the volume up and down
+		wayLog[wayAt] = target
+		wayAt = wayAt % WAY_WINDOW + 1
+		exposure = 0
+		for i = 1, WAY_WINDOW do
+			exposure = math.max(exposure, wayLog[i])
+		end
 	end
 
 	-- nothing is heard while another window has the focus
@@ -165,7 +221,14 @@ hook.Add("Think", "tod_rain", function()
 		return
 	end
 
-	updateRumble(ply, a * vol * (covered and COVER_VOLUME or 1))
+	-- none of it is within earshot: no rumble to fade, no drips, no thunder
+	if exposure <= 0 then
+		stopRumble(1.5)
+
+		return
+	end
+
+	updateRumble(ply, a * vol * (covered and COVER_VOLUME or 1) * exposure)
 
 	if covered and now >= nextDrip then
 		nextDrip = now + math.Rand(DRIP_INTERVAL[1], DRIP_INTERVAL[2]) / a
@@ -180,7 +243,7 @@ hook.Add("Think", "tod_rain", function()
 			-- read again: the volume can have moved in the seconds since the flash
 			local v = math.Clamp(VOLUME:GetFloat(), 0, 1)
 			if amount > 0 and v > 0 and IsValid(ply) and system.HasFocus() then
-				ply:EmitSound("ambient/weather/thunder" .. math.random(6) .. ".wav", 0, math.random(90, 110), 0.7 * v, CHAN_STATIC)
+				ply:EmitSound("ambient/weather/thunder" .. math.random(6) .. ".wav", 0, math.random(90, 110), 0.7 * v * exposure, CHAN_STATIC)
 			end
 		end)
 	end
