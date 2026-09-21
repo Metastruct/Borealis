@@ -173,7 +173,7 @@ end
 
 local function loadGrassTriangles()
 	local f = file.Open("maps/" .. game.GetMap() .. ".bsp", "rb", "GAME")
-	if not f then return false end
+	if not f then return false, "cannot open maps/" .. game.GetMap() .. ".bsp" end
 
 	local function lump(i)
 		f:Seek(8 + i * 16)
@@ -198,6 +198,11 @@ local function loadGrassTriangles()
 	local leavesL, leLen, leVer = lump(10)
 	visData = lump(4)
 	f:Close()
+
+	-- no node tree, no planes or no leaves means no vis lookup, so no grass
+	if noLen == 0 or plLen == 0 or leLen == 0 then
+		return false, string.format("empty bsp lumps (planes %d, nodes %d, leaves %d)", plLen, noLen, leLen)
+	end
 
 	local sliceStart = SysTime()
 	local function breathe()
@@ -672,6 +677,7 @@ end
 local MAT
 local loader -- BSP parse coroutine
 local ready = false
+local stop -- defined below, called when the parse gives up
 
 local function packColor(r, g, b)
 	return math.floor(math.Clamp(r, 0, 1) * 255) * 65536 + math.floor(math.Clamp(g, 0, 1) * 255) * 256 + math.floor(math.Clamp(b, 0, 1) * 255)
@@ -691,14 +697,24 @@ end
 local function think()
 	local t0 = SysTime()
 	if not ready then
-		local ok, err = coroutine.resume(loader)
+		local ok, res, why = coroutine.resume(loader)
 		if not ok then
-			ErrorNoHalt("[grass] bsp parse failed: " .. tostring(err) .. "\n")
-			hook.Remove("Think", "ms_grass")
+			ErrorNoHalt("[grass] bsp parse failed: " .. tostring(res) .. "\n")
+			stop()
 			return
 		end
 
-		ready = coroutine.status(loader) == "dead"
+		if coroutine.status(loader) == "dead" then
+			-- a parse that gave up leaves no tree to look clusters up in
+			if not res then
+				ErrorNoHalt("[grass] grass off: " .. tostring(why) .. "\n")
+				stop()
+				return
+			end
+
+			ready = true
+		end
+
 		lastThinkMs = (SysTime() - t0) * 1000
 		return
 	end
@@ -867,7 +883,7 @@ local function draw(_, _, sky3d)
 	end
 end
 
-local function stop()
+function stop()
 	hook.Remove("Think", "ms_grass")
 	hook.Remove("PostDrawOpaqueRenderables", "ms_grass")
 	if chunks then
