@@ -21,12 +21,19 @@ local config = {
 
 tod.AddOverrideConfig("rain", config, PROBABILITY, CURVE)
 
+-- the loop is baked rather than stock, by gen_rain_wav.py beside this addon
+if SERVER then
+	resource.AddFile("sound/tod/rain_loop.wav")
+end
 
 if not CLIENT then return end
 
 local DECK_BRIGHTNESS = 0.6 -- the deck sits darker than snow's stratus
 local FOG_SCALE = 0.75
-local RUMBLE = "ambient/weather/rumble_rain.wav"
+-- ambient/weather/rumble_rain.wav is 2.43 seconds long and comes round often
+-- enough to recognise; this one is ten and joins to itself. The stock file
+-- stands in if the bake has not reached the client.
+local RUMBLE = file.Exists("sound/tod/rain_loop.wav", "GAME") and "tod/rain_loop.wav" or "ambient/weather/rumble_rain.wav"
 local COVER_VOLUME = 0.3 -- rumble share heard under a roof
 local SKY_RANGE = 8192 -- the look straight up for open sky
 local WAY_OUT = 1400 -- how far to either side to look for a way out from under a roof
