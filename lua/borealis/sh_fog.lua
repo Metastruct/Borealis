@@ -138,9 +138,9 @@ end
 -- rendering
 --------------------------------------------------------------------------
 local quadColor = Color(SUN_GAIN * 255, 0, 0, 255)
+local ORDER = 20 -- the near volume: this composites over the clouds
 
-local function draw(bDepth, bSkybox, b3DSky)
-	if bDepth or bSkybox or b3DSky or render.GetRenderTarget() then return end
+local function draw()
 	local density, falloff, noise = weather()
 	if density <= 0 then return end
 
@@ -200,6 +200,7 @@ local function stop()
 	hook.Remove("Think", "ms_fog")
 	hook.Remove("NeedsDepthPass", "ms_fog")
 	hook.Remove("PreDrawTranslucentRenderables", "ms_fog")
+	depthslices.RemoveEffect("ms_fog")
 	active = false
 end
 
@@ -212,7 +213,7 @@ local function start()
 	hook.Add("NeedsDepthPass", "ms_fog", function()
 		if active then return true end
 	end)
-	hook.Add("PreDrawTranslucentRenderables", "ms_fog", draw)
+	depthslices.AddEffect("ms_fog", ORDER, draw)
 end
 
 local function shadersAvailable()

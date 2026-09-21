@@ -30,6 +30,15 @@ end
 -- hooks (PAC3 parts, clientside models) occlude the clouds too.  The nearer of
 -- the two wins.  The slice capture lives in sh_depthslices and is shared with
 -- the fog, so whichever draws first pays for it and both read the same alpha.
+--
+-- The engine fogs the world and never this quad, so the shader fogs the clouds
+-- itself off the engine's own ramp, and sh_depthslices composites them before
+-- the volumetric fog, which is the nearer volume.  Without either one a far
+-- layer hangs in front of the haze instead of dissolving into it.
+--
+-- The slab's thickness and density are art values inside vclouds_ps30, next to
+-- the rest of its shape, because the material has four constants and they are
+-- spent on what changes per frame.
 
 local ENABLED = CreateClientConVar("cl_draw_vclouds", "0", true, false, "draw volumetric clouds instead of the skybox deck")
 
@@ -40,7 +49,6 @@ local ENABLED = CreateClientConVar("cl_draw_vclouds", "0", true, false, "draw vo
 -- a sky costs nothing, since sky pixels never clip the march.
 local BASE_OVER_FLOOR = 5000
 local SKY_BASE = 3000 -- slab base outside every level
-local THICK = 3500 -- slab thickness in world units
 -- Coverage drifts instead of sitting still, and sits low most of the time: two
 -- slow sines with periods that do not divide into each other, so the pattern
 -- never repeats cleanly, off a wall clock every client shares.  Weather takes
@@ -50,7 +58,6 @@ local COVERAGE_SWING = 0.1 -- how far it wanders either side of the base
 local COVERAGE_OVERCAST = 0.8 -- where tod's rain and snow take it
 local COVERAGE_PERIOD_A = 1200 -- seconds
 local COVERAGE_PERIOD_B = 1900
-local DENSITY = 0.0025 -- extinction per world unit at full density
 -- procsky's moon light is an art value tuned for the flat deck, ~200x its own
 -- night ambient, and a volumetric integrates it over a whole cloud, so direct
 -- light fades to this share once the sun is well down
@@ -148,6 +155,36 @@ local function splitColor(c, gain)
 	return packColor(c[1] * gain / m, c[2] * gain / m, c[3] * gain / m), encodeScale(m)
 end
 
+local FOG_START_STEP, FOG_RANGE_STEP = 64, 128
+local fogLinear = { 0, 0, 0 }
+
+local function toLinear(c)
+	c = c / 255
+
+	return c <= 0.04045 and c / 12.92 or ((c + 0.055) / 1.055) ^ 2.4
+end
+
+-- The same fog the engine gave the world: a hue and a log scale like the light,
+-- and one packed float holding the start in 64 unit steps, the range in 128 unit
+-- steps and the max density in 8 bits, which is 24 bits, all a mantissa carries
+-- exactly.  Nothing reads the max density back out of the engine, so it comes
+-- from tod's own config, and 1 without it: the fog the world got, not less.
+local function fogRamp(tonemap)
+	if render.GetFogMode() == MATERIAL_FOG_NONE then return 0, 0, 0 end
+	local params = tod and tod.CurrentParams
+	local maxDensity = math.Clamp(params and params.fog_max_density or 1, 0, 1)
+	if maxDensity <= 0 then return 0, 0, 0 end
+
+	local r, g, b = render.GetFogColor()
+	fogLinear[1], fogLinear[2], fogLinear[3] = toLinear(r), toLinear(g), toLinear(b)
+	local hue, scale = splitColor(fogLinear, tonemap)
+	local first, last = render.GetFogDistances()
+	local start = math.Clamp(math.floor(first / FOG_START_STEP), 0, 255)
+	local range = math.Clamp(math.floor((last - first) / FOG_RANGE_STEP), 1, 255)
+
+	return hue, start * 65536 + range * 256 + math.floor(maxDensity * 255), scale
+end
+
 local WHITE = { 1, 1, 1 }
 local SKY_BLUE = { 0.35, 0.45, 0.62 }
 
@@ -181,9 +218,9 @@ end
 -- rendering
 --------------------------------------------------------------------------
 local quadColor = Color(255, 255, 0, 255)
-local function draw(bDepth, bSkybox, b3DSky)
-	if bDepth or bSkybox or b3DSky or render.GetRenderTarget() then return end
+local ORDER = 10 -- the far volume: the fog composites over these
 
+local function draw()
 	-- rebound every frame: the targets are recreated across a map change and a
 	-- material built before they existed holds the error texture forever
 	local depth, fb = render.GetResolvedFullFrameDepth(), render.GetScreenEffectTexture()
@@ -199,6 +236,7 @@ local function draw(bDepth, bSkybox, b3DSky)
 	local tonemap = render.GetToneMappingScaleLinear().x
 	local lightHue, lightScale = splitColor(light, tonemap)
 	local ambHue, ambScale = splitColor(amb, tonemap)
+	local fogHue, fogPacked, fogScale = fogRamp(tonemap)
 
 	depthslices.Capture()
 	render.UpdateScreenEffectTexture()
@@ -218,12 +256,13 @@ local function draw(bDepth, bSkybox, b3DSky)
 	MAT:SetFloat("$c2_z", sun.z)
 	MAT:SetFloat("$c2_w", ambHue)
 	MAT:SetFloat("$c3_x", baseZ())
-	MAT:SetFloat("$c3_y", THICK)
+	MAT:SetFloat("$c3_y", fogHue)
 	MAT:SetFloat("$c3_z", coverage())
-	MAT:SetFloat("$c3_w", DENSITY)
+	MAT:SetFloat("$c3_w", fogPacked)
 
 	quadColor.r = ambScale * 255
 	quadColor.g = lightScale * 255
+	quadColor.a = fogScale * 255
 
 	-- alpha writes stay off so the slice indices survive for the next effect;
 	-- sh_depthslices puts the frame's alpha back after the translucent pass
@@ -242,6 +281,7 @@ local function stop()
 	hook.Remove("NeedsDepthPass", "ms_vclouds")
 	hook.Remove("PreDrawTranslucentRenderables", "ms_vclouds")
 	hook.Remove("RenderScreenspaceEffects", "ms_vclouds")
+	depthslices.RemoveEffect("ms_vclouds")
 	active = false
 end
 
@@ -254,7 +294,7 @@ local function start()
 	hook.Add("NeedsDepthPass", "ms_vclouds", function()
 		if active then return true end
 	end)
-	hook.Add("PreDrawTranslucentRenderables", "ms_vclouds", draw)
+	depthslices.AddEffect("ms_vclouds", ORDER, draw)
 end
 
 local function shadersAvailable()
