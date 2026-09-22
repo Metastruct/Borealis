@@ -5,6 +5,8 @@ skylevels = skylevels or {}
 local SEEDS = {
 	{ landmark = "land_build", floor = -13096, ceiling = 511 },
 	{ landmark = "land_fish1", floor = 12217, ceiling = 15375 },
+	{ landmark = "zen", floor = 8020, ceiling = 632 },
+	{ landmark = "hevn", floor = 6502, ceiling = 237 },
 	-- add more landmarks here if we have more outdoor areas, floor is Z, ceiling is distance to the sky from floor Z
 }
 
