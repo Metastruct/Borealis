@@ -47,7 +47,8 @@ local ENABLED = CreateClientConVar("cl_draw_vclouds", "0", true, false, "draw vo
 -- place where flying into the layer makes sense, and over the sky of the
 -- fishing level, which has barely 3000 units of air beneath it.  Sitting above
 -- a sky costs nothing, since sky pixels never clip the march.
-local BASE_OVER_FLOOR = 5000
+local BASE_OVER_FLOOR = 5000 -- unless the level hangs its layer by the top
+local THICK = 3500 -- the slab's own thickness, which lives in vclouds_ps30
 local SKY_BASE = 3000 -- slab base outside every level
 -- Coverage drifts instead of sitting still, and sits low most of the time: two
 -- slow sines with periods that do not divide into each other, so the pattern
@@ -135,7 +136,9 @@ end
 local function baseZ()
 	local lvl = skylevels and skylevels.Get()
 
-	return lvl and lvl.floor + BASE_OVER_FLOOR or SKY_BASE
+	if not lvl then return SKY_BASE end
+
+	return lvl.clouds and lvl.clouds - THICK or lvl.floor + BASE_OVER_FLOOR
 end
 
 local function packColor(r, g, b)

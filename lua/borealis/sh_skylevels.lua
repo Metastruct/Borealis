@@ -5,21 +5,29 @@ skylevels = skylevels or {}
 local SEEDS = {
 	{ landmark = "land_build", floor = -13096, ceiling = 511 },
 	{ landmark = "land_fish1", floor = 12217, ceiling = 15375 },
-	{ landmark = "zen", floor = 8020, ceiling = 632 },
-	{ landmark = "hevn", floor = 6502, ceiling = 237 },
-	-- add more landmarks here if we have more outdoor areas, floor is Z, ceiling is distance to the sky from floor Z
+	{ landmark = "zen", floor = 8018, ceiling = 8651 },
+	{ landmark = "hevn", floor = 6512, ceiling = 8307, clouds = 1500 }, -- cloud is relative
+	-- Add more landmarks here if we have more outside areas...
 }
 
 local SLACK_BELOW, SLACK_ABOVE = 1000, 64
 local RETRY = 0.5
 
-local function band(floor, ceiling)
-	return { floor = floor, ceiling = ceiling, min = floor - SLACK_BELOW, max = ceiling + SLACK_ABOVE }
+local function band(seed, floor, ceiling, pos)
+	return {
+		floor = floor,
+		ceiling = ceiling,
+		clouds = seed.clouds and floor + seed.clouds or nil,
+		x = pos and pos.x,
+		y = pos and pos.y,
+		min = floor - SLACK_BELOW,
+		max = ceiling + SLACK_ABOVE,
+	}
 end
 
 local fallback = {}
 for i = 1, #SEEDS do
-	fallback[i] = band(SEEDS[i].floor, SEEDS[i].ceiling)
+	fallback[i] = band(SEEDS[i], SEEDS[i].floor, SEEDS[i].ceiling)
 end
 
 local levels = {}
@@ -34,7 +42,7 @@ local function seedLevel(seed)
 	if not up.Hit or not up.HitSky then return end
 	local down = util.TraceLine({ start = pos, endpos = pos - Vector(0, 0, 8000), mask = MASK_SOLID_BRUSHONLY })
 
-	return band(down.Hit and down.HitPos.z or pos.z, up.HitPos.z)
+	return band(seed, down.Hit and down.HitPos.z or pos.z, up.HitPos.z, pos)
 end
 
 local function resolve()
@@ -56,10 +64,18 @@ end
 
 function skylevels.Get()
 	resolve()
-	local z = EyePos().z
+	local eye = EyePos()
+	local best, nearest
 
 	for i = 1, #SEEDS do
 		local l = levels[i] or fallback[i]
-		if z >= l.min and z <= l.max then return l end
+		if eye.z >= l.min and eye.z <= l.max then
+			local dist = l.x and (eye.x - l.x) ^ 2 + (eye.y - l.y) ^ 2 or math.huge
+			if not best or dist < nearest then
+				best, nearest = l, dist
+			end
+		end
 	end
+
+	return best
 end
