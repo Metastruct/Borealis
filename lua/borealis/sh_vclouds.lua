@@ -141,6 +141,15 @@ local function baseZ()
 	return lvl.clouds and lvl.clouds - THICK or lvl.floor + BASE_OVER_FLOOR
 end
 
+-- The slab's base and the coverage it is marching, or nil while it is off.
+-- sh_cloudshadows shades the ground from this, so the shade belongs to the
+-- same field this draws rather than to a second guess at it.
+function vclouds.GetLayer()
+	if not active then return end
+
+	return baseZ(), coverage()
+end
+
 local function packColor(r, g, b)
 	return math.floor(math.Clamp(r, 0, 1) * 255) * 65536 + math.floor(math.Clamp(g, 0, 1) * 255) * 256 + math.floor(math.Clamp(b, 0, 1) * 255)
 end
