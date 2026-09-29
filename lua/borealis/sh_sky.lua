@@ -172,11 +172,12 @@ local function toSRGB(v)
 end
 
 --------------------------------------------------------------------------
--- derived state: sun, moon, fog colour and cloud lighting
+-- derived state: sun, moon, fog colour, sky colours and cloud lighting
 --------------------------------------------------------------------------
 local state = {
 	sun = Vector(0, 0, 1), moon = Vector(0, 0, -1), elev = 90,
 	fog = { 255, 255, 255 }, overcast = 0,
+	horizon = { 0.5, 0.6, 0.7 }, zenith = { 0.2, 0.35, 0.7 },
 	light = { 1, 1, 1 }, amb = { 0.3, 0.4, 0.6 }, lightDir = Vector(0, 0, 1),
 }
 
@@ -238,6 +239,14 @@ local function updateState()
 	local zr, zg, zb = radiance(0, 0, 1, sun, moon)
 	state.amb[1], state.amb[2], state.amb[3] = (ar + zr) * 0.5 * mul[1], (ag + zg) * 0.5 * mul[2], (ab + zb) * 0.5 * mul[3]
 
+	local skyK = INTENSITY * (1 - 0.3 * o)
+	local zl = 0.2126 * zr + 0.7152 * zg + 0.0722 * zb
+	local hz, zn = state.horizon, state.zenith
+	hz[1], hz[2], hz[3] = fr * skyK, fg * skyK, fb * skyK
+	zn[1] = (zr + (zl - zr) * o) * skyK
+	zn[2] = (zg + (zl - zg) * o) * skyK
+	zn[3] = (zb + (zl - zb) * o) * skyK
+
 	state.lightDir = sunUp > 0.05 and sun or (moonUp > 0 and moon or Vector(0, 0, 1))
 end
 
@@ -253,6 +262,11 @@ end
 -- light direction, direct light colour and ambient colour for the clouds
 function procsky.GetCloudLighting()
 	return state.lightDir, state.light, state.amb
+end
+
+-- linear horizon and zenith colours of the sky without tonemap scale
+function procsky.GetSkyColors()
+	return state.horizon, state.zenith
 end
 
 function procsky.GetOvercast()
