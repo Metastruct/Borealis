@@ -149,7 +149,9 @@ local function drawMask(bDepth, bSkybox, b3DSky)
 	updateSun()
 	if sunWeight <= 0 then return end
 
-	local fwd, right, up, halfW, halfH = viewFan()
+	if bit.band(util.PointContents(EyePos()), CONTENTS_WATER) ~= 0 then return end
+
+	local fwd, _, _, halfW, halfH = viewFan()
 	local far = (render.GetViewSetup().zfar or 30000) * FAR_FRAC
 	local eye = EyePos()
 
