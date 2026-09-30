@@ -21,12 +21,15 @@ sampler3D Noise : register(s2);
 #define DEPTH_SCALE 4000.0
 #define SLICE_NEAR 16.0
 #define SLICE_RATIO 1.2219785
+#define SLICE_SLACK 1.02
+#define SLICE_EXACT 64.0
 #define NOISE_SCALE (1.0 / 1100.0)
 #define NOISE_FADE 3500.0
 #define WIND float3(0.012, 0.005, 0.003)
 #define AMBIENT_K 0.6
 #define SUN_K 0.4
 #define SUN_MIN_Z 0.08
+#define HG_G 0.42
 
 struct PS_IN
 {
@@ -66,9 +69,18 @@ float4 main(PS_IN i) : COLOR
 	float3 scene = frame.rgb;
 	float d = tex2D(Depth, uv).r * DEPTH_SCALE;
 	if (d <= 0.0) d = MAX_RANGE * 2.0;
-	float ks = floor(frame.a * 255.0 + 0.5) - 1.0;
-	float dSlice = (ks < 0.0) ? 0.0 : SLICE_NEAR * pow(SLICE_RATIO, ks + 0.5);
-	d = min(d, dSlice);
+
+	float code = frame.a * 255.0;
+	float ks = floor(code + 0.5) - 1.0;
+	float sliceFar = SLICE_NEAR * pow(SLICE_RATIO, ks + 1.0);
+	if (code > SLICE_EXACT - 0.5)
+	{
+		d = SLICE_NEAR * pow(SLICE_RATIO, code - SLICE_EXACT);
+	}
+	else if (d > sliceFar * SLICE_SLACK)
+	{
+		d = (ks < 0.0) ? 0.0 : SLICE_NEAR * pow(SLICE_RATIO, ks + 0.5);
+	}
 
 	float3 ray = normalize(i.wpos - EYE);
 	float cosF = max(dot(ray, FWD), 0.05);

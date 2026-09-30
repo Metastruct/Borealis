@@ -51,6 +51,8 @@ sampler3D Detail : register(s3);
 #define SLICES 32.0
 #define SLICE_NEAR 16.0
 #define SLICE_RATIO 1.2219785 // (8000 / 16) ^ (1 / 31)
+#define SLICE_SLACK 1.02
+#define SLICE_EXACT 64.0
 
 struct PS_IN
 {
@@ -160,10 +162,15 @@ float4 main(PS_IN i) : COLOR
 		d = MAX_RANGE * 4.0;
 	}
 
-	float ks = floor(frame.a * 255.0 + 0.5) - 1.0;
-	if (ks >= 0.0 && ks < SLICES - 1.0)
+	float code = frame.a * 255.0;
+	float ks = floor(code + 0.5) - 1.0;
+	if (code > SLICE_EXACT - 0.5)
 	{
-		d = min(d, SLICE_NEAR * pow(SLICE_RATIO, ks + 0.5));
+		d = SLICE_NEAR * pow(SLICE_RATIO, code - SLICE_EXACT);
+	}
+	else if (ks >= 0.0 && ks < SLICES - 1.0 && d > SLICE_NEAR * pow(SLICE_RATIO, ks + 1.0) * SLICE_SLACK)
+	{
+		d = SLICE_NEAR * pow(SLICE_RATIO, ks + 0.5);
 	}
 
 	float3 ray = normalize(i.wpos - EYE);

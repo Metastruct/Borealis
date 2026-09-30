@@ -183,5 +183,5 @@ float4 main(PS_IN i) : COLOR
     if (!FROM_BELOW)
         color += SUN_COLOR * spec * f * sunUp * SUNLIT * (hit ? 0.0 : 1.0);
 
-    return float4(color, 1.0);
+    return float4(color, ExactDepthAlpha(i.spos.w));
 }

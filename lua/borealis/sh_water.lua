@@ -683,7 +683,6 @@ local function drawSurface(eyePos, eyeUnderwater, writeDepth)
 	end
 	cam.PopModelMatrix()
 	render.OverrideDepthEnable(false, false)
-	if not eyeUnderwater then depthslices.Invalidate() end
 
 	return true
 end

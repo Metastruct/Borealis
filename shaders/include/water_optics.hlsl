@@ -31,6 +31,11 @@ float3 WaterInScatter(float3 zenithColor, float3 rayDir, float depthBelowSurface
 #define SLICE_NEAR      16.0
 #define SLICE_RATIO     1.2219785
 #define SLICE_TOLERANCE 1.05
+#define SLICE_EXACT     64.0
+
+float ExactDepthAlpha(float viewDepth) {
+    return (SLICE_EXACT + log(max(viewDepth, SLICE_NEAR) / SLICE_NEAR) / log(SLICE_RATIO)) / 255.0;
+}
 
 float SceneDepth(float engineDepth, float frameAlpha) {
     float slice = floor(frameAlpha * 255.0 + 0.5) - 1.0;
