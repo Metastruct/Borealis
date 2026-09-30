@@ -635,7 +635,19 @@ local function skyColors()
 	return fr, fg, fb, fr, fg, fb
 end
 
+local depthWanted = true
+
 local function drawSurface(eyePos, eyeUnderwater, writeDepth)
+	local pvs = visibleClusters(eyePos)
+	local anyDrawable = false
+	for _, g in pairs(meshes) do
+		if bodyDrawable(g, pvs) then
+			anyDrawable = true
+			break
+		end
+	end
+	if not anyDrawable then return false end
+
 	render.UpdateScreenEffectTexture()
 	SURF_MAT:SetTexture("$basetexture", render.GetScreenEffectTexture())
 	SURF_MAT:SetTexture("$texture1", render.GetResolvedFullFrameDepth())
@@ -659,7 +671,6 @@ local function drawSurface(eyePos, eyeUnderwater, writeDepth)
 	SURF_MAT:SetFloat("$c3_z", sun.z)
 
 	render.OverrideDepthEnable(true, writeDepth)
-	local pvs = visibleClusters(eyePos)
 	cam.PushModelMatrix(IDENTITY_MATRIX, false)
 	for _, g in pairs(meshes) do
 		if not bodyDrawable(g, pvs) then continue end
@@ -671,6 +682,8 @@ local function drawSurface(eyePos, eyeUnderwater, writeDepth)
 	end
 	cam.PopModelMatrix()
 	render.OverrideDepthEnable(false, false)
+
+	return true
 end
 
 local QUAD_NEAR = 12
@@ -765,14 +778,16 @@ local function drawOpaque(bDepth, bSkybox, bSkybox3D)
 	local eyeUnderwater = isUnderwater(eyePos)
 	if eyeUnderwater and inForeignLiquid(eyePos) then
 		hideSun(false)
+		depthWanted = false
 		return
 	end
 
 	hideSun(eyeUnderwater)
 	if eyeUnderwater then
 		fillSky(eyePos)
+		depthWanted = true
 	else
-		drawSurface(eyePos, false, true)
+		depthWanted = drawSurface(eyePos, false, true)
 	end
 end
 
@@ -798,6 +813,8 @@ local function drawTranslucent(bDepth, bSkybox, bSkybox3D)
 	local surfaceZ = waterSurfaceZ(probe)
 	local body = bodyAt(probe, surfaceZ)
 	if body and body.foreign then return end
+
+	depthWanted = true
 
 	if eyeUnderwater then
 		drawSurface(eyePos, true, false)
@@ -866,8 +883,9 @@ local function start()
 	initialize()
 	hook.Add("PostDrawOpaqueRenderables", "ms_water", drawOpaque)
 	hook.Add("PostDrawTranslucentRenderables", "ms_water_underwater", drawTranslucent)
+	depthWanted = true
 	hook.Add("NeedsDepthPass", "ms_water", function()
-		return true
+		if depthWanted then return true end
 	end)
 end
 
