@@ -52,11 +52,12 @@ float4 main(PS_IN i) : COLOR
 	float2 uv = i.spos.xy / i.spos.w * float2(0.5, -0.5) + 0.5;
 	uv -= float2(abs(ddx(uv).x), abs(ddy(uv).y)) * 0.5;
 
-	float3 original = tex2D(Frame, uv).rgb;
+	float4 frame = tex2D(Frame, uv);
+	float3 original = frame.rgb;
 	float3 scene = original;
 	float3 ray = normalize(i.wpos - EYE_POS);
 
-	float depth = tex2D(Depth, uv).r * MAX_SOURCE_DEPTH;
+	float depth = SceneDepth(tex2D(Depth, uv).r * MAX_SOURCE_DEPTH, frame.a);
 	bool beyondDepth = depth <= 0.0 || depth >= MAX_SOURCE_DEPTH - 10.0;
 	float sceneDistance = beyondDepth ? FAR : depth / max(dot(ray, EYE_FORWARD), 0.05);
 

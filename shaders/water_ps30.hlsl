@@ -88,12 +88,12 @@ float4 main(PS_IN i) : COLOR
     if (!FROM_BELOW) {
         float2 wobble = (normal.xy / i.spos.w) * ABOVE_REFRACTION;
         float4 frame = tex2D(Frame, uv + wobble);
-        float depth = tex2D(Depth, uv + wobble).r * MAX_SOURCE_DEPTH;
+        float depth = SceneDepth(tex2D(Depth, uv + wobble).r * MAX_SOURCE_DEPTH, frame.a);
         float thickness = depth - i.spos.w;
 
         if (thickness < 0) {
             frame = tex2D(Frame, uv);
-            depth = tex2D(Depth, uv).r * MAX_SOURCE_DEPTH;
+            depth = SceneDepth(tex2D(Depth, uv).r * MAX_SOURCE_DEPTH, frame.a);
             thickness = depth - i.spos.w;
         }
 

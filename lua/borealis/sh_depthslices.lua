@@ -48,6 +48,7 @@ local ALPHA0 = Color(0, 0, 0, 0)
 local ALPHA1 = Color(0, 0, 0, 255)
 local sliceColor = Color(0, 0, 0, 0)
 local capturedFrame = -1
+local dirtyFrame = -1
 
 local function quad(eye, fwd, halfW, halfH, t, col)
 	render.DrawQuadEasy(eye + fwd * t, -fwd, halfW * t * OVERSIZE, halfH * t * OVERSIZE, col, 0)
@@ -57,6 +58,7 @@ end
 function depthslices.Capture()
 	if capturedFrame == FrameNumber() then return end
 	capturedFrame = FrameNumber()
+	dirtyFrame = capturedFrame
 
 	local eye = EyePos()
 	local fwd = EyeAngles():Forward()
@@ -78,6 +80,10 @@ function depthslices.Capture()
 	render.OverrideBlend(false)
 	render.OverrideAlphaWriteEnable(false, false)
 	render.OverrideColorWriteEnable(false, false)
+end
+
+function depthslices.Invalidate()
+	capturedFrame = -1
 end
 
 -- an effect's own quad must not touch alpha, or the next effect reads its
@@ -122,7 +128,7 @@ end)
 
 hook.Add("PostDrawTranslucentRenderables", "ms_depthslices_restore", function(bDepth, bSkybox, b3DSky)
 	if bDepth or bSkybox or b3DSky then return end
-	if capturedFrame ~= FrameNumber() then return end
+	if dirtyFrame ~= FrameNumber() then return end
 
 	local eye = EyePos()
 	local fwd = EyeAngles():Forward()
