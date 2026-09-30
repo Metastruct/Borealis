@@ -46,7 +46,7 @@ end
 -- starts to read at the coverage this map runs: 0.85 took only 17 percent off
 -- the red channel, spread evenly over the frame with no lit ground beside it,
 -- and that is invisible.  Picked by eye in play; 2.5 would take red to zero.
-local STRENGTH = 1.5
+local STRENGTH = 4.0
 
 -- The sun ray to the slab is (height / sun.z) long, so a sun near the horizon
 -- drags one cloud's shade across the whole map.  Shade fades out well before
