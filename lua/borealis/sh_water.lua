@@ -933,4 +933,12 @@ end
 cvars.RemoveChangeCallback("cl_draw_water", "ms_water")
 cvars.AddChangeCallback("cl_draw_water", apply, "ms_water")
 hook.Remove("ShaderMounted", "ms_water")
-apply()
+
+if LocalPlayer and IsValid(LocalPlayer()) then
+	apply()
+else
+	hook.Add("InitPostEntity", "ms_water", function()
+		hook.Remove("InitPostEntity", "ms_water")
+		apply()
+	end)
+end
