@@ -48,9 +48,9 @@ if string.find(game.GetMap(), "gm_construct_m") then
             local type = type(default)
 
             if type == "Vector" then
-                P["sky_" .. name] = function(val)
+                P["sky_" .. name] = function(val, cfg)
                     if mult_by_world_light then
-                        val = val * C.world_light_multiplier
+                        val = val * (cfg.world_light_multiplier or 1)
                     end
 
                     GetSky():SetKeyValue(name, val.x .. " " .. val.y .. " " .. val.z)
@@ -827,9 +827,9 @@ if string.find(game.GetMap(), "gm_construct_m") then
         return math.Round(before + (on - before) * into / tod.WEATHER_RAMP, 2)
     end
 
-    function tod.SetParameter(key, val)
+    function tod.SetParameter(key, val, cfg)
         if type(tod.Params[key]) == "function" then
-            tod.Params[key](val)
+            tod.Params[key](val, cfg or tod.CurrentParams)
         end
 
         tod.CurrentParams[key] = val
@@ -841,7 +841,7 @@ if string.find(game.GetMap(), "gm_construct_m") then
 
     function tod.SetConfig(data)
         for key, val in pairs(data) do
-            tod.SetParameter(key, val)
+            tod.SetParameter(key, val, data)
         end
     end
 
