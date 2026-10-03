@@ -25,18 +25,20 @@ local GRASS_DISTANCE = CreateClientConVar("cl_draw_grass_distance", "3072", true
 -- tod_removesnow ends it at runtime through TOD_WinterRemoved
 local month = tonumber(os.date("%m")) or 0
 local WINTER = month >= 12 or month <= 2
-local DENSITY, HEIGHT, DRYNESS, ROOT_COLOR, DRY_COLOR
+local AUTUMN = false
+local DENSITY, HEIGHT, DRYNESS, ROOT_COLOR, TIP_COLOR, DRY_COLOR
 
-local function setSeason(winter)
-	WINTER = winter
+local function setSeason(winter, autumn)
+	WINTER, AUTUMN = winter, autumn
 	DENSITY = winter and 0.35 or 1 -- share of the tufts kept
 	HEIGHT = winter and 0.7 or 1
-	DRYNESS = winter and 1 or 0.15 -- 0 green .. 1 golden
-	ROOT_COLOR = winter and { 0.09, 0.085, 0.06 } or { 0.06, 0.075, 0.02 }
-	DRY_COLOR = winter and { 0.28, 0.25, 0.17 } or { 0.24, 0.21, 0.09 } -- tip colour of dry blades
+	DRYNESS = winter and 1 or autumn and 0.6 or 0.15 -- 0 green .. 1 golden
+	ROOT_COLOR = winter and { 0.09, 0.085, 0.06 } or autumn and { 0.07, 0.06, 0.02 } or { 0.06, 0.075, 0.02 }
+	TIP_COLOR = autumn and { 0.13, 0.15, 0.045 } or { 0.15, 0.19, 0.05 }
+	DRY_COLOR = winter and { 0.28, 0.25, 0.17 } or autumn and { 0.32, 0.2, 0.06 } or { 0.24, 0.21, 0.09 } -- tip colour of dry blades
 end
 
-setSeason(WINTER)
+setSeason(WINTER, AUTUMN)
 
 local CHUNK = 512 -- world units per chunk
 local SPACING = 18 -- tuft grid spacing
@@ -47,9 +49,6 @@ local MAX_SLOPE_Z = 0.7 -- skip faces steeper than this normal z
 local WIND_ANGLE = math.atan2(0.6, 0.8)
 local WIND = 0.45 -- bend at the tip, in quad widths
 local TRANSLUCENCY = 0.35
--- linear albedo, from gm_construct/grass1's average (0.061, 0.077, 0.020):
--- tips 2.5x the ground, roots 1x
-local TIP_COLOR = { 0.15, 0.19, 0.05 }
 local FILL_K = 0.5 -- ambient cube share added as fill light, not scaled by tod's light style
 local BUILD_BUDGET_MS = 3 -- generation work per frame
 local LOAD_BUDGET_MS = 8 -- BSP parse work per frame
@@ -977,8 +976,17 @@ hook.Remove("ShaderMounted", "ms_grass")
 -- density and height are baked into the tufts, so leaving winter is a rebuild
 hook.Add("TOD_WinterRemoved", "ms_grass", function()
 	if not WINTER then return end
-	setSeason(false)
+	setSeason(false, AUTUMN)
 	apply()
+end)
+
+hook.Add("TOD_Autumn", "ms_grass", function()
+	if WINTER or AUTUMN then return end
+	setSeason(false, true)
+	if MAT then
+		MAT:SetFloat("$c3_y", DRYNESS)
+		lastWet = -1
+	end
 end)
 
 -- the parse needs the map and its materials in, so the first apply waits for
