@@ -449,7 +449,7 @@ local function rasterChunk(ch, cand)
 						traceEnd:SetUnpacked(x, y, z + 1)
 						util.TraceLine(coverTrace)
 						if not coverTraceRes.Hit then
-							local lkey = math.floor(x / (SPACING * 2)) * 4096 + math.floor(y / (SPACING * 2))
+							local lkey = (math.floor(x / (SPACING * 2)) * 4096 + math.floor(y / (SPACING * 2))) * 1024 + math.floor(z / 64)
 							local light = lightCache[lkey]
 							if not light then
 								lightPos:SetUnpacked(x, y, z + 12)
