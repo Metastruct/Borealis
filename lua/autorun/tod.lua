@@ -920,9 +920,9 @@ if string.find(game.GetMap(), "gm_construct_m") then
 				reason = info and info.short_src .. ":" .. info.currentline or "unknown caller"
 			end
 
-			local line = string.format("[%s] %s %s -> %s: %s", os.date("%Y-%m-%d %H:%M:%S"), what, old, new, reason)
+			local line = string.format("%s %s -> %s: %s", what, old, new, reason)
 			if metalog then
-				metalog.log("TOD", nil, line)
+				metalog.info("TOD", nil, line)
 			else
 				Msg("[TOD] ")
 				print(line)
