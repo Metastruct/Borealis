@@ -11,7 +11,7 @@ struct PS_IN
 float4 main(PS_IN i) : COLOR
 {
 	float2 uv = i.spos.xy / i.spos.w * float2(0.5, -0.5) + 0.5;
-	uv -= float2(abs(ddx(uv).x), abs(ddy(uv).y)) * 0.5;
+	uv += float2(abs(ddx(uv).x), abs(ddy(uv).y)) * 0.5;
 
 	return float4(tex2D(Sky, uv).rgb, 1.0);
 }

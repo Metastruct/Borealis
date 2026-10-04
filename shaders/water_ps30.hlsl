@@ -56,7 +56,7 @@ float4 main(PS_IN i) : COLOR
     float2 p = i.wpos.xy;
 
 	float2 uv = ClipToUV(i.spos);
-	uv -= float2(abs(ddx(uv).x), abs(ddy(uv).y)) * 0.5;
+	uv += float2(abs(ddx(uv).x), abs(ddy(uv).y)) * 0.5;
 
     const float ABOVE_REFRACTION = 12.0;
 

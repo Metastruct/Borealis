@@ -105,7 +105,7 @@ float4 main(PS_IN i) : COLOR
 {
 	float2 uv = i.spos.xy / i.spos.w * float2(0.5, -0.5) + 0.5;
 
-	uv -= float2(abs(ddx(uv).x), abs(ddy(uv).y)) * 0.5;
+	uv += float2(abs(ddx(uv).x), abs(ddy(uv).y)) * 0.5;
 	float3 scene = tex2D(Frame, uv).rgb;
 
 	float raw = tex2D(Depth, uv).r;
