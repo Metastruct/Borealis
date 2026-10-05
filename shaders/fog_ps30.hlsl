@@ -23,6 +23,7 @@ sampler3D Noise : register(s2);
 #define SLICE_RATIO 1.2219785
 #define SLICE_SLACK 1.02
 #define SLICE_EXACT 64.0
+#define SKIP_ALPHA (254.5 / 255.0)
 #define NOISE_SCALE (1.0 / 1100.0)
 #define NOISE_FADE 3500.0
 #define WIND float3(0.012, 0.005, 0.003)
@@ -67,7 +68,12 @@ float4 main(PS_IN i) : COLOR
 	uv += float2(abs(ddx(uv).x), abs(ddy(uv).y)) * 0.5;
 	float4 frame = tex2D(Frame, uv);
 	float3 scene = frame.rgb;
-	float d = tex2D(Depth, uv).r * DEPTH_SCALE;
+	[branch] if (frame.a > SKIP_ALPHA)
+	{
+		return float4(scene, 1.0);
+	}
+
+	float d = tex2Dlod(Depth, float4(uv, 0.0, 0.0)).r * DEPTH_SCALE;
 	if (d <= 0.0) d = MAX_RANGE * 2.0;
 
 	float code = frame.a * 255.0;

@@ -284,6 +284,8 @@ local function draw()
 		render.DrawQuadEasy(eye + fwd * NEAR, -fwd, halfW * NEAR * QUAD_OVERSIZE, halfH * NEAR * QUAD_OVERSIZE, quadColor, 0)
 		render.OverrideDepthEnable(false, false)
 	end)
+
+	return true
 end
 
 --------------------------------------------------------------------------
@@ -306,7 +308,7 @@ local function start()
 	hook.Add("NeedsDepthPass", "ms_vclouds", function()
 		if active then return true end
 	end)
-	depthslices.AddEffect("ms_vclouds", ORDER, draw)
+	depthslices.AddEffect("ms_vclouds", ORDER, draw, true)
 end
 
 local function shadersAvailable()

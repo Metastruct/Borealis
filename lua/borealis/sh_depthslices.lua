@@ -1,4 +1,16 @@
-if SERVER then return end
+local HAS_SHADER_TO_GMA = file.Exists("includes/modules/shader_to_gma.lua", "LUA")
+if HAS_SHADER_TO_GMA then
+	require("shader_to_gma")
+end
+
+if SERVER then
+	if not resource.AddShader then return end
+
+	resource.AddShader("fog_vs30")
+	resource.AddShader("depthmark_ps30")
+
+	return
+end
 
 -- Coarse depth capture of the real frame, shared by the volumetric fog and the
 -- volumetric clouds.  The engine's depth pass only holds what the engine draws,
@@ -30,6 +42,9 @@ local NEAR = 16
 local FAR = 8000
 local QUAD_NEAR = 12 -- the clearing quad sits this far in front of the eye
 local OVERSIZE = 6 -- quads are sized past the frustum
+local MARK_PS, MARK_VS = "depthmark_ps30", "fog_vs30"
+local MARK_BIAS = 0.002
+local CLAMP = 4 + 8
 
 depthslices.SLICES, depthslices.NEAR, depthslices.FAR = SLICES, NEAR, FAR
 -- on the module, so reloading this file does not drop what is registered
@@ -49,9 +64,34 @@ local ALPHA1 = Color(0, 0, 0, 255)
 local sliceColor = Color(0, 0, 0, 0)
 local capturedFrame = -1
 local dirtyFrame = -1
+local refogFrame = -1
+local MARK, CODES
+local markRetry = 0
 
 local function quad(eye, fwd, halfW, halfH, t, col)
 	render.DrawQuadEasy(eye + fwd * t, -fwd, halfW * t * OVERSIZE, halfH * t * OVERSIZE, col, 0)
+end
+
+local function viewFan()
+	local vs = render.GetViewSetup()
+	local halfW = math.tan(math.rad(vs.fov) * 0.5)
+
+	return EyePos(), EyeAngles():Forward(), halfW, halfW / vs.aspect, vs
+end
+
+local function fillAlpha(col)
+	local eye, fwd, halfW, halfH = viewFan()
+
+	render.OverrideColorWriteEnable(true, false)
+	render.OverrideAlphaWriteEnable(true, true)
+	render.OverrideBlend(true, BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD, BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD)
+	render.SetColorMaterial()
+	render.OverrideDepthEnable(true, false)
+	quad(eye, fwd, halfW, halfH, QUAD_NEAR, col)
+	render.OverrideDepthEnable(false, false)
+	render.OverrideBlend(false)
+	render.OverrideAlphaWriteEnable(false, false)
+	render.OverrideColorWriteEnable(false, false)
 end
 
 -- Safe to call from several effects in one frame: only the first does the work.
@@ -60,11 +100,7 @@ function depthslices.Capture()
 	capturedFrame = FrameNumber()
 	dirtyFrame = capturedFrame
 
-	local eye = EyePos()
-	local fwd = EyeAngles():Forward()
-	local vs = render.GetViewSetup()
-	local halfW = math.tan(math.rad(vs.fov) * 0.5)
-	local halfH = halfW / vs.aspect
+	local eye, fwd, halfW, halfH = viewFan()
 
 	render.OverrideColorWriteEnable(true, false)
 	render.OverrideAlphaWriteEnable(true, true)
@@ -102,10 +138,10 @@ local function byOrder(a, b)
 end
 
 -- order is a distance: the farther volume takes the lower number
-function depthslices.AddEffect(name, order, draw)
+function depthslices.AddEffect(name, order, draw, refog)
 	depthslices.RemoveEffect(name)
 	local t = depthslices.effects
-	t[#t + 1] = { name = name, order = order, draw = draw }
+	t[#t + 1] = { name = name, order = order, draw = draw, refog = refog }
 	table.sort(t, byOrder)
 end
 
@@ -118,11 +154,102 @@ function depthslices.RemoveEffect(name)
 	end
 end
 
+local function usableRT(t, w, h)
+	return t ~= nil and not t:IsError() and t:Width() == w and t:Height() == h
+end
+
+local function markReady()
+	local w, h = ScrW(), ScrH()
+	if MARK and usableRT(CODES, w, h) then return true end
+	if RealTime() < markRetry then return false end
+	markRetry = RealTime() + 5
+
+	if not file.Exists("shaders/fxc/" .. MARK_PS .. ".vcs", "GAME") or not file.Exists("shaders/fxc/" .. MARK_VS .. ".vcs", "GAME") then return false end
+
+	local codes = GetRenderTargetEx("ms_depthslices_codes_" .. w .. "x" .. h, w, h, RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE, CLAMP, 0, IMAGE_FORMAT_RGBA8888)
+	if not usableRT(codes, w, h) then return false end
+
+	CODES = codes
+	MARK = CreateMaterial("ms_depthslices_mark_" .. w .. "x" .. h .. "_" .. os.time(), "screenspace_general", {
+		["$pixshader"] = MARK_PS,
+		["$vertexshader"] = MARK_VS,
+		["$basetexture"] = codes:GetName(),
+		["$texture1"] = "",
+		["$texture2"] = "",
+		["$linearread_basetexture"] = 1,
+		["$linearread_texture1"] = 1,
+		["$linearread_texture2"] = 1,
+		["$linearwrite"] = 0,
+		["$ignorez"] = 0,
+		["$vertexcolor"] = 1,
+		["$vertextransform"] = 1,
+		["$nocull"] = 1,
+		["<dx90"] = { ["$no_draw"] = 1 },
+		["$c0_x"] = 3, ["$c0_y"] = 30000, ["$c0_z"] = MARK_BIAS, ["$c0_w"] = 0,
+	})
+
+	return true
+end
+
+local function refog()
+	local eye, fwd, halfW, halfH, vs = viewFan()
+	render.UpdateScreenEffectTexture()
+	MARK:SetTexture("$texture2", render.GetScreenEffectTexture())
+	MARK:SetTexture("$basetexture", CODES)
+	MARK:SetTexture("$texture1", render.GetResolvedFullFrameDepth())
+	MARK:SetFloat("$c0_x", vs.znear)
+	MARK:SetFloat("$c0_y", vs.zfar)
+
+	capturedFrame = -1
+	depthslices.Capture()
+
+	render.SetStencilWriteMask(255)
+	render.SetStencilTestMask(255)
+	render.SetStencilReferenceValue(1)
+	render.ClearStencil()
+	render.SetStencilEnable(true)
+	render.SetStencilCompareFunction(STENCIL_ALWAYS)
+	render.SetStencilPassOperation(STENCIL_KEEP)
+	render.SetStencilFailOperation(STENCIL_KEEP)
+	render.SetStencilZFailOperation(STENCIL_REPLACE)
+
+	render.OverrideColorWriteEnable(true, false)
+	render.OverrideAlphaWriteEnable(true, false)
+	render.SetMaterial(MARK)
+	render.OverrideDepthEnable(true, true)
+	quad(eye, fwd, halfW, halfH, QUAD_NEAR, color_white)
+	render.OverrideDepthEnable(false, false)
+	render.OverrideAlphaWriteEnable(false, false)
+	render.OverrideColorWriteEnable(false, false)
+
+	render.SetStencilZFailOperation(STENCIL_KEEP)
+	render.SetStencilCompareFunction(STENCIL_NOTEQUAL)
+	fillAlpha(ALPHA1)
+
+	render.SetStencilCompareFunction(STENCIL_EQUAL)
+	local t = depthslices.effects
+	for i = 1, #t do
+		if t[i].refog then
+			t[i].draw()
+		end
+	end
+	fillAlpha(ALPHA1)
+	render.SetStencilEnable(false)
+end
+
 hook.Add("PreDrawTranslucentRenderables", "ms_depthslices_effects", function(bDepth, bSkybox, b3DSky)
 	if bDepth or bSkybox or b3DSky or render.GetRenderTarget() then return end
 	local t = depthslices.effects
+	local wantsRefog = false
 	for i = 1, #t do
-		t[i].draw()
+		if t[i].draw() and t[i].refog then
+			wantsRefog = true
+		end
+	end
+
+	if wantsRefog and markReady() then
+		refogFrame = FrameNumber()
+		render.CopyRenderTargetToTexture(CODES)
 	end
 end)
 
@@ -130,20 +257,11 @@ hook.Add("PostDrawTranslucentRenderables", "ms_depthslices_restore", function(bD
 	if bDepth or bSkybox or b3DSky then return end
 	if dirtyFrame ~= FrameNumber() then return end
 
-	local eye = EyePos()
-	local fwd = EyeAngles():Forward()
-	local vs = render.GetViewSetup()
-	local halfW = math.tan(math.rad(vs.fov) * 0.5)
-	local halfH = halfW / vs.aspect
+	fillAlpha(ALPHA1)
+end)
 
-	render.OverrideColorWriteEnable(true, false)
-	render.OverrideAlphaWriteEnable(true, true)
-	render.OverrideBlend(true, BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD, BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD)
-	render.SetColorMaterial()
-	render.OverrideDepthEnable(true, false)
-	quad(eye, fwd, halfW, halfH, QUAD_NEAR, ALPHA1)
-	render.OverrideDepthEnable(false, false)
-	render.OverrideBlend(false)
-	render.OverrideAlphaWriteEnable(false, false)
-	render.OverrideColorWriteEnable(false, false)
+hook.Add("PreDrawViewModels", "ms_depthslices_refog", function()
+	if refogFrame ~= FrameNumber() or render.GetRenderTarget() then return end
+	refogFrame = -1
+	refog()
 end)

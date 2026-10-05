@@ -53,6 +53,7 @@ sampler3D Detail : register(s3);
 #define SLICE_RATIO 1.2219785 // (8000 / 16) ^ (1 / 31)
 #define SLICE_SLACK 1.02
 #define SLICE_EXACT 64.0
+#define SKIP_ALPHA (254.5 / 255.0)
 
 struct PS_IN
 {
@@ -154,8 +155,12 @@ float4 main(PS_IN i) : COLOR
 	uv += float2(abs(ddx(uv).x), abs(ddy(uv).y)) * 0.5;
 	float4 frame = tex2D(Frame, uv);
 	float3 scene = frame.rgb;
+	[branch] if (frame.a > SKIP_ALPHA)
+	{
+		return float4(scene, 1.0);
+	}
 
-	float raw = tex2D(Depth, uv).r;
+	float raw = tex2Dlod(Depth, float4(uv, 0.0, 0.0)).r;
 	float d = raw * DEPTH_SCALE;
 	if (raw <= 0.0 || abs(raw - 1.0) < SKY_EPS)
 	{
