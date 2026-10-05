@@ -519,6 +519,7 @@ local function initialize()
 		["$pixshader"] = px,
 		["$vertexshader"] = vs,
 		["$alpha_blend"] = 0,
+		["$writealpha"] = 1,
 		["$linearread_texture1"] = 1,
 		["$linearread_texture2"] = 1,
 		["$texture3"] = "procsky/fognoise",

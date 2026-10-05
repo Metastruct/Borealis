@@ -12,29 +12,6 @@ if SERVER then
 	return
 end
 
--- Coarse depth capture of the real frame, shared by the volumetric fog and the
--- volumetric clouds.  The engine's depth pass only holds what the engine draws,
--- so anything coming from a Lua hook (PAC3 parts, clientside models drawn by
--- hand) is missing from it and a volumetric effect paints straight over it.
---
--- This writes, into the frame's alpha, the index of the farthest slice still in
--- front of each surface: SLICES depth-tested alpha-only quads at log-spaced
--- distances, after a near quad that ignores depth to clear.  A shader turns the
--- index back into a distance and takes whichever is nearer, that or the depth
--- pass.  Alpha writes only, blending forced to replace, and the colour material
--- does not write depth.  3D quads throughout: the surface library ignores the
--- overrides.
---
--- One capture serves every effect in the frame, so an effect must draw its own
--- quad with alpha writes OFF or it wipes the indices the next one still needs.
--- The alpha is put back once, after the translucent pass.
---
--- The effects also draw from here, in one hook, ordered far to near: a nearer
--- volume has to blend over what a farther one left, and the order of two hooks
--- under the same name is whatever Lua's hashing decides.  The main view is the
--- only place they belong, and it is the only pass this hook lets through, so an
--- effect's own draw needs no guard of its own.
-
 depthslices = depthslices or {}
 
 local SLICES = 32 -- both ends and the ratio are baked into fog_ps30 and vclouds_ps30
