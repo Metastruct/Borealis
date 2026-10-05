@@ -50,7 +50,7 @@ float surfaceDepth(float raw, float2 uv)
 	float sliceFar = SLICE_NEAR * pow(SLICE_RATIO, ks + 1.0);
 	if (ks < SLICES - 1.0 && d > sliceFar * SLICE_SLACK)
 	{
-		return sliceFar;
+		return sliceFar / SLICE_RATIO;
 	}
 
 	return d;
