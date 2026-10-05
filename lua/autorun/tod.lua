@@ -107,7 +107,7 @@ if string.find(game.GetMap(), "gm_construct_m") then
 		P.star_intensity = 0
 		P.moon_size = 1
 		P.moon_angles = Angle(0, 0, 0)
-		P.fog_color = Vector(1, 1, 1)
+		P.fog_color = Vector(255, 255, 255)
 		P.fog_start = 0
 		P.fog_end = 32000
 		P.fog_max_density = 1

@@ -1,29 +1,21 @@
 -- edit me!
-
 local SCOL = 170
-
-local night =
-{
+local night = {
 	["sun_angles"] = Angle(-90, 45, 0),
 	["moon_angles"] = -Angle(-90, 45, 0),
 	["world_light_multiplier"] = 0.001,
-	
 	["color_brightness"] = 0,
 	["color_contrast"] = 1,
 	["color_saturation"] = 0.75,
 	["color_multiply"] = Vector(-0.017, -0.005, 0.02),
 	["color_add"] = Vector(0, 0, 0),
-	
 	["fog_start"] = 0,
 	["fog_end"] = 14000,
 	["fog_max_density"] = 0.25,
-	["fog_color"] = Vector(0.25, 0.20, 0.30),
-	
+	["fog_color"] = Vector(0.25, 0.20, 0.30) * 255,
 	["shadow_angles"] = Angle(-90, 45, 0),
-	["shadow_color"] = Vector(SCOL,SCOL,SCOL),
-	
+	["shadow_color"] = Vector(SCOL, SCOL, SCOL),
 	["star_intensity"] = 1,
-	
 	["bloom_passes"] = 1,
 	["bloom_color"] = Vector(1, 1, 1),
 	["bloom_width"] = 1,
@@ -31,13 +23,10 @@ local night =
 	["bloom_height"] = 1,
 	["bloom_darken"] = 0,
 	["bloom_multiply"] = 0,
-	
 	["sharpen_contrast"] = 0,
 	["sharpen_distance"] = 0,
-	
 	["sky_topcolor"] = Vector(5, 12, 15) / 255 * 100,
 	["sky_bottomcolor"] = Vector(12, 14, 13) / 255 * 100,
-	
 	["sky_fadebias"] = 1,
 	["sky_sunsize"] = 0,
 	["sky_sunnormal"] = Vector(0.4, 0, 0.01),
@@ -51,28 +40,22 @@ local night =
 	["sky_hdrscale"] = 0.66,
 }
 
-local dusk =
-{
+local dusk = {
 	["sun_angles"] = Angle(0, 45, 0),
 	["moon_angles"] = -Angle(45, 45, 0),
 	["world_light_multiplier"] = 0.1,
-	
 	["color_brightness"] = 0,
 	["color_contrast"] = 1,
 	["color_saturation"] = 1.1,
 	["color_multiply"] = Vector(0.017, 0.005, -0.02),
 	["color_add"] = Vector(0, 0, 0),
-	
 	["fog_start"] = 0,
 	["fog_end"] = 10000,
 	["fog_max_density"] = 1,
-	["fog_color"] = Vector(1, 0.85, 0.6),
-	
+	["fog_color"] = Vector(1, 0.85, 0.6) * 255,
 	["shadow_angles"] = Angle(0, 45, 0),
-	["shadow_color"] = Vector(SCOL,SCOL,SCOL),
-	
+	["shadow_color"] = Vector(SCOL, SCOL, SCOL),
 	["star_intensity"] = 0,
-	
 	["bloom_passes"] = 3,
 	["bloom_color"] = Vector(1, 1, 1),
 	["bloom_width"] = 5,
@@ -80,12 +63,10 @@ local dusk =
 	["bloom_saturation"] = 0.25,
 	["bloom_darken"] = 1,
 	["bloom_multiply"] = 0,
-	
 	["sharpen_contrast"] = 0,
 	["sharpen_distance"] = 0,
-	
 	["sky_topcolor"] = Vector(1, 1, 1),
-	["sky_bottomcolor"] = Vector(1, 1, 1)*0,
+	["sky_bottomcolor"] = Vector(1, 1, 1) * 0,
 	["sky_fadebias"] = 1,
 	["sky_sunsize"] = 2,
 	["sky_sunnormal"] = Vector(0, 0, 0),
@@ -99,28 +80,22 @@ local dusk =
 	["sky_hdrscale"] = 0.66,
 }
 
-local day =
-{
+local day = {
 	["sun_angles"] = Angle(90, 45, 0),
 	["moon_angles"] = -Angle(90, 45, 0),
 	["world_light_multiplier"] = 1,
-	
 	["color_brightness"] = 0,
 	["color_contrast"] = 1,
 	["color_saturation"] = 1,
-	["color_multiply"] = Vector(0,0,0),
+	["color_multiply"] = Vector(0, 0, 0),
 	["color_add"] = Vector(0, 0, 0),
-	
 	["fog_start"] = 0,
 	["fog_end"] = 30000,
 	["fog_max_density"] = 0,
-	["fog_color"] = Vector(1,1,1),
-	
+	["fog_color"] = Vector(1, 1, 1) * 255,
 	["shadow_angles"] = Angle(0, 45, 0),
-	["shadow_color"] = Vector(SCOL,SCOL,SCOL),
-	
+	["shadow_color"] = Vector(SCOL, SCOL, SCOL),
 	["star_intensity"] = 0,
-	
 	["bloom_passes"] = 3,
 	["bloom_color"] = Vector(1, 1, 1),
 	["bloom_width"] = 5,
@@ -128,10 +103,8 @@ local day =
 	["bloom_saturation"] = 0.25,
 	["bloom_darken"] = 1,
 	["bloom_multiply"] = 0,
-	
 	["sharpen_contrast"] = 0,
 	["sharpen_distance"] = 0,
-	
 	["sky_topcolor"] = Vector(0.125, 0.5, 1),
 	["sky_bottomcolor"] = Vector(0.8, 1, 1),
 	["sky_fadebias"] = 0.25,
@@ -147,28 +120,22 @@ local day =
 	["sky_hdrscale"] = 0.66,
 }
 
-local dawn =
-{
-	["sun_angles"] = Angle(90*2, 45, 0),
-	["moon_angles"] = -Angle(90*2, 45, 0),
+local dawn = {
+	["sun_angles"] = Angle(90 * 2, 45, 0),
+	["moon_angles"] = -Angle(90 * 2, 45, 0),
 	["world_light_multiplier"] = 0.005,
-	
 	["color_brightness"] = 0,
 	["color_contrast"] = 1,
 	["color_saturation"] = 0.9,
 	["color_multiply"] = Vector(0.017, -0.075, 0.01),
 	["color_add"] = Vector(0, 0, 0),
-	
 	["fog_start"] = 0,
 	["fog_end"] = 10000,
 	["fog_max_density"] = 0,
-	["fog_color"] = Vector(1,1,1),
-	
+	["fog_color"] = Vector(1, 1, 1) * 255,
 	["shadow_angles"] = Angle(0, 45, 0),
-	["shadow_color"] = Vector(SCOL,SCOL,SCOL),
-	
+	["shadow_color"] = Vector(SCOL, SCOL, SCOL),
 	["star_intensity"] = 0,
-	
 	["bloom_passes"] = 3,
 	["bloom_color"] = Vector(1, 1, 1),
 	["bloom_width"] = 5,
@@ -176,12 +143,10 @@ local dawn =
 	["bloom_saturation"] = 0.25,
 	["bloom_darken"] = 1,
 	["bloom_multiply"] = 0,
-	
 	["sharpen_contrast"] = 0,
 	["sharpen_distance"] = 0,
-	
-	["sky_topcolor"] = Vector(1, 0.25, 0.75)*2,
-	["sky_bottomcolor"] = Vector(1, 0.5, 0.25)*4,
+	["sky_topcolor"] = Vector(1, 0.25, 0.75) * 2,
+	["sky_bottomcolor"] = Vector(1, 0.5, 0.25) * 4,
 	["sky_fadebias"] = 0,
 	["sky_sunsize"] = 1,
 	["sky_sunnormal"] = Vector(0, 0, 0),
@@ -196,10 +161,4 @@ local dawn =
 }
 
 -- repeat to make the configs last longer
-tod.SetConfigCycle(
-	night, night, night, night, night,
-	dusk,
-	day,day,day,day,day, day, day, day, day,day,day,day,day,
-	dawn, dawn,
-	night, night, night
-)
+tod.SetConfigCycle(night, night, night, night, night, dusk, day, day, day, day, day, day, day, day, day, day, day, day, day, dawn, dawn, night, night, night)
