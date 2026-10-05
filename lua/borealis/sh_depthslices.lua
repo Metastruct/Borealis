@@ -103,6 +103,26 @@ function depthslices.SkipRefog()
 	refogFrame = -1
 end
 
+local depthFrame, depthFresh = -1, false
+
+function depthslices.BeginDepthWrite()
+	if depthFrame ~= FrameNumber() then
+		depthFrame = FrameNumber()
+		depthFresh = hook.Run("NeedsDepthPass") == true
+	end
+	if not depthFresh then return false end
+
+	render.PushRenderTarget(render.GetResolvedFullFrameDepth())
+	render.OverrideBlend(true, BLEND_ONE, BLEND_ONE, BLENDFUNC_MIN, BLEND_ONE, BLEND_ONE, BLENDFUNC_MIN)
+
+	return true
+end
+
+function depthslices.EndDepthWrite()
+	render.OverrideBlend(false)
+	render.PopRenderTarget()
+end
+
 -- an effect's own quad must not touch alpha, or the next effect reads its
 -- output instead of the slice indices
 function depthslices.KeepAlpha(draw)

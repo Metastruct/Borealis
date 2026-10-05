@@ -39,7 +39,7 @@ float surfaceDepth(float raw, float2 uv)
 	float code = tex2D(Codes, uv).a * 255.0;
 	if (code > SLICE_EXACT - 0.5)
 	{
-		return min(d, SLICE_NEAR * pow(SLICE_RATIO, code - SLICE_EXACT - 0.5));
+		return d > SLICE_NEAR * pow(SLICE_RATIO, code - SLICE_EXACT + 1.0) ? SLICE_NEAR * pow(SLICE_RATIO, code - SLICE_EXACT - 0.5) : d;
 	}
 
 	float ks = floor(code + 0.5) - 1.0;

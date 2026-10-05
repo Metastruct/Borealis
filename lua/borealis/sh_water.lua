@@ -11,6 +11,7 @@ if SERVER then
 	resource.AddShader("underwater_ps30")
 	resource.AddShader("water_skyfill_ps30")
 	resource.AddShader("water_sun_ps30")
+	resource.AddShader("waterdepth_ps30")
 	resource.AddFile("materials/procsky/fognoise.vtf")
 
 	return
@@ -367,7 +368,7 @@ local function createShaderMaterial(name, opts)
 	return CreateMaterial(name, "screenspace_general", keyValues)
 end
 
-local SURF_MAT
+local SURF_MAT, DEPTH_MAT
 local meshes = {}
 local visibleClusters = function() end
 
@@ -530,6 +531,12 @@ local function initialize()
 		["$c3_x"] = 0, ["$c3_y"] = 0, ["$c3_z"] = 0, ["$c3_w"] = 0,
 	})
 
+	DEPTH_MAT = file.Exists("shaders/fxc/waterdepth_ps30.vcs", "GAME") and createShaderMaterial("water_depth_" .. suffix, {
+		["$pixshader"] = "waterdepth_ps30",
+		["$vertexshader"] = vs,
+		["$alpha_blend"] = 0,
+	}) or nil
+
 	buildMeshes()
 end
 
@@ -682,8 +689,16 @@ local function drawSurface(eyePos, eyeUnderwater, writeDepth)
 		render.SetMaterial(SURF_MAT)
 		g.mesh:Draw()
 	end
-	cam.PopModelMatrix()
 	render.OverrideDepthEnable(false, false)
+
+	if writeDepth and DEPTH_MAT and depthslices.BeginDepthWrite() then
+		render.SetMaterial(DEPTH_MAT)
+		for _, g in pairs(meshes) do
+			if bodyDrawable(g, pvs) then g.mesh:Draw() end
+		end
+		depthslices.EndDepthWrite()
+	end
+	cam.PopModelMatrix()
 
 	return true
 end

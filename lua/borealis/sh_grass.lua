@@ -8,6 +8,7 @@ if SERVER then
 
 	resource.AddShader("grass_vs30")
 	resource.AddShader("grass_ps30")
+	resource.AddShader("grassdepth_ps30")
 
 	return
 end
@@ -673,7 +674,8 @@ end
 --------------------------------------------------------------------------
 -- rendering
 --------------------------------------------------------------------------
-local MAT
+local MAT, DEPTH_MAT
+local drawn = {}
 local loader -- BSP parse coroutine
 local ready = false
 local stop -- defined below, called when the parse gives up
@@ -839,6 +841,7 @@ local function draw(_, _, sky3d)
 
 	sightStart:Set(eye)
 	local tests = 0
+	local shown = 0
 	render.OverrideDepthEnable(true, true)
 	for _, ch in ipairs(visible) do
 		for _, b in ipairs(ch.mesh) do
@@ -862,11 +865,34 @@ local function draw(_, _, sky3d)
 				end
 			end
 
-			if show then b.m:Draw() end
+			if show then
+				b.m:Draw()
+				shown = shown + 1
+				drawn[shown] = b.m
+			end
 		end
 	end
 
 	render.OverrideDepthEnable(false, false)
+
+	if DEPTH_MAT and shown > 0 and depthslices and depthslices.BeginDepthWrite() then
+		DEPTH_MAT:SetFloat("$c0_x", eye.x)
+		DEPTH_MAT:SetFloat("$c0_y", eye.y)
+		DEPTH_MAT:SetFloat("$c0_z", eye.z)
+		DEPTH_MAT:SetFloat("$c0_w", CurTime() % 1000)
+		DEPTH_MAT:SetFloat("$c2_x", fwd.x)
+		DEPTH_MAT:SetFloat("$c2_y", fwd.y)
+		DEPTH_MAT:SetFloat("$c2_z", fwd.z)
+		render.SetMaterial(DEPTH_MAT)
+		for i = 1, shown do
+			drawn[i]:Draw()
+		end
+		depthslices.EndDepthWrite()
+	end
+
+	for i = shown + 1, #drawn do
+		drawn[i] = nil
+	end
 
 	-- evict chunks well outside the radius, keeping their tuft lists
 	if RealTime() > evictNext then
@@ -906,6 +932,10 @@ local function setDistance()
 		MAT:SetFloat("$c1_w", FADE_START)
 		MAT:SetFloat("$c3_w", FADE_END)
 	end
+	if DEPTH_MAT then
+		DEPTH_MAT:SetFloat("$c1_w", FADE_START)
+		DEPTH_MAT:SetFloat("$c3_w", FADE_END)
+	end
 end
 
 setDistance()
@@ -935,6 +965,25 @@ local function start(PIXEL_SHADER, VERTEX_SHADER)
 	MAT:SetFloat("$c3_y", DRYNESS)
 	MAT:SetFloat("$c3_z", packColor(unpack(DRY_COLOR)))
 	lastWet = -1
+
+	if not DEPTH_MAT and file.Exists("shaders/fxc/grassdepth_ps30.vcs", "GAME") then
+		DEPTH_MAT = CreateMaterial("ms_grassdepth_" .. os.time(), "screenspace_general", {
+			["$pixshader"] = "grassdepth_ps30",
+			["$vertexshader"] = VERTEX_SHADER,
+			["$basetexture"] = "",
+			["$ignorez"] = 1,
+			["$vertexcolor"] = 1,
+			["$vertextransform"] = 1,
+			["$alpha_blend"] = 0,
+			["$linearwrite"] = 1,
+			["$nocull"] = 1,
+			["<dx90"] = { ["$no_draw"] = 1 },
+			["$c0_x"] = 0, ["$c0_y"] = 0, ["$c0_z"] = 0, ["$c0_w"] = 0,
+			["$c1_x"] = WIND_ANGLE, ["$c1_y"] = 0, ["$c1_z"] = WIND, ["$c1_w"] = FADE_START,
+			["$c2_x"] = 0, ["$c2_y"] = 0, ["$c2_z"] = 0, ["$c2_w"] = 0,
+			["$c3_x"] = 0, ["$c3_y"] = 0, ["$c3_z"] = 0, ["$c3_w"] = FADE_END,
+		})
+	end
 
 	setDistance()
 

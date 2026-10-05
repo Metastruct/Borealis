@@ -171,7 +171,10 @@ float4 main(PS_IN i) : COLOR
 	float ks = floor(code + 0.5) - 1.0;
 	if (code > SLICE_EXACT - 0.5)
 	{
-		d = SLICE_NEAR * pow(SLICE_RATIO, code - SLICE_EXACT);
+		if (d > SLICE_NEAR * pow(SLICE_RATIO, code - SLICE_EXACT + 1.0))
+		{
+			d = SLICE_NEAR * pow(SLICE_RATIO, code - SLICE_EXACT);
+		}
 	}
 	else if (ks >= 0.0 && ks < SLICES - 1.0 && d > SLICE_NEAR * pow(SLICE_RATIO, ks + 1.0) * SLICE_SLACK)
 	{

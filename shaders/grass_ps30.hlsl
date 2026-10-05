@@ -79,6 +79,11 @@ float4 main(PS_IN i) : COLOR
 	q = test(i.blade3, u, v, bend - flutter * 0.5); r = max(r, q);
 	q = test(i.blade4, u, v, bend); r = max(r, q);
 	clip(r.x - 0.5);
+#ifdef DEPTH_ONLY
+	float d = dot(i.wpos - EYE, Constants2.xyz) / 4000.0;
+
+	return float4(d, d, d, 1.0);
+#else
 	float tip = r.y;
 
 	float dry = saturate(DRYNESS + (hash(float2(seed1, 9.2)) - 0.5) * 0.6);
@@ -92,4 +97,5 @@ float4 main(PS_IN i) : COLOR
 	float3 col = albedo * light * (0.45 + 0.55 * tip) + albedo * light * TRANSLUCENCY * tip * tip;
 
 	return float4(col * BRIGHTNESS, 1.0);
+#endif
 }
