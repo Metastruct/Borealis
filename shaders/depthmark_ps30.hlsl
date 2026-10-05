@@ -7,6 +7,7 @@ sampler Frame : register(s2);
 #define ZNEAR Constants0.x
 #define ZFAR  Constants0.y
 #define BIAS  Constants0.z
+#define SAMPLES Constants0.w
 
 #define DEPTH_SCALE 4000.0
 #define SKY_EPS 0.0005
@@ -42,6 +43,7 @@ float surfaceDepth(float raw, float2 uv)
 		return d > SLICE_NEAR * pow(SLICE_RATIO, code - SLICE_EXACT + 1.0) ? SLICE_NEAR * pow(SLICE_RATIO, code - SLICE_EXACT - 0.5) : d;
 	}
 
+	d = max(d, SLICE_NEAR * pow(SLICE_RATIO, SLICES - 1.0 - max(SAMPLES, 1.0) * (SLICES - code)) / SLICE_SLACK);
 	float ks = floor(code + 0.5) - 1.0;
 	if (ks < 0.0)
 	{

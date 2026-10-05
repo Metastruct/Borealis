@@ -186,6 +186,7 @@ local function draw()
 	-- alpha writes stay off so the slice indices survive for the next effect;
 	-- sh_depthslices puts the frame's alpha back after the translucent pass
 	quadColor.g = noise * 255
+	quadColor.b = depthslices.Samples()
 	depthslices.KeepAlpha(function()
 		render.OverrideDepthEnable(true, false)
 		render.SetMaterial(MAT)

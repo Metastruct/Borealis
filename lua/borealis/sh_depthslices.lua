@@ -36,6 +36,12 @@ do
 	end
 end
 
+local AA = GetConVar("mat_antialias")
+
+function depthslices.Samples()
+	return math.Clamp(AA and AA:GetInt() or 1, 1, 16)
+end
+
 local ALPHA1 = Color(0, 0, 0, 255)
 local sliceColor = Color(0, 0, 0, 0)
 local capturedFrame = -1
@@ -208,6 +214,7 @@ local function refog()
 	MARK:SetTexture("$texture1", render.GetResolvedFullFrameDepth())
 	MARK:SetFloat("$c0_x", vs.znear)
 	MARK:SetFloat("$c0_y", vs.zfar)
+	MARK:SetFloat("$c0_w", depthslices.Samples())
 
 	capturedFrame = -1
 	depthslices.Capture()

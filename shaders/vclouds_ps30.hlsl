@@ -176,9 +176,14 @@ float4 main(PS_IN i) : COLOR
 			d = SLICE_NEAR * pow(SLICE_RATIO, code - SLICE_EXACT);
 		}
 	}
-	else if (ks >= 0.0 && ks < SLICES - 1.0 && d > SLICE_NEAR * pow(SLICE_RATIO, ks + 1.0) * SLICE_SLACK)
+	else
 	{
-		d = SLICE_NEAR * pow(SLICE_RATIO, ks + 0.5);
+		float samples = max(floor(i.color.b * 255.0 + 0.5), 1.0);
+		d = max(d, SLICE_NEAR * pow(SLICE_RATIO, SLICES - 1.0 - samples * (SLICES - code)) / SLICE_SLACK);
+		if (ks >= 0.0 && ks < SLICES - 1.0 && d > SLICE_NEAR * pow(SLICE_RATIO, ks + 1.0) * SLICE_SLACK)
+		{
+			d = SLICE_NEAR * pow(SLICE_RATIO, ks + 0.5);
+		}
 	}
 
 	float3 ray = normalize(i.wpos - EYE);

@@ -275,6 +275,7 @@ local function draw()
 
 	quadColor.r = ambScale * 255
 	quadColor.g = lightScale * 255
+	quadColor.b = depthslices.Samples()
 	quadColor.a = fogScale * 255
 
 	-- alpha writes stay off so the slice indices survive for the next effect;

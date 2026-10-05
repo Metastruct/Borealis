@@ -151,7 +151,7 @@ end
 --------------------------------------------------------------------------
 -- rendering
 --------------------------------------------------------------------------
-local quadColor = Color(255, 255, 0, 255) -- blue is the shader's debug view, off
+local quadColor = Color(255, 255, 0, 255) -- blue is the MSAA sample count, past 64 the shader's debug view
 
 local function draw()
 	if not active then return end
@@ -187,6 +187,7 @@ local function draw()
 	MAT:SetFloat("$c2_z", sunDir.z)
 	MAT:SetFloat("$c2_w", coverage)
 	MAT:SetFloat("$c3_w", gain)
+	quadColor.b = depthslices.Samples()
 
 	-- alpha writes stay off so the slice indices survive for the next effect;
 	-- sh_depthslices puts the frame's alpha back after the translucent pass

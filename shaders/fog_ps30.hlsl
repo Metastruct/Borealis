@@ -23,6 +23,8 @@ sampler3D Noise : register(s2);
 #define SLICE_RATIO 1.2219785
 #define SLICE_SLACK 1.02
 #define SLICE_EXACT 64.0
+#define SLICES 32.0
+#define SKY_EPS 0.0005
 #define SKIP_ALPHA (254.5 / 255.0)
 #define NOISE_SCALE (1.0 / 1100.0)
 #define NOISE_FADE 3500.0
@@ -73,7 +75,8 @@ float4 main(PS_IN i) : COLOR
 		return float4(scene, 1.0);
 	}
 
-	float d = tex2Dlod(Depth, float4(uv, 0.0, 0.0)).r * DEPTH_SCALE;
+	float raw = tex2Dlod(Depth, float4(uv, 0.0, 0.0)).r;
+	float d = raw * DEPTH_SCALE;
 	if (d <= 0.0) d = MAX_RANGE * 2.0;
 
 	float code = frame.a * 255.0;
@@ -86,9 +89,17 @@ float4 main(PS_IN i) : COLOR
 			d = SLICE_NEAR * pow(SLICE_RATIO, code - SLICE_EXACT);
 		}
 	}
-	else if (d > sliceFar * SLICE_SLACK)
+	else
 	{
-		d = (ks < 0.0) ? 0.0 : SLICE_NEAR * pow(SLICE_RATIO, ks + 0.5);
+		if (abs(raw - 1.0) >= SKY_EPS)
+		{
+			float samples = max(floor(i.color.b * 255.0 + 0.5), 1.0);
+			d = max(d, SLICE_NEAR * pow(SLICE_RATIO, SLICES - 1.0 - samples * (SLICES - code)) / SLICE_SLACK);
+		}
+		if (d > sliceFar * SLICE_SLACK)
+		{
+			d = (ks < 0.0) ? 0.0 : SLICE_NEAR * pow(SLICE_RATIO, ks + 0.5);
+		}
 	}
 
 	float3 ray = normalize(i.wpos - EYE);
