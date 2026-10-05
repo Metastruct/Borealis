@@ -33,10 +33,7 @@ end
 --
 -- The shader shares the fog's vertex shader (a near-plane quad passing its
 -- world and clip position) and rebuilds each pixel's world position from the
--- engine's depth pass.  It does not use the slice capture: one log spaced
--- index is far too coarse to rebuild a position from, and shade sampled
--- hundreds of units off looks worse than none, so what the depth pass misses
--- (PAC3 parts, clientside models) goes unshaded.
+-- engine's depth pass.
 --
 -- The 3D skybox's geometry is in the frame with its own main-view depth, which
 -- puts it past the shader's distance fade, so it keeps out of this.
@@ -46,7 +43,7 @@ end
 -- starts to read at the coverage this map runs: 0.85 took only 17 percent off
 -- the red channel, spread evenly over the frame with no lit ground beside it,
 -- and that is invisible.  Picked by eye in play; 2.5 would take red to zero.
-local STRENGTH = 4.0
+local STRENGTH = 2.0
 
 -- The sun ray to the slab is (height / sun.z) long, so a sun near the horizon
 -- drags one cloud's shade across the whole map.  Shade fades out well before
@@ -170,7 +167,9 @@ local function draw()
 	local vs = render.GetViewSetup()
 	local halfW = math.tan(math.rad(vs.fov) * 0.5)
 	local halfH = halfW / vs.aspect
+	local near = math.max(NEAR, vs.znear * 1.5)
 
+	depthslices.Capture()
 	render.UpdateScreenEffectTexture()
 	MAT:SetTexture("$texture1", depth)
 	MAT:SetTexture("$basetexture", fb)
@@ -194,7 +193,7 @@ local function draw()
 	depthslices.KeepAlpha(function()
 		render.OverrideDepthEnable(true, false)
 		render.SetMaterial(MAT)
-		render.DrawQuadEasy(eye + fwd * NEAR, -fwd, halfW * NEAR * QUAD_OVERSIZE, halfH * NEAR * QUAD_OVERSIZE, quadColor, 0)
+		render.DrawQuadEasy(eye + fwd * near, -fwd, halfW * near * QUAD_OVERSIZE, halfH * near * QUAD_OVERSIZE, quadColor, 0)
 		render.OverrideDepthEnable(false, false)
 	end)
 end

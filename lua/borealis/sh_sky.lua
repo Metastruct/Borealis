@@ -378,6 +378,9 @@ local function think()
 	nextUpdate = RealTime() + UPDATE_INTERVAL
 	updateState()
 	syncMoon()
+	if active and tod and tod.CurrentParams then
+		tod.CurrentParams.STOP_STEALING_FOG_CONTROLS = true
+	end
 end
 
 local function stop()

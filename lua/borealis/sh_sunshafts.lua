@@ -152,7 +152,9 @@ local function drawMask(bDepth, bSkybox, b3DSky)
 	if bit.band(util.PointContents(EyePos()), CONTENTS_WATER) ~= 0 then return end
 
 	local fwd, _, _, halfW, halfH = viewFan()
-	local far = (render.GetViewSetup().zfar or 30000) * FAR_FRAC
+	local vs = render.GetViewSetup()
+	local far = (vs.zfar or 30000) * FAR_FRAC
+	local near = math.max(NEAR_DIST, vs.znear * 1.5)
 	local eye = EyePos()
 
 	-- alpha writes only, blending forced to replace so alpha 0 lands.  The
@@ -165,7 +167,7 @@ local function drawMask(bDepth, bSkybox, b3DSky)
 
 	-- OverrideDepthEnable(true, false) turns the depth test off entirely
 	render.OverrideDepthEnable(true, false)
-	render.DrawQuadEasy(eye + fwd * NEAR_DIST, -fwd, halfW * NEAR_DIST * 4, halfH * NEAR_DIST * 4, ALPHA0, 0)
+	render.DrawQuadEasy(eye + fwd * near, -fwd, halfW * near * 4, halfH * near * 4, ALPHA0, 0)
 	render.OverrideDepthEnable(true, true)
 	render.DrawQuadEasy(eye + fwd * far, -fwd, halfW * far * 4, halfH * far * 4, ALPHA1, 0)
 	render.CopyRenderTargetToTexture(maskRT)
@@ -173,7 +175,7 @@ local function drawMask(bDepth, bSkybox, b3DSky)
 	-- alpha back to 1 everywhere: whoever snapshots the frame later reads it,
 	-- and the corrupted area's restore blit turned the world black on alpha 0
 	render.OverrideDepthEnable(true, false)
-	render.DrawQuadEasy(eye + fwd * NEAR_DIST, -fwd, halfW * NEAR_DIST * 4, halfH * NEAR_DIST * 4, ALPHA1, 0)
+	render.DrawQuadEasy(eye + fwd * near, -fwd, halfW * near * 4, halfH * near * 4, ALPHA1, 0)
 	render.OverrideDepthEnable(false, false)
 
 	render.OverrideBlend(false)

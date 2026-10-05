@@ -244,6 +244,7 @@ local function draw()
 	local vs = render.GetViewSetup()
 	local halfW = math.tan(math.rad(vs.fov) * 0.5)
 	local halfH = halfW / vs.aspect
+	local near = math.max(NEAR, vs.znear * 1.5)
 	local sun, light, amb = lighting()
 	local tonemap = render.GetToneMappingScaleLinear().x
 	local lightHue, lightScale = splitColor(light, tonemap)
@@ -281,7 +282,7 @@ local function draw()
 	depthslices.KeepAlpha(function()
 		render.OverrideDepthEnable(true, false)
 		render.SetMaterial(MAT)
-		render.DrawQuadEasy(eye + fwd * NEAR, -fwd, halfW * NEAR * QUAD_OVERSIZE, halfH * NEAR * QUAD_OVERSIZE, quadColor, 0)
+		render.DrawQuadEasy(eye + fwd * near, -fwd, halfW * near * QUAD_OVERSIZE, halfH * near * QUAD_OVERSIZE, quadColor, 0)
 		render.OverrideDepthEnable(false, false)
 	end)
 

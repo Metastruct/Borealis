@@ -36,7 +36,6 @@ do
 	end
 end
 
-local ALPHA0 = Color(0, 0, 0, 0)
 local ALPHA1 = Color(0, 0, 0, 255)
 local sliceColor = Color(0, 0, 0, 0)
 local capturedFrame = -1
@@ -49,6 +48,10 @@ local function quad(eye, fwd, halfW, halfH, t, col)
 	render.DrawQuadEasy(eye + fwd * t, -fwd, halfW * t * OVERSIZE, halfH * t * OVERSIZE, col, 0)
 end
 
+local function quadNear(vs)
+	return math.max(QUAD_NEAR, vs.znear * 1.5)
+end
+
 local function viewFan()
 	local vs = render.GetViewSetup()
 	local halfW = math.tan(math.rad(vs.fov) * 0.5)
@@ -57,14 +60,14 @@ local function viewFan()
 end
 
 local function fillAlpha(col)
-	local eye, fwd, halfW, halfH = viewFan()
+	local eye, fwd, halfW, halfH, vs = viewFan()
 
 	render.OverrideColorWriteEnable(true, false)
 	render.OverrideAlphaWriteEnable(true, true)
 	render.OverrideBlend(true, BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD, BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD)
 	render.SetColorMaterial()
 	render.OverrideDepthEnable(true, false)
-	quad(eye, fwd, halfW, halfH, QUAD_NEAR, col)
+	quad(eye, fwd, halfW, halfH, quadNear(vs), col)
 	render.OverrideDepthEnable(false, false)
 	render.OverrideBlend(false)
 	render.OverrideAlphaWriteEnable(false, false)
@@ -77,16 +80,21 @@ function depthslices.Capture()
 	capturedFrame = FrameNumber()
 	dirtyFrame = capturedFrame
 
-	local eye, fwd, halfW, halfH = viewFan()
+	local eye, fwd, halfW, halfH, vs = viewFan()
+	local first = 0
+	while first < SLICES and dist[first] <= vs.znear do
+		first = first + 1
+	end
 
 	render.OverrideColorWriteEnable(true, false)
 	render.OverrideAlphaWriteEnable(true, true)
 	render.OverrideBlend(true, BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD, BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD)
 	render.SetColorMaterial()
 	render.OverrideDepthEnable(true, false)
-	quad(eye, fwd, halfW, halfH, QUAD_NEAR, ALPHA0)
+	sliceColor.a = first
+	quad(eye, fwd, halfW, halfH, quadNear(vs), sliceColor)
 	render.OverrideDepthEnable(false, false)
-	for k = 0, SLICES - 1 do
+	for k = first, SLICES - 1 do
 		sliceColor.a = k + 1
 		quad(eye, fwd, halfW, halfH, dist[k], sliceColor)
 	end
@@ -218,7 +226,7 @@ local function refog()
 	render.OverrideAlphaWriteEnable(true, false)
 	render.SetMaterial(MARK)
 	render.OverrideDepthEnable(true, true)
-	quad(eye, fwd, halfW, halfH, QUAD_NEAR, color_white)
+	quad(eye, fwd, halfW, halfH, quadNear(vs), color_white)
 	render.OverrideDepthEnable(false, false)
 	render.OverrideAlphaWriteEnable(false, false)
 	render.OverrideColorWriteEnable(false, false)

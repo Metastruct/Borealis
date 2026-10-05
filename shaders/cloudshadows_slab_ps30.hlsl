@@ -20,6 +20,12 @@ sampler3D Detail : register(s3);
 
 #define SKY_EPS 0.0005
 
+#define SLICES 32.0
+#define SLICE_NEAR 16.0
+#define SLICE_RATIO 1.2219785
+#define SLICE_SLACK 1.02
+#define SLICE_EXACT 64.0
+
 #define FADE_START 9000.0
 #define FADE_END 20000.0
 
@@ -106,17 +112,33 @@ float4 main(PS_IN i) : COLOR
 	float2 uv = i.spos.xy / i.spos.w * float2(0.5, -0.5) + 0.5;
 
 	uv += float2(abs(ddx(uv).x), abs(ddy(uv).y)) * 0.5;
-	float3 scene = tex2D(Frame, uv).rgb;
+	float4 frame = tex2D(Frame, uv);
+	float3 scene = frame.rgb;
 
 	float raw = tex2D(Depth, uv).r;
+	float d = raw * DEPTH_SCALE;
 	if (raw <= 0.0 || abs(raw - 1.0) < SKY_EPS)
 	{
-		return float4(scene, 1.0);
+		d = FADE_END * 4.0;
+	}
+
+	float code = frame.a * 255.0;
+	float ks = floor(code + 0.5) - 1.0;
+	if (code > SLICE_EXACT - 0.5)
+	{
+		if (d > SLICE_NEAR * pow(SLICE_RATIO, code - SLICE_EXACT + 1.0))
+		{
+			d = SLICE_NEAR * pow(SLICE_RATIO, code - SLICE_EXACT);
+		}
+	}
+	else if (ks < SLICES - 1.0 && d > SLICE_NEAR * pow(SLICE_RATIO, ks + 1.0) * SLICE_SLACK)
+	{
+		d = SLICE_NEAR * pow(SLICE_RATIO, ks + 0.5);
 	}
 
 	float3 ray = normalize(i.wpos - EYE);
 	float cosF = max(dot(ray, FWD), 0.05);
-	float t = raw * DEPTH_SCALE / cosF;
+	float t = d / cosF;
 	float fade = saturate(remap(t, FADE_END, FADE_START, 0.0, 1.0));
 	if (fade <= 0.0)
 	{

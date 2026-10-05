@@ -708,9 +708,9 @@ local QUAD_OVERSIZE = 4
 local QUAD_COLOR = Color(255, 255, 255, 255)
 
 local function drawScreenQuad(mat, eyePos, distance)
-	distance = distance or QUAD_NEAR
 	local fwd = EyeAngles():Forward()
 	local vs = render.GetViewSetup()
+	distance = distance or math.max(QUAD_NEAR, vs.znear * 1.5)
 	local halfW = math.tan(math.rad(vs.fov) * 0.5)
 	local size = distance * QUAD_OVERSIZE
 	render.SetMaterial(mat)
