@@ -99,6 +99,10 @@ function depthslices.Invalidate()
 	capturedFrame = -1
 end
 
+function depthslices.SkipRefog()
+	refogFrame = -1
+end
+
 -- an effect's own quad must not touch alpha, or the next effect reads its
 -- output instead of the slice indices
 function depthslices.KeepAlpha(draw)

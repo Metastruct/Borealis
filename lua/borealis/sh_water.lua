@@ -827,6 +827,7 @@ local function drawTranslucent(bDepth, bSkybox, bSkybox3D)
 	if body and body.foreign then return end
 
 	depthWanted = true
+	depthslices.SkipRefog()
 
 	if eyeUnderwater then
 		drawSurface(eyePos, true, false)
