@@ -766,38 +766,17 @@ if string.find(game.GetMap(), "gm_construct_m") then
 		return cfg
 	end
 
-	-- Weather runs on a schedule every realm computes alike from os.time:
-	-- each slot gets a deterministic roll per weather name, the weather is
-	-- on for the slots rolling under its probability, and each slot edge is
-	-- crossed over WEATHER_RAMP seconds.  A weather in WEATHER_SLOTS uses
-	-- its own slot length instead of WEATHER_SLOT: rain sits at full
-	-- strength the whole slot, so three hours of it is a long time to stand
-	-- in.  tod.force_weather overrides it all: true, false or an amount 0..1.
-	tod.WEATHER_SLOT = 3 * 3600
+	tod.WEATHER_SLOT = 3600
 	tod.WEATHER_RAMP = 10 * 60
 
-	tod.WEATHER_SLOTS = {
-		["rain"] = 3600,
-	}
+	tod.weathers = tod.weathers or {}
 
-	local seeds = {}
-
-	local function nameSeed(name)
-		local s = seeds[name]
-		if s then return s end
-		s = 0
-		for i = 1, #name do
-			s = (s * 31 + name:byte(i)) % 2147483647
-		end
-
-		seeds[name] = s
-
-		return s
+	function tod.AddWeather(name, probability)
+		tod.weathers[name] = probability
 	end
 
-	-- xorshift32 over the slot and the name, 0..1
-	local function slotRoll(seed, slot)
-		local x = bit.tobit(slot * 374761393 + seed)
+	local function slotRoll(slot)
+		local x = bit.tobit(slot * 374761393 + 1)
 		x = bit.bxor(x, bit.lshift(x, 13))
 		x = bit.bxor(x, bit.rshift(x, 17))
 		x = bit.bxor(x, bit.lshift(x, 5))
@@ -805,26 +784,43 @@ if string.find(game.GetMap(), "gm_construct_m") then
 		return (x % 4294967296) / 4294967296
 	end
 
+	local function slotWeather(slot)
+		local names = table.GetKeys(tod.weathers)
+		table.sort(names)
+
+		local roll, sum = slotRoll(slot), 0
+		for _, name in ipairs(names) do
+			sum = sum + tod.weathers[name]
+			if roll < sum then return name end
+		end
+	end
+
 	-- amount of a weather right now, 0..1
-	function tod.GetWeather(name, probability)
+	function tod.GetWeather(name)
 		local force = tod.force_weather
 		if force ~= nil then
-			return isnumber(force) and math.Clamp(force, 0, 1) or (force and 1 or 0)
+			return force == name and 1 or 0
 		end
 
-		probability = probability or 0.5
-		local seed = nameSeed(name)
 		local now = os.time()
-		local length = tod.WEATHER_SLOTS[name] or tod.WEATHER_SLOT
-		local slot = math.floor(now / length)
-		local on = slotRoll(seed, slot) < probability and 1 or 0
-		local into = now - slot * length
+		local slot = math.floor(now / tod.WEATHER_SLOT)
+		local on = slotWeather(slot) == name and 1 or 0
+		local into = now - slot * tod.WEATHER_SLOT
 		if into >= tod.WEATHER_RAMP then return on end
 
-		local before = slotRoll(seed, slot - 1) < probability and 1 or 0
+		local before = slotWeather(slot - 1) == name and 1 or 0
 
 		-- in steps, so the config lerp is not recomputed every frame of the ramp
 		return math.Round(before + (on - before) * into / tod.WEATHER_RAMP, 2)
+	end
+
+	function tod.GetCurrentWeather()
+		local force = tod.force_weather
+		if force ~= nil then
+			return force or "clear"
+		end
+
+		return slotWeather(math.floor(os.time() / tod.WEATHER_SLOT)) or "clear"
 	end
 
 	function tod.SetParameter(key, val, cfg)
@@ -1036,11 +1032,12 @@ if string.find(game.GetMap(), "gm_construct_m") then
 	function tod.AddOverrideConfig(name, config, probability, curve)
 		tod.override_configs[name] = {
 			config = config,
-			probability = probability,
 			curve = curve or 1,
 			amount = 0,
 			lerp = 0
 		}
+
+		tod.AddWeather(name, probability)
 	end
 
 	function tod.RemoveOverrideConfig(name)
@@ -1068,7 +1065,7 @@ if string.find(game.GetMap(), "gm_construct_m") then
 
 			-- the override follows its weather's amount, off costs no lerp
 			for name, data in pairs(tod.override_configs) do
-				local amount = tod.GetWeather(name, data.probability)
+				local amount = tod.GetWeather(name)
 				if data.amount ~= amount then
 					data.amount = amount
 					data.lerp = amount > 0 and amount ^ data.curve or 0

@@ -196,7 +196,7 @@ local function updateRumble(ply, volume)
 end
 
 hook.Add("Think", "tod_rain", function()
-	local a = tod.GetWeather("rain", PROBABILITY)
+	local a = tod.GetWeather("rain")
 	local now = RealTime()
 	if a ~= amount then
 		if amount == 0 then nextThunder = now + math.Rand(THUNDER_INTERVAL[1], THUNDER_INTERVAL[2]) end

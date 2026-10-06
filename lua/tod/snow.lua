@@ -59,7 +59,7 @@ if CLIENT then
 
 	hook.Add("Think", "tod_snow", function()
 		time = RealTime()
-		local amount = tod.GetWeather("snow", 0.2)
+		local amount = tod.GetWeather("snow")
 		local b = amount > 0
 
 		tod.EnableSectorThink(b)
