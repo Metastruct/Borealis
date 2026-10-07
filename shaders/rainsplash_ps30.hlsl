@@ -91,6 +91,12 @@ float4 main(PS_IN i) : COLOR
 {
 	float seed = (i.color.r * 255.0 + i.color.g * 65280.0) * (97.0 / 65535.0);
 	float px = max(length(ddx(i.uv)), length(ddy(i.uv)));
+	float dist = distance(i.mpos, EYE);
+	[branch] if (dist >= FADE_END)
+	{
+		return float4(0.0, 0.0, 0.0, 0.0);
+	}
+
 	float2 grad = float2(0.0, 0.0);
 	float spray = 0.0;
 	for (int k = 0; k < RIPPLES; k++)
@@ -98,6 +104,11 @@ float4 main(PS_IN i) : COLOR
 		float3 r = ripple(i.uv, seed, float(k), px);
 		grad += r.xy;
 		spray = max(spray, r.z);
+	}
+
+	[branch] if (spray <= 0.0 && grad.x == 0.0 && grad.y == 0.0)
+	{
+		return float4(0.0, 0.0, 0.0, 0.0);
 	}
 
 	float2 nxy = (i.color.ba * 2.0 - 1.0) * NSCALE;
@@ -125,7 +136,7 @@ float4 main(PS_IN i) : COLOR
 	float a = up + down + spray + glint;
 	float3 col = (sky * up + sky * DARK * down + unpackColor(Constants1.w) * spray + unpackColor(Constants3.x) * glint) / max(a, 1e-4);
 
-	float fade = 1.0 - smoothstep(FADE_START, FADE_END, distance(i.mpos, EYE));
+	float fade = 1.0 - smoothstep(FADE_START, FADE_END, dist);
 
 	return float4(col, saturate(a) * INTENSITY * fade);
 }

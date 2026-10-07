@@ -477,6 +477,7 @@ local function prepare()
 	if not rain or rain.amount <= 0.001 then
 		dropSplashes()
 		dropTiles()
+		ripplesDirty = true
 		return
 	end
 
