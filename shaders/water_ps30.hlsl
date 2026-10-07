@@ -48,7 +48,11 @@ float4 main(PS_IN i) : COLOR
     float3 SUN_DIR = Constants3.xyz;
     float SUNLIT = Constants2.w;
 
-    const float MAX_SOURCE_DEPTH = 4000.0;
+    const float SOURCE_DEPTH_SCALE = 4000.0;
+    const float SKY_DEPTH_TOLERANCE = 2.0;
+    const float SSR_MAX_DISTANCE = 32000.0;
+    const float SSR_MIN_THICKNESS = 16.0;
+    const float SSR_THICKNESS_RATIO = 0.03;
     const float3 SUN_COLOR = float3(8.0, 7.0, 6.0);
     const float SUN_SHINYNESS = 500.0;
     const float F0 = 0.02;
@@ -88,18 +92,19 @@ float4 main(PS_IN i) : COLOR
     if (!FROM_BELOW) {
         float2 wobble = (normal.xy / i.spos.w) * ABOVE_REFRACTION;
         float4 frame = tex2D(Frame, uv + wobble);
-        float depth = SceneDepth(tex2D(Depth, uv + wobble).r * MAX_SOURCE_DEPTH, frame.a);
+        float depth = SceneDepth(tex2D(Depth, uv + wobble).r * SOURCE_DEPTH_SCALE, frame.a);
         float thickness = depth - i.spos.w;
 
         if (thickness < 0) {
             frame = tex2D(Frame, uv);
-            depth = SceneDepth(tex2D(Depth, uv).r * MAX_SOURCE_DEPTH, frame.a);
+            depth = SceneDepth(tex2D(Depth, uv).r * SOURCE_DEPTH_SCALE, frame.a);
             thickness = depth - i.spos.w;
         }
 
         float3 seabedPos = EYE_POS + (i.wpos - EYE_POS) * (depth / i.spos.w);
         float caustics = CausticLight(NormalMap, seabedPos, EYE_POS, i.wpos.z, SUN_DIR, TIME);
-        frame.rgb *= depth >= MAX_SOURCE_DEPTH - 10.0 ? 1.0 : lerp(1.0, caustics, SUNLIT);
+        bool seabedSky = abs(depth - SOURCE_DEPTH_SCALE) < SKY_DEPTH_TOLERANCE;
+        frame.rgb *= seabedSky ? 1.0 : lerp(1.0, caustics, SUNLIT);
 
         transmitted = WaterAttenuate(frame.rgb, thickness * MURK, skyScatter);
 
@@ -128,7 +133,7 @@ float4 main(PS_IN i) : COLOR
 
     bool hit = false;
     float3 hitColor = fallbackColor;
-    float stepFactor = pow(MAX_SOURCE_DEPTH / 10.0, 1.0 / 31.0);
+    float stepFactor = pow(SSR_MAX_DISTANCE / 10.0, 1.0 / 31.0);
     float t = 10.0;
     float tPrev = 0.0;
 
@@ -142,37 +147,44 @@ float4 main(PS_IN i) : COLOR
         if (projectedUV.x < 0 || projectedUV.y < 0 || projectedUV.x > 1 || projectedUV.y > 1)
             break;
 
-        float projectedDepth = tex2Dlod(Depth, float4(projectedUV, 0, 0)).r * MAX_SOURCE_DEPTH;
+        float projectedDepth = tex2Dlod(Depth, float4(projectedUV, 0, 0)).r * SOURCE_DEPTH_SCALE;
         float behind = projected.w - projectedDepth;
-        if (projectedDepth > 0 && projectedDepth < projected.w && behind < (t - tPrev) && projectedDepth < MAX_SOURCE_DEPTH - 10.0)
+        bool projectedSky = abs(projectedDepth - SOURCE_DEPTH_SCALE) < SKY_DEPTH_TOLERANCE;
+        if (projectedDepth > 0 && projectedDepth < projected.w && behind < (t - tPrev) && !projectedSky)
         {
             float tNear = tPrev;
             float tFar = t;
+            float farBehind = behind;
+            float farDepth = projectedDepth;
             [unroll]
             for (int r = 1; r <= 5; r++)
             {
                 float tMid = (tNear + tFar) * 0.5;
                 float4 refinement = ProjectToClip(i.wpos + reflectDir * tMid, i);
                 float2 refinementUV = ClipToUV(refinement);
-                float refinementDepth = tex2Dlod(Depth, float4(refinementUV, 0.0, 0.0)).r * MAX_SOURCE_DEPTH;
+                float refinementDepth = tex2Dlod(Depth, float4(refinementUV, 0.0, 0.0)).r * SOURCE_DEPTH_SCALE;
 
-                if (refinementDepth < refinement.w) {
+                if (refinementDepth < refinement.w && abs(refinementDepth - SOURCE_DEPTH_SCALE) >= SKY_DEPTH_TOLERANCE) {
                     tFar = tMid;
+                    farBehind = refinement.w - refinementDepth;
+                    farDepth = refinementDepth;
                 } else {
                     tNear = tMid;
                 }
             }
 
-            projectedUV = ClipToUV(ProjectToClip(i.wpos + reflectDir * tFar, i));
+            if (farBehind < max(SSR_MIN_THICKNESS, farDepth * SSR_THICKNESS_RATIO)) {
+                projectedUV = ClipToUV(ProjectToClip(i.wpos + reflectDir * tFar, i));
 
-            float4 projectedFrame = tex2Dlod(Frame, float4(projectedUV, 0.0, 0.0));
-            float fadeX = saturate(min(projectedUV.x, 1 - projectedUV.x) / 0.1);
-            float fadeY = saturate(min(projectedUV.y, 1 - projectedUV.y) / 0.1);
-            float weight = fadeX * fadeY * (FROM_BELOW ? saturate(-reflectDir.z / BELOW_SSR_GRAZING) : 1.0);
-            hit = true;
-            float3 reflected = FROM_BELOW ? WaterAttenuate(projectedFrame.rgb, tFar * MURK, fallbackColor) : projectedFrame.rgb;
-            hitColor = lerp(fallbackColor, reflected, weight);
-            break;
+                float4 projectedFrame = tex2Dlod(Frame, float4(projectedUV, 0.0, 0.0));
+                float fadeX = saturate(min(projectedUV.x, 1 - projectedUV.x) / 0.1);
+                float fadeY = saturate(min(projectedUV.y, 1 - projectedUV.y) / 0.1);
+                float weight = fadeX * fadeY * (FROM_BELOW ? saturate(-reflectDir.z / BELOW_SSR_GRAZING) : 1.0);
+                hit = true;
+                float3 reflected = FROM_BELOW ? WaterAttenuate(projectedFrame.rgb, tFar * MURK, fallbackColor) : projectedFrame.rgb;
+                hitColor = lerp(fallbackColor, reflected, weight);
+                break;
+            }
         }
 
         tPrev = t;

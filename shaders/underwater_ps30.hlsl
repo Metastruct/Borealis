@@ -20,7 +20,8 @@ sampler3D Noise : register(s3);
 #define SUN_DIR      Constants3.xyz
 #define SUNLIT       Constants3.w
 
-#define MAX_SOURCE_DEPTH 4000.0
+#define DEPTH_SCALE 4000.0
+#define SKY_DEPTH_TOLERANCE 2.0
 #define FAR 100000.0
 
 
@@ -57,14 +58,14 @@ float4 main(PS_IN i) : COLOR
 	float3 scene = original;
 	float3 ray = normalize(i.wpos - EYE_POS);
 
-	float depth = SceneDepth(tex2D(Depth, uv).r * MAX_SOURCE_DEPTH, frame.a);
-	bool beyondDepth = depth <= 0.0 || depth >= MAX_SOURCE_DEPTH - 10.0;
+	float depth = SceneDepth(tex2D(Depth, uv).r * DEPTH_SCALE, frame.a);
+	bool beyondDepth = depth <= 0.0 || abs(depth - DEPTH_SCALE) < SKY_DEPTH_TOLERANCE;
 	float sceneDistance = beyondDepth ? FAR : depth / max(dot(ray, EYE_FORWARD), 0.05);
 
 	float3 underwaterSun = -SUN_DIR;
 	float sunUp = saturate(SUN_DIR.z * 10.0);
 
-	float3 worldPos = EYE_POS + ray * min(sceneDistance, MAX_SOURCE_DEPTH);
+	float3 worldPos = EYE_POS + ray * sceneDistance;
 	float caustics = CausticLight(NormalMap, worldPos, EYE_POS, SURFACE_Z, SUN_DIR, TIME);
 	scene *= beyondDepth ? 1.0 : lerp(1.0, caustics, SUNLIT);
 
