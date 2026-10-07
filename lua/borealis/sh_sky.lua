@@ -8,18 +8,12 @@ if SERVER then
 
 	resource.AddShader("aurora_vs30")
 	resource.AddShader("sky_ps30")
+	resource.AddShader("skylut_ps30")
 
 	return
 end
 
 require("skyboxer")
-
--- Procedural sky: a single-scattering atmosphere (Rayleigh, Mie, ozone) drawn
--- by sky_ps30 as an opaque quad first in the 2D skybox pass, lit by tod's sun
--- and moon.  The same model runs here in Lua for a few directions to colour
--- the world fog from the horizon and to light the build clouds (sh_tod_build).
--- The night sky, moon, auroras and clouds draw on top through skyboxer.
--- procsky.SetTheme gives the season a look, see the theme section.
 
 local SKY_ENABLED = CreateClientConVar("cl_draw_procsky", "1", true, false, "draw the procedural atmosphere sky")
 
@@ -44,6 +38,8 @@ local BETA_O = { 0.65e-3, 1.881e-3, 0.085e-3 } -- ozone, or twilight goes green
 local O_CENTER, O_WIDTH = 25, 15
 local BETA_M, MIE_G, MIE_EXT = 5e-3, 0.76, 1.1
 local N_VIEW, N_LIGHT = 8, 3
+local DISC_STEPS = 12
+local SUN_DISC = 0.15
 local EXPOSURE = 1.2 -- soft shoulder per channel, same as the shader
 local SUN_COL = { 1, 0.96, 0.9 }
 local MOON_COL = { 0.55, 0.7, 1 }
@@ -165,6 +161,26 @@ local function transmittance(h, l)
 	return exp(-e1), exp(-e2), exp(-e3)
 end
 
+local function discTransmittance(l)
+	local ox, oy, oz = 0, 0, R_EARTH + EYE_H
+	local len = exitDist(ox, oy, oz, l.x, l.y, l.z, R_ATMO)
+	local oR, oM, oO, tPrev = 0, 0, 0, 0
+	for i = 1, DISC_STEPS do
+		local u = i / DISC_STEPS
+		local tNext = len * u * u
+		local ds = tNext - tPrev
+		local t = tPrev + ds * 0.5
+		tPrev = tNext
+		local qx, qy, qz = ox + l.x * t, oy + l.y * t, oz + l.z * t
+		local dR, dM, dO = density(sqrt(qx * qx + qy * qy + qz * qz) - R_EARTH)
+		oR, oM, oO = oR + dR * ds, oM + dM * ds, oO + dO * ds
+	end
+
+	local e1, e2, e3 = extinction(oR, oM, oO)
+
+	return exp(-e1), exp(-e2), exp(-e3)
+end
+
 local function toSRGB(v)
 	v = max(0, min(1, v))
 
@@ -179,7 +195,10 @@ local state = {
 	fog = { 255, 255, 255 }, overcast = 0,
 	horizon = { 0.5, 0.6, 0.7 }, zenith = { 0.2, 0.35, 0.7 },
 	light = { 1, 1, 1 }, amb = { 0.3, 0.4, 0.6 }, lightDir = Vector(0, 0, 1),
+	disc = { 0, 0, 0 },
 }
+
+local lutDirty = true
 
 local function overcastLevel()
 	return math.Clamp(procsky.theme.overcast or 0, 0, 1)
@@ -248,6 +267,11 @@ local function updateState()
 	zn[3] = (zb + (zl - zb) * o) * skyK
 
 	state.lightDir = sunUp > 0.05 and sun or (moonUp > 0 and moon or Vector(0, 0, 1))
+
+	local d1, d2, d3 = discTransmittance(sun)
+	local dk = 20 * SUN_DISC
+	state.disc[1], state.disc[2], state.disc[3] = SUN_COL[1] * dk * d1, SUN_COL[2] * dk * d2, SUN_COL[3] * dk * d3
+	lutDirty = true
 end
 
 function procsky.IsActive()
@@ -335,7 +359,33 @@ end
 --------------------------------------------------------------------------
 -- rendering
 --------------------------------------------------------------------------
-local MAT
+local MAT, LUT_MAT, lut
+local LUT_W, LUT_H = 256, 128
+
+local function renderLut()
+	if not lutDirty then return end
+	if not lut then
+		local rt = GetRenderTargetEx("ms_procsky_lut_" .. LUT_W .. "x" .. LUT_H, LUT_W, LUT_H, RT_SIZE_LITERAL, MATERIAL_RT_DEPTH_NONE, 8, 0, IMAGE_FORMAT_RGBA16161616F)
+		if not rt or rt:IsError() or rt:Width() ~= LUT_W then return end
+		lut = rt
+		MAT:SetTexture("$basetexture", lut)
+	end
+
+	lutDirty = false
+	local sun, moon = state.sun, state.moon
+	LUT_MAT:SetFloat("$c0_x", sun.x)
+	LUT_MAT:SetFloat("$c0_y", sun.y)
+	LUT_MAT:SetFloat("$c0_z", sun.z)
+	LUT_MAT:SetFloat("$c1_x", moon.x)
+	LUT_MAT:SetFloat("$c1_y", moon.y)
+	LUT_MAT:SetFloat("$c1_z", moon.z)
+	LUT_MAT:SetFloat("$c1_w", MOON_INTENSITY * moonGain)
+
+	render.PushRenderTarget(lut)
+	render.SetMaterial(LUT_MAT)
+	render.DrawScreenQuad(true)
+	render.PopRenderTarget()
+end
 
 -- basis from EyeAngles, which is right inside a RenderView too, and the fan
 -- from the view setup (fov is the aspect-adjusted horizontal one)
@@ -348,8 +398,9 @@ local function viewRays()
 end
 
 local function drawSky()
+	if not lut then return end
 	local fwd, right, halfW, halfH = viewRays()
-	local sun, moon = state.sun, state.moon
+	local sun, disc = state.sun, state.disc
 
 	MAT:SetFloat("$c0_x", fwd.x)
 	MAT:SetFloat("$c0_y", fwd.y)
@@ -362,11 +413,9 @@ local function drawSky()
 	MAT:SetFloat("$c2_x", sun.x)
 	MAT:SetFloat("$c2_y", sun.y)
 	MAT:SetFloat("$c2_z", sun.z)
-	MAT:SetFloat("$c2_w", 1)
-	MAT:SetFloat("$c3_x", moon.x)
-	MAT:SetFloat("$c3_y", moon.y)
-	MAT:SetFloat("$c3_z", moon.z)
-	MAT:SetFloat("$c3_w", MOON_INTENSITY * moonGain)
+	MAT:SetFloat("$c3_x", disc[1])
+	MAT:SetFloat("$c3_y", disc[2])
+	MAT:SetFloat("$c3_z", disc[3])
 
 	render.SetMaterial(MAT)
 	render.DrawScreenQuad(true)
@@ -386,6 +435,7 @@ end
 local function stop()
 	active = false
 	skyboxer.RemoveHook("a_procsky")
+	hook.Remove("PreRender", "ms_procsky")
 	hook.Remove("SetupWorldFog", "ms_procsky")
 	hook.Remove("SetupSkyboxFog", "ms_procsky")
 	if tod and tod.CurrentParams then
@@ -404,16 +454,34 @@ local function start()
 		["$vertextransform"] = 1,
 		["$additive"] = 0,
 		["$alpha_blend"] = 0,
+		["$linearread_basetexture"] = 1,
 		["$linearwrite"] = 1,
 		["<dx90"] = { ["$no_draw"] = 1 },
 		["$c0_x"] = 1, ["$c0_y"] = 0, ["$c0_z"] = 0, ["$c0_w"] = 1,
 		["$c1_x"] = 0, ["$c1_y"] = 1, ["$c1_z"] = 0, ["$c1_w"] = 1,
-		["$c2_x"] = 0, ["$c2_y"] = 0, ["$c2_z"] = 1, ["$c2_w"] = 1,
-		["$c3_x"] = 0, ["$c3_y"] = 0, ["$c3_z"] = -1, ["$c3_w"] = 0,
+		["$c2_x"] = 0, ["$c2_y"] = 0, ["$c2_z"] = 1, ["$c2_w"] = 0,
+		["$c3_x"] = 0, ["$c3_y"] = 0, ["$c3_z"] = 0, ["$c3_w"] = 0,
+	})
+
+	LUT_MAT = LUT_MAT or CreateMaterial("ms_procsky_lut_" .. os.time(), "screenspace_general", {
+		["$pixshader"] = "skylut_ps30",
+		["$vertexshader"] = "aurora_vs30",
+		["$basetexture"] = "",
+		["$ignorez"] = 1,
+		["$vertexcolor"] = 1,
+		["$vertextransform"] = 1,
+		["$additive"] = 0,
+		["$alpha_blend"] = 0,
+		["$linearwrite"] = 1,
+		["<dx90"] = { ["$no_draw"] = 1 },
+		["$c0_x"] = 0, ["$c0_y"] = 0, ["$c0_z"] = 1, ["$c0_w"] = LUT_W,
+		["$c1_x"] = 0, ["$c1_y"] = 0, ["$c1_z"] = -1, ["$c1_w"] = 0,
+		["$c2_x"] = 1, ["$c2_y"] = LUT_H, ["$c2_z"] = 0, ["$c2_w"] = 0,
 	})
 
 	updateState()
 	active = true
+	hook.Add("PreRender", "ms_procsky", renderLut)
 	skyboxer.AddHook("a_procsky", drawSky)
 	hook.Add("SetupWorldFog", "ms_procsky", setupFog)
 	hook.Add("SetupSkyboxFog", "ms_procsky", setupFog)
@@ -423,7 +491,7 @@ local function start()
 end
 
 local function shadersAvailable()
-	return file.Exists("shaders/fxc/sky_ps30.vcs", "GAME") and file.Exists("shaders/fxc/aurora_vs30.vcs", "GAME")
+	return file.Exists("shaders/fxc/sky_ps30.vcs", "GAME") and file.Exists("shaders/fxc/skylut_ps30.vcs", "GAME") and file.Exists("shaders/fxc/aurora_vs30.vcs", "GAME")
 end
 
 local function apply()
