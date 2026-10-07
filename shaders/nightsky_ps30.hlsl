@@ -3,6 +3,8 @@ const float4 Constants1 : register(c1);
 const float4 Constants2 : register(c2);
 const float4 Constants3 : register(c3);
 
+sampler MilkyWay : register(s0);
+
 #define FWD      Constants0.xyz
 #define TIME     Constants0.w
 #define RIGHT_S  Constants1.xyz
@@ -15,37 +17,23 @@ const float4 Constants3 : register(c3);
 #define AIRGLOW  Constants3.w
 
 #define SPEED 0.06
+#define MW_PI 3.14159265
+#define MW_MAX 0.4
 
 struct PS_IN { float2 uv : TEXCOORD0; };
+
+float2 mwUV(float3 dir)
+{
+	float3 x = normalize(cross(POLE, float3(0.0, 0.0, 1.0)));
+	float3 y = cross(POLE, x);
+	float lon = atan2(dot(dir, y), dot(dir, x));
+
+	return float2(lon / (2.0 * MW_PI) + 0.5, 0.5 - asin(clamp(dot(dir, POLE), -1.0, 1.0)) / MW_PI);
+}
 
 float hash31(float3 p)
 {
 	return frac(sin(dot(p, float3(12.9898, 78.233, 37.719))) * 43758.5453);
-}
-
-float vnoise3(float3 p)
-{
-	float3 i = floor(p);
-	float3 f = frac(p);
-	f = f * f * (3.0 - 2.0 * f);
-
-	float nx00 = lerp(hash31(i), hash31(i + float3(1, 0, 0)), f.x);
-	float nx10 = lerp(hash31(i + float3(0, 1, 0)), hash31(i + float3(1, 1, 0)), f.x);
-	float nx01 = lerp(hash31(i + float3(0, 0, 1)), hash31(i + float3(1, 0, 1)), f.x);
-	float nx11 = lerp(hash31(i + float3(0, 1, 1)), hash31(i + float3(1, 1, 1)), f.x);
-
-	return lerp(lerp(nx00, nx10, f.y), lerp(nx01, nx11, f.y), f.z);
-}
-
-float fbm3(float3 p)
-{
-	float v = vnoise3(p) * 0.55;
-	p = p * 2.07 + 13.1;
-	v += vnoise3(p) * 0.29;
-	p = p * 2.11 + 7.7;
-	v += vnoise3(p) * 0.16;
-
-	return v;
 }
 
 float3 starLayer(float3 dir, float cells, float density)
@@ -101,17 +89,11 @@ float4 main(PS_IN i) : COLOR
 		return float4(0.0, 0.0, 0.0, 1.0);
 	}
 
-	float lat = dot(dir, POLE);
-	float band = exp(-lat * lat * 10.0);
-	float core = exp(-lat * lat * 45.0);
-	float clouds = fbm3(dir * 3.2 + 4.1);
-	float dust = smoothstep(0.38, 0.62, fbm3(dir * 6.5 + float3(lat * 3.0, 0.0, 0.0) + 21.3));
-	float glow = band * (0.25 + clouds * 1.3) * lerp(1.0, 0.25, dust * core);
-	float3 mwCol = lerp(float3(0.30, 0.36, 0.62), float3(0.95, 0.80, 0.68), core * clouds);
-	float3 col = mwCol * glow * glow * 0.16 * MILKYWAY;
+	float4 mw = tex2Dlod(MilkyWay, float4(mwUV(dir), 0.0, 0.0));
+	float3 col = mw.rgb * mw.rgb * (MW_MAX * MILKYWAY);
 
 	float3 st = starLayer(dir, 55.0, 0.22) * 1.6;
-	st += starLayer(dir, 130.0, 0.18 + 0.5 * band * (1.0 - 0.6 * dust * core)) * 0.75;
+	st += starLayer(dir, 130.0, 0.18 + 0.5 * mw.a) * 0.75;
 	col += st * STARS;
 
 	float h = saturate(1.0 - elev);

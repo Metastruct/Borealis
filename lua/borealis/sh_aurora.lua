@@ -12,6 +12,7 @@ if SERVER then
 	resource.AddShader("aurora_ps30")
 	resource.AddShader("nightsky_ps30")
 	resource.AddFile("materials/aurora/noise.vtf")
+	resource.AddFile("materials/aurora/milkyway.vtf")
 
 	return
 end
@@ -29,7 +30,7 @@ local HEADING = 10 -- world yaw the band runs along IN DEGREES
 
 local SKY_INTENSITY = 0.25 -- overall night sky brightness
 local SKY_STARS = 2 -- star brightness
-local SKY_MILKYWAY = 1 -- milky way brightness
+local SKY_MILKYWAY = 6 -- milky way brightness
 local SKY_AIRGLOW = 1 -- horizon haze brightness
 local SKY_POLE = Angle(-35, 60, 0):Forward()
 local SKY_AXIS = Angle(-55, 0, 0):Forward()
@@ -71,6 +72,8 @@ local function start(PIXEL_SHADER, SKY_SHADER)
 	})
 
 	local SKY_MAT = shaderMaterial("aurora_nightsky", SKY_SHADER, {
+		["$basetexture"] = "aurora/milkyway",
+		["$linearread_basetexture"] = 1,
 		["$c0_x"] = 1, ["$c0_y"] = 0,
 		["$c0_z"] = 0, ["$c0_w"] = 0,
 		["$c1_x"] = 0, ["$c1_y"] = 1,
