@@ -1,5 +1,3 @@
-local snow_density = 0.05
-
 local config =
 {
 	["fog_start"] = 0,
@@ -16,53 +14,14 @@ local config =
 
 tod.AddOverrideConfig("snow", config, 0.2)
 
---if SERVER then
-	--[[hook.Add("PlayerFootstep", "snow", function(ply, pos, foot, sound, volume, rf)
-		sound = sound:lower()
-		if sound:find("grass", nil, true) or sound:find("dirt", nil, true) then
-			ply:EmitSound(("player/footsteps/snow%s.wav"):format(math.random(6)), 60, math.random(95,105))
-			return true
-		end
-	end)]] -- why is this server side?
---end
-
 if CLIENT then
-	-- emit the particles from points
-	local emt = ParticleEmitter(EyePos(), false)
-	--local time = RealTime()
-
-	--[[hook.Add("PostPlayerDraw", "tod_snow", function(ply)
-		if not ply.tod_last_snow_think or ply.tod_last_snow_think < time then
-			if math.sin(time * 2.5 + ply:UniqueID()) > 0.5 then
-				local i = ply:LookupAttachment("mouth")
-				if i ~= 0 then
-					local mouth = ply:GetAttachment(i)
-
-					local up = mouth.Ang:Up()
-					local p = emt:Add("particle/snow", mouth.Pos + up + VectorRand()*0.25)
-					p:SetVelocity((up+VectorRand()*0.25)*-math.random()*30)
-					p:SetDieTime(2)
-					p:SetStartAlpha(6)
-					p:SetStartSize(0)
-					p:SetEndSize(math.random(2, 4))
-					p:SetAirResistance(300)
-					p:SetGravity(VectorRand()*0.1)
-					p:SetLighting(true)
-					p:SetAngles(Angle(math.random(360), math.random(360), math.random(360)))
-				end
-			end
-			ply.tod_last_snow_think = time + 0.05
-		end
-	end)]]
-
 	local lastOvercast
+
+	tod.snow = tod.snow or { amount = 0 }
 
 	hook.Add("Think", "tod_snow", function()
 		time = RealTime()
-		local amount = tod.GetWeather("snow")
-		local b = amount > 0
-
-		tod.EnableSectorThink(b)
+		tod.snow.amount = tod.GetWeather("snow")
 
 		-- procsky"s grey sky follows the override as it fades in and out
 		local snow = tod.override_configs.snow
@@ -70,27 +29,6 @@ if CLIENT then
 		if procsky and procsky.SetTheme and overcast ~= lastOvercast then
 			lastOvercast = overcast
 			procsky.SetTheme(overcast > 0 and { overcast = overcast } or nil)
-		end
-
-		if not b then return end
-
-		for _, point in pairs(tod.GetOutsideSectors()) do
-			if math.random() > snow_density * amount then continue end
-
-			local pos = point + VectorRand() * 50
-
-			local p = emt:Add("particle/snow", pos)
-			p:SetVelocity(VectorRand() * 100 * Vector(1,1,0))
-			p:SetAngles(Angle(math.random(360), math.random(360), math.random(360)))
-			p:SetLifeTime(0)
-			p:SetDieTime(10)
-			p:SetStartAlpha(255)
-			p:SetEndAlpha(0)
-			p:SetStartSize(0)
-			p:SetEndSize(3)
-			p:SetGravity(Vector(0,0,math.Rand(-10, -200)))
-			p:SetCollide(true)
-		--	p:SetLighting(true)]]
 		end
 	end)
 
@@ -124,7 +62,7 @@ if CLIENT then
 		hook.Remove("PlayerFootstep","snow")
 		hook.Remove("TOD_ReplaceGrassTexture","tod_snow") -- is this even needed?
 		hook.Remove("Think","tod_snow")
-		tod.EnableSectorThink(false)
+		tod.snow = nil
 		tod.RestoreAllTextures() -- maybe just replace the ones that were changed?
 		tod.RemoveOverrideConfig("snow")
 		tod.SetOverrideConfig()

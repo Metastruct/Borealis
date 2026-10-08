@@ -60,7 +60,7 @@ local FLASH = {
 
 local VOLUME = CreateClientConVar("cl_rain_volume", "0.4", true, false, "rain volume: the rumble, the drips under cover and the thunder, 0 to 1")
 tod.rain = tod.rain or {
-	amount = 0, -- read by sh_rain for the streaks
+	amount = 0, -- read by sh_precipitations for the streaks
 	covered = false
 }
 
