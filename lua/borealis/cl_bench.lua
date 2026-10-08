@@ -283,5 +283,11 @@ concommand.Add(TAG, function()
 		return
 	end
 
+	local vsync = GetConVar("mat_vsync")
+	if vsync and vsync:GetBool() then
+		MsgC(Color(255, 80, 80), TAG .. ": mat_vsync is enabled, your results would be meaningless, disable vsync (mat_vsync 0) and try again\n")
+		return
+	end
+
 	start()
 end)
