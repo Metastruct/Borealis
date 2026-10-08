@@ -31,11 +31,13 @@ local function merged(...)
 end
 
 local function conditions()
-	local list = { { name = "as is", cvars = merged(GENERAL) } }
-	if not tod then return list end
+	if not tod then
+		return { { name = "as is", cvars = merged(GENERAL) } }
+	end
 
+	local list = { { name = "clear", weather = "clear", cvars = merged(GENERAL) } }
 	list[#list + 1] = { name = "rain", weather = "rain", cvars = merged(GENERAL, RAIN) }
-	list[#list + 1] = { name = "night", cycle = 0, cvars = merged(GENERAL, NIGHT) }
+	list[#list + 1] = { name = "night", weather = "clear", cycle = 0, cvars = merged(GENERAL, NIGHT) }
 	list[#list + 1] = { name = "night rain", weather = "rain", cycle = 0, cvars = merged(GENERAL, RAIN, NIGHT) }
 
 	return list
@@ -101,7 +103,8 @@ local function conditionTable(c, data)
 
 	local lines = {
 		"",
-		row(string.format("%s (sun %.0f)", c.name, c.sun or 0), names, "%9s"),
+		row(c.name, names, "%9s"),
+		string.format("  sun %.0f, rain %.2f, overcast %.2f", c.sun or 0, c.rain or 0, c.overcast or 0),
 		row("frame, all on", base),
 	}
 	for _, r in ipairs(rows) do
@@ -237,8 +240,11 @@ local function start()
 			local store = results[b.cond][b.view]
 			store[b.key] = store[b.key] or {}
 			table.insert(store[b.key], dt * 1000)
-			if frame == SETTLE + 1 and b.key == "base1" and procsky and procsky.GetLights then
-				conds[b.cond].sun = select(3, procsky.GetLights())
+			if frame == SETTLE + 1 and b.key == "base1" then
+				local c = conds[b.cond]
+				c.sun = procsky and procsky.GetLights and select(3, procsky.GetLights()) or 0
+				c.rain = tod and tod.rain and tod.rain.amount or 0
+				c.overcast = procsky and procsky.GetOvercast and procsky.GetOvercast() or 0
 			end
 		end
 
