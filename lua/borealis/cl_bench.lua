@@ -35,8 +35,8 @@ local function conditions()
 		return { { name = "as is", cvars = merged(GENERAL) } }
 	end
 
-	local list = { { name = "clear", weather = "clear", cvars = merged(GENERAL) } }
-	list[#list + 1] = { name = "rain", weather = "rain", cvars = merged(GENERAL, RAIN) }
+	local list = { { name = "day", weather = "clear", cycle = 0.5, cvars = merged(GENERAL) } }
+	list[#list + 1] = { name = "day rain", weather = "rain", cycle = 0.5, cvars = merged(GENERAL, RAIN) }
 	list[#list + 1] = { name = "night", weather = "clear", cycle = 0, cvars = merged(GENERAL, NIGHT) }
 	list[#list + 1] = { name = "night rain", weather = "rain", cycle = 0, cvars = merged(GENERAL, RAIN, NIGHT) }
 
