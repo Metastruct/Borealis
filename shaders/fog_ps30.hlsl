@@ -33,6 +33,7 @@ sampler3D Noise : register(s2);
 #define SUN_K 0.4
 #define SUN_MIN_Z 0.08
 #define HG_G 0.42
+#define THIN 1e-6
 
 struct PS_IN
 {
@@ -46,21 +47,13 @@ float heightFactor(float z)
 	return exp(-max(z - BASE_Z, 0.0) / FALLOFF);
 }
 
-float sunTau(float3 p)
+float sunTau(float3 p, float h)
 {
 	float sz = max(SUN_DIR.z, SUN_MIN_Z);
-	float above = DENSITY * FALLOFF * heightFactor(p.z);
+	float above = DENSITY * FALLOFF * h;
 	float below = DENSITY * max(BASE_Z - p.z, 0.0);
 
 	return (above + below) / sz;
-}
-
-float density(float3 p, float nStr)
-{
-	float n = tex3Dlod(Noise, float4(p * NOISE_SCALE + WIND * TIME, 0.0)).r;
-	float m = lerp(1.0, saturate((n - 0.25) * 2.2), nStr);
-
-	return DENSITY * heightFactor(p.z) * m;
 }
 
 float4 main(PS_IN i) : COLOR
@@ -129,13 +122,27 @@ float4 main(PS_IN i) : COLOR
 
 	float T = 1.0;
 	float3 L = float3(0.0, 0.0, 0.0);
+	[loop]
 	for (int k = 0; k < STEPS; k++)
 	{
 		float t = (k + jitter) * ds;
 		float3 p = EYE + ray * t;
+		float h = heightFactor(p.z);
+		if (ray.z > 0.0 && DENSITY * h * ds < THIN)
+		{
+			break;
+		}
+
 		float nStr = i.color.g * saturate(1.0 - t / NOISE_FADE);
-		float a = 1.0 - exp(-density(p, nStr) * ds);
-		float3 li = ambient + sunTint * sunGain * exp(-sunTau(p));
+		float m = 1.0;
+		[branch] if (nStr > 0.0)
+		{
+			float n = tex3Dlod(Noise, float4(p * NOISE_SCALE + WIND * TIME, 0.0)).r;
+			m = lerp(1.0, saturate((n - 0.25) * 2.2), nStr);
+		}
+
+		float a = 1.0 - exp(-DENSITY * h * m * ds);
+		float3 li = ambient + sunTint * sunGain * exp(-sunTau(p, h));
 		L += li * a * T;
 		T *= 1.0 - a;
 	}
