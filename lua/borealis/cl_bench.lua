@@ -279,13 +279,13 @@ concommand.Add(TAG, function()
 
 	local fpsMax = GetConVar("fps_max")
 	if fpsMax and fpsMax:GetFloat() ~= 0 then
-		MsgC(Color(255, 80, 80), TAG .. ": fps_max is " .. fpsMax:GetString() .. ", your results would be meaningless, set it to 0 and try again\n")
+		MsgC(Color(255, 80, 80), TAG .. ": Your FPS are capped at " .. fpsMax:GetString() .. ", the benchmark would be meaningless, remove the cap (fps_max 0) and try again\n")
 		return
 	end
 
 	local vsync = GetConVar("mat_vsync")
 	if vsync and vsync:GetBool() then
-		MsgC(Color(255, 80, 80), TAG .. ": mat_vsync is enabled, your results would be meaningless, disable vsync (mat_vsync 0) and try again\n")
+		MsgC(Color(255, 80, 80), TAG .. ": You have VSync enabled, the benchmark would be meaningless, disable vsync (mat_vsync 0) and try again\n")
 		return
 	end
 
