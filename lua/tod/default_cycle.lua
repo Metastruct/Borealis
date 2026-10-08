@@ -40,10 +40,10 @@ local night = {
 	["sky_hdrscale"] = 0.66,
 }
 
-local dusk = {
+local sunrise = {
 	["sun_angles"] = Angle(0, 45, 0),
 	["moon_angles"] = -Angle(45, 45, 0),
-	["world_light_multiplier"] = 0.1,
+	["world_light_multiplier"] = 0.15,
 	["color_brightness"] = 0,
 	["color_contrast"] = 1,
 	["color_saturation"] = 1.1,
@@ -51,7 +51,7 @@ local dusk = {
 	["color_add"] = Vector(0, 0, 0),
 	["fog_start"] = 0,
 	["fog_end"] = 10000,
-	["fog_max_density"] = 1,
+	["fog_max_density"] = 0.35,
 	["fog_color"] = Vector(1, 0.85, 0.6) * 255,
 	["shadow_angles"] = Angle(0, 45, 0),
 	["shadow_color"] = Vector(SCOL, SCOL, SCOL),
@@ -120,10 +120,10 @@ local day = {
 	["sky_hdrscale"] = 0.66,
 }
 
-local dawn = {
+local sunset = {
 	["sun_angles"] = Angle(90 * 2, 45, 0),
 	["moon_angles"] = -Angle(90 * 2, 45, 0),
-	["world_light_multiplier"] = 0.005,
+	["world_light_multiplier"] = 0.15,
 	["color_brightness"] = 0,
 	["color_contrast"] = 1,
 	["color_saturation"] = 0.9,
@@ -131,7 +131,7 @@ local dawn = {
 	["color_add"] = Vector(0, 0, 0),
 	["fog_start"] = 0,
 	["fog_end"] = 10000,
-	["fog_max_density"] = 0,
+	["fog_max_density"] = 0.15,
 	["fog_color"] = Vector(1, 1, 1) * 255,
 	["shadow_angles"] = Angle(0, 45, 0),
 	["shadow_color"] = Vector(SCOL, SCOL, SCOL),
@@ -160,5 +160,17 @@ local dawn = {
 	["sky_hdrscale"] = 0.66,
 }
 
--- repeat to make the configs last longer
-tod.SetConfigCycle(night, night, night, night, night, dusk, day, day, day, day, day, day, day, day, day, day, day, day, day, dawn, dawn, night, night, night)
+local function dayAt(mult)
+	return table.Merge(table.Copy(day), { ["world_light_multiplier"] = mult })
+end
+
+tod.SetConfigCycle(
+	{ hour = 0, config = night },
+	{ hour = 4, config = night },
+	{ hour = 5.5, config = sunrise },
+	{ hour = 7.5, config = dayAt(0.49) },
+	{ hour = 13, config = day },
+	{ hour = 18.5, config = dayAt(0.53) },
+	{ hour = 20.75, config = sunset },
+	{ hour = 22.25, config = night }
+)

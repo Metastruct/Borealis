@@ -66,7 +66,7 @@ if string.find(game.GetMap(), "gm_construct_m") then
 	local min = 98
 
 	function tod.MultToLightEnv(mult)
-		return math.Clamp(math.Round(min + (mult * min)), min, 127)
+		return math.Clamp(math.Round(min + (127 - min) * mult), min, 127)
 	end
 
 	ADD_SKY_KEYVALUE("topcolor", Vector(0.2, 0.5, 1), true)
@@ -272,7 +272,7 @@ if string.find(game.GetMap(), "gm_construct_m") then
 			hook.Remove("RenderScene", "todhack")
 
 			timer.Create("tod_update_lightmap", 0.5, 0, function()
-				local byte = tod.MultToLightEnv(tod.GetCycle())
+				local byte = tod.MultToLightEnv(C.world_light_multiplier)
 
 				if last_byte ~= byte then
 					-- this function is very slow
@@ -733,10 +733,70 @@ if string.find(game.GetMap(), "gm_construct_m") then
 		end
 	end
 
-	-- The cycle is a Bezier through its configs, so the lerped sun angle crosses
-	-- the horizon while the world is still lit (20:15 in the default cycle,
-	-- where the light multiplier reads sunset at 21:00).  The sun is put where
-	-- the light level says it is, so the sky, shadows and env_sun agree:
+	do
+		local function tangent(h0, h1, h2, y0, y1, y2)
+			local dl, dr = (y1 - y0) / (h1 - h0), (y2 - y1) / (h2 - h1)
+			if dl * dr <= 0 then return 0 end
+			local w1, w2 = 2 * (h2 - h1) + (h1 - h0), (h2 - h1) + 2 * (h1 - h0)
+
+			return (w1 + w2) / (w1 / dl + w2 / dr)
+		end
+
+		local function cubic(s, h, y0, y1, y2, y3)
+			local m1 = tangent(h[1], h[2], h[3], y0, y1, y2)
+			local m2 = tangent(h[2], h[3], h[4], y1, y2, y3)
+			local span = h[3] - h[2]
+			local s2, s3 = s * s, s * s * s
+
+			return (2 * s3 - 3 * s2 + 1) * y1 + (s3 - 2 * s2 + s) * span * m1 + (3 * s2 - 2 * s3) * y2 + (s3 - s2) * span * m2
+		end
+
+		local function key(keys, i)
+			local n = #keys
+			local wrap = math.floor((i - 1) / n)
+			local k = keys[i - wrap * n]
+
+			return k.hour + wrap * 24, k.config
+		end
+
+		function tod.SampleCycle(time, keys)
+			keys = keys or tod.config_cycle
+			local hour = (time % 1) * 24
+			local at = 0
+
+			for i, k in ipairs(keys) do
+				if k.hour <= hour then at = i end
+			end
+
+			local h, c = {}, {}
+			for i = 1, 4 do
+				h[i], c[i] = key(keys, at + i - 2)
+			end
+
+			local s = (hour - h[2]) / (h[3] - h[2])
+			local params = {}
+
+			for name, val in pairs(c[2]) do
+				local a, b, d = c[1][name] or val, c[3][name] or val, c[4][name] or val
+
+				if type(val) == "number" then
+					params[name] = cubic(s, h, a, val, b, d)
+				elseif type(val) == "Vector" then
+					params[name] = Vector(
+						cubic(s, h, a.x, val.x, b.x, d.x),
+						cubic(s, h, a.y, val.y, b.y, d.y),
+						cubic(s, h, a.z, val.z, b.z, d.z)
+					)
+				elseif type(val) == "Angle" then
+					params[name] = LerpAngle(s, val, b)
+				end
+			end
+
+			return params
+		end
+	end
+
+	-- The sun is put where the light level says it is, so the sky, shadows and env_sun agree:
 	-- elevation follows asin above SUN_LIGHT_HORIZON, and runs down to
 	-- -SUN_TWILIGHT degrees as the light goes to zero.
 	tod.SUN_LIGHT_HORIZON = 0.15
@@ -744,9 +804,17 @@ if string.find(game.GetMap(), "gm_construct_m") then
 
 	function tod.AlignSunToLight(cfg, time)
 		local w = cfg.world_light_multiplier
-		local first = tod.config_cycle and tod.config_cycle[1]
+		local first = tod.config_cycle and tod.config_cycle[1] and tod.config_cycle[1].config
 		local yaw = first and isangle(first.sun_angles) and first.sun_angles.y or 45
 		if not isnumber(w) then return cfg end
+
+		local noon, brightest = 0.5, -math.huge
+		for _, k in ipairs(tod.config_cycle or {}) do
+			local m = k.config.world_light_multiplier
+			if isnumber(m) and m > brightest then
+				noon, brightest = k.hour / 24, m
+			end
+		end
 
 		local h = tod.SUN_LIGHT_HORIZON
 		local elev
@@ -757,7 +825,7 @@ if string.find(game.GetMap(), "gm_construct_m") then
 		end
 
 		-- rises at yaw + 180, over the zenith, sets at yaw (pitch 0 .. 180)
-		cfg.sun_angles = Angle(time < 0.5 and elev or 180 - elev, yaw, 0)
+		cfg.sun_angles = Angle(time < noon and elev or 180 - elev, yaw, 0)
 		-- the moon sits at the sun's antipode (negating the angle would mirror the yaw instead)
 		cfg.moon_angles = Angle(-cfg.sun_angles.p, yaw + 180, 0)
 
@@ -1016,6 +1084,7 @@ if string.find(game.GetMap(), "gm_construct_m") then
 		cache = {}
 
 		tod.config_cycle = {...}
+		table.SortByMember(tod.config_cycle, "hour", true)
 	end
 
 	function tod.SetOverrideConfig(config, lerp)
@@ -1087,7 +1156,7 @@ if string.find(game.GetMap(), "gm_construct_m") then
 			if cache[time] then
 				cfg = cache[time]
 			else
-				cfg = tod.LerpConfigs(time, unpack(tod.config_cycle))
+				cfg = tod.SampleCycle(time)
 
 				-- for snow and such
 				if tod.override_config then
