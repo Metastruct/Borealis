@@ -10,6 +10,7 @@ if SERVER then
 
 	resource.AddShader("aurora_vs30")
 	resource.AddShader("aurora_ps30")
+	resource.AddShader("aurora_map_ps30")
 	resource.AddShader("nightsky_ps30")
 	resource.AddFile("materials/aurora/noise.vtf")
 	resource.AddFile("materials/aurora/milkyway.vtf")
@@ -35,8 +36,9 @@ local SKY_AIRGLOW = 1 -- horizon haze brightness
 local SKY_POLE = Angle(-35, 60, 0):Forward()
 local SKY_AXIS = Angle(-55, 0, 0):Forward()
 local SKY_TURN_RATE = 0.25
+local MAP_SIZE = 1024
 
-local function start(PIXEL_SHADER, SKY_SHADER)
+local function start(PIXEL_SHADER, SKY_SHADER, MAP_SHADER)
 	local function shaderMaterial(name, pixelShader, constants)
 		local kv = {
 			["$pixshader"] = pixelShader,
@@ -61,6 +63,8 @@ local function start(PIXEL_SHADER, SKY_SHADER)
 	local MAT = shaderMaterial("ms_aurora_sky", PIXEL_SHADER, {
 		["$basetexture"] = "aurora/noise",
 		["$linearread_basetexture"] = 1,
+		["$texture1"] = "",
+		["$linearread_texture1"] = 1,
 		["$c0_x"] = 1, ["$c0_y"] = 0,
 		["$c0_z"] = 0, ["$c0_w"] = 0,
 		["$c1_x"] = 0, ["$c1_y"] = 1,
@@ -83,6 +87,18 @@ local function start(PIXEL_SHADER, SKY_SHADER)
 		["$c3_x"] = SKY_POLE.x, ["$c3_y"] = SKY_POLE.y,
 		["$c3_z"] = SKY_POLE.z, ["$c3_w"] = SKY_AIRGLOW,
 	})
+
+	local MAP_MAT = shaderMaterial("ms_aurora_map", MAP_SHADER, {
+		["$basetexture"] = "aurora/noise",
+		["$linearread_basetexture"] = 1,
+		["$additive"] = 0,
+		["$c0_x"] = 0, ["$c0_y"] = SCALE,
+		["$c0_z"] = 0, ["$c0_w"] = 0,
+		["$c1_x"] = WIDTH, ["$c1_y"] = MAP_SIZE,
+	})
+
+	local curtainMap = GetRenderTargetEx("ms_aurora_curtains_" .. MAP_SIZE, MAP_SIZE, MAP_SIZE, RT_SIZE_LITERAL, MATERIAL_RT_DEPTH_NONE, 12, 0, IMAGE_FORMAT_RGBA16161616F)
+	MAT:SetTexture("$texture1", curtainMap)
 
 	local NOISE_SPEED = 0.06
 	local TIME_PERIOD = 2 * math.pi / NOISE_SPEED
@@ -208,6 +224,20 @@ local function start(PIXEL_SHADER, SKY_SHADER)
 		return math.max(HEIGHT - (eye - (lvl and lvl.floor or eye)) / AURORA_SCALE, AURORA_MIN)
 	end
 
+	local function renderCurtainMap()
+		if not AURORA_ENABLED:GetBool() or auroraWindow() <= 0.001 or nightFactor() <= 0.001 then return end
+
+		local drift = CurTime()
+		MAP_MAT:SetFloat("$c0_x", drift % TIME_PERIOD)
+		MAP_MAT:SetFloat("$c0_z", (drift * SCROLL_X) % SCROLL_WRAP)
+		MAP_MAT:SetFloat("$c0_w", (drift * SCROLL_Y) % SCROLL_WRAP)
+
+		render.PushRenderTarget(curtainMap)
+		render_SetMaterial(MAP_MAT)
+		render_DrawScreenQuad(true)
+		render.PopRenderTarget()
+	end
+
 	local function drawAurora()
 		local window = auroraWindow()
 		if window <= 0.001 then return end
@@ -239,6 +269,8 @@ local function start(PIXEL_SHADER, SKY_SHADER)
 		render_DrawScreenQuad(true)
 	end
 
+	hook.Add("PreRender", "ms_aurora_curtains", renderCurtainMap)
+
 	hook.Remove("PostDraw2DSkyBox", "ms_aurora_sky")
 	if skyboxer then
 		skyboxer.RemoveHook("b_aurora_nightsky")
@@ -259,7 +291,7 @@ local function start(PIXEL_SHADER, SKY_SHADER)
 end
 
 local function shadersAvailable()
-	for _, name in ipairs({ "aurora_vs30", "aurora_ps30", "nightsky_ps30" }) do
+	for _, name in ipairs({ "aurora_vs30", "aurora_ps30", "aurora_map_ps30", "nightsky_ps30" }) do
 		if not file.Exists("shaders/fxc/" .. name .. ".vcs", "GAME") then return false end
 	end
 
@@ -268,7 +300,7 @@ end
 
 local function tryStart()
 	if not shadersAvailable() then return false end
-	start("aurora_ps30", "nightsky_ps30")
+	start("aurora_ps30", "nightsky_ps30", "aurora_map_ps30")
 
 	return true
 end
