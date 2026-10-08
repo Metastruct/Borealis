@@ -7,16 +7,17 @@ if SERVER then
 	if not resource.AddShader then return end
 
 	resource.AddShader("rain_vs30")
-	resource.AddShader("rain_ps30")
 	resource.AddShader("rainsplash_ps30")
+	resource.AddShader("raindrop_vs30")
+	resource.AddShader("raindrop_ps30")
 
 	return
 end
 
--- Falling rain: static tiles of crossed streak quads built in world space
--- around the eye, so the field stays put while the streaks slide down inside
--- each quad (rain_ps30), and ripples on the ground, one quad per column of
--- level ground the rain reaches (rainsplash_ps30).
+-- Falling rain: one quad per drop, placed by raindrop_vs30 from a template
+-- mesh shared by every tile, so the drops slide down crossed streak planes
+-- that stay put in world space, and ripples on the ground, one quad per column
+-- of level ground the rain reaches (rainsplash_ps30).
 --
 -- Cover is per column of the world, not per eye: a small wrapped texture
 -- around the eye holds, for every COLUMN square, the height the rain stops
@@ -34,22 +35,30 @@ end
 -- Nothing is set between draws: with the threaded material system a draw
 -- reads a material constant whenever the render thread gets to it, so a
 -- constant set per tile lands on the wrong tiles.  The constants are set once
--- per frame and every mesh carries its own world position.
+-- per frame, and each tile's position rides in its model matrix.
 
 local RAIN_ENABLED = CreateClientConVar("cl_draw_rain", "1", true, false, "draw falling rain")
-local PS, VS = "rain_ps30", "rain_vs30"
+local VS = "rain_vs30"
 local SPLASH_PS = "rainsplash_ps30"
+local DROP_PS, DROP_VS = "raindrop_ps30", "raindrop_vs30"
 
-local TILE = 512 -- world units, the tiles' grid
+local TILE = 512 -- world units, the field is the 3 x 3 of these around the eye
+local DROP_TILE = 256
 local STREAKS = 1100 -- crossed quad pairs per tile at full rain
 local DENSITY_STEPS = 4 -- levels of streak count between nothing and full rain
+local DROP_PAIRS = STREAKS * (DROP_TILE / TILE) ^ 2
+local DROP_WINDOW = 11
+local DROP_CODES = 2 * 3 * DROP_WINDOW
+local DROP_CHUNK = 138
 local HALF_H = 560 -- half height of the field, matches the shader
 local PERIOD = 80 -- world units between drop slots, matches the shader
-local FIELD_SLACK = 160 -- the tiles are rebuilt once the eye is this far above or below their centre, a jump never does
+local FIELD_SLACK = 160 -- the field's height snaps again once the eye is this far above or below it, a jump never does
 local HALF_W = 2.6 -- half width of a strip: the drops scatter across it, so a wide one does not read as a line
 local CROSS_SPREAD = 24 -- how far the second plane of a cross sits from the first, so a pair is two streaks and not one column
 local WIND = { 0.16, 0.05 } -- lean of the streaks, xy per unit of height
+local LEAN_MAX, SWING_MAX = 1.45, 0.25
 local FADE_START, FADE_END = 560, 760
+local Z_FADE_END = 400
 local ALPHA = 0.24
 local COLOR_BODY = 0.5 -- a streak's body as a share of the sky behind it: rain reads dark against daylight
 local COLOR_HEAD = 1.5 -- and its head, which is what shows against the world instead
@@ -90,8 +99,9 @@ local function packColor(r, g, b)
 	return math.floor(math.Clamp(r, 0, 1) * 255) * 65536 + math.floor(math.Clamp(g, 0, 1) * 255) * 256 + math.floor(math.Clamp(b, 0, 1) * 255)
 end
 
-local MAT, SPLASH_MAT, coverRT, splashMesh
+local SPLASH_MAT, DROP_MAT, coverRT, splashMesh
 local build -- the cover map and the materials, once the render targets are real
+local dropChunks = {}
 
 local UP = Vector(0, 0, 1)
 local DIM = { 0.12, 0.13, 0.16 } -- no procsky: a dull light, the glints barely show
@@ -130,107 +140,75 @@ local function wetLight()
 end
 
 --------------------------------------------------------------------------
--- streak tiles: tiles[key] = { ix, iy, z, mesh }, the 3 x 3 around the eye,
--- built in world space at the field's current height
+-- streak tiles: a template mesh of drops shared by every tile, the 3 x 3
+-- around the eye, drawn at the field's current height
 --------------------------------------------------------------------------
-local tiles = {}
-local fieldZ -- the tiles' centre, snapped to PERIOD; the drops hang off world height, so a rebuild never moves them
+local fieldZ -- the field's centre, snapped to PERIOD; the drops hang off world height, so a snap never moves them
 
 local function densityLevel(amount)
 	return math.Clamp(math.ceil(amount * DENSITY_STEPS), 1, DENSITY_STEPS)
 end
 
-local function tileKey(ix, iy)
-	return ix * 65536 + iy
-end
-
-local function buildTile(ix, iy, fz, level)
-	local count = math.floor(STREAKS * level / DENSITY_STEPS)
-	-- the tile's own level rides along in the vertex alpha, so a tile still at
-	-- the old one draws at its own weight instead of the whole field jumping
-	local weight = math.floor(255 * level / DENSITY_STEPS)
-	local rng = bit.band(ix * 73856093 + iy * 19349663, 0x7fffffff)
-	local function rand()
-		rng = (rng * 1103515245 + 12345) % 2147483648
-
-		return rng / 2147483648
-	end
-
-	local tx, ty = ix * TILE, iy * TILE
-	local top, bottom = fz + HALF_H, fz - HALF_H
-	local m = Mesh()
-	mesh.Begin(m, MATERIAL_QUADS, count * 2)
-	for _ = 1, count do
-		local cx, cy = tx + rand() * TILE, ty + rand() * TILE
-		local ox, oy = (rand() - 0.5) * CROSS_SPREAD, (rand() - 0.5) * CROSS_SPREAD
-		-- each streak leans its own amount and a little across the wind, so the
-		-- field is not one comb of parallel lines
-		local lean, swing = 0.65 + rand() * 0.8, (rand() - 0.5) * 0.5
-		local wx = (WIND[1] * lean - WIND[2] * swing) * HALF_H
-		local wy = (WIND[2] * lean + WIND[1] * swing) * HALF_H
-		local ang = rand() * math.pi
-		for k = 0, 1 do
-			-- colour: phase, speed step (0 .. 4 of 4), brightness, drawn again
-			-- for the second plane so the cross does not show the same drops twice
-			local phase, speed, bright = math.floor(rand() * 255), math.floor(rand() * 4 + 0.5) * 63, math.floor(rand() * 255)
-			local a = ang + k * math.pi * 0.5
-			-- the two planes hold a point each instead of crossing on one: a
-			-- cross puts every lane of both into the same column of air
-			local x, y = cx + ox * k, cy + oy * k
-			local dx, dy = math.cos(a) * HALF_W, math.sin(a) * HALF_W
-			-- the top leans into the wind; the shader reads u across the strip
-			-- and takes the drops' height from the world, not from v
-			mesh.Position(Vector(x - dx + wx, y - dy + wy, top)) mesh.TexCoord(0, 0, 0) mesh.Color(phase, speed, bright, weight) mesh.AdvanceVertex()
-			mesh.Position(Vector(x + dx + wx, y + dy + wy, top)) mesh.TexCoord(0, 1, 0) mesh.Color(phase, speed, bright, weight) mesh.AdvanceVertex()
-			mesh.Position(Vector(x + dx - wx, y + dy - wy, bottom)) mesh.TexCoord(0, 1, 1) mesh.Color(phase, speed, bright, weight) mesh.AdvanceVertex()
-			mesh.Position(Vector(x - dx - wx, y - dy - wy, bottom)) mesh.TexCoord(0, 0, 1) mesh.Color(phase, speed, bright, weight) mesh.AdvanceVertex()
-		end
-	end
-
-	mesh.End()
-
-	return m
-end
-
-local function dropTiles()
-	for key, t in pairs(tiles) do
-		t.mesh:Destroy()
-		tiles[key] = nil
-	end
-end
-
--- one build per frame, the nearest missing or outdated tile first; a tile at
--- an old height or density still draws until its turn, so a step in the amount
--- costs one tile a frame instead of rebuilding the whole field at once
-local function updateTiles(eye, level)
+local function updateField(eye)
 	if not fieldZ or math.abs(eye.z - fieldZ) > FIELD_SLACK then
 		fieldZ = math.floor(eye.z / PERIOD + 0.5) * PERIOD
 	end
 
-	local fz = fieldZ
-	local ix, iy = math.floor(eye.x / TILE), math.floor(eye.y / TILE)
-	for key, t in pairs(tiles) do
-		if math.abs(t.ix - ix) > 1 or math.abs(t.iy - iy) > 1 then
-			t.mesh:Destroy()
-			tiles[key] = nil
-		end
-	end
+	return fieldZ
+end
 
-	local budget = next(tiles) == nil and 9 or 1
-	for _, d in ipairs({ { 0, 0 }, { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 }, { 1, 1 }, { 1, -1 }, { -1, 1 }, { -1, -1 } }) do
-		if budget == 0 then return end
-		local tix, tiy = ix + d[1], iy + d[2]
-		local key = tileKey(tix, tiy)
-		local t = tiles[key]
-		if not t or t.z ~= fz or t.level ~= level then
-			if t then
-				t.mesh:Destroy()
+local function buildDropChunk(first)
+	local last = math.min(first + DROP_CHUNK, DROP_PAIRS) - 1
+	local m = Mesh()
+	local ok = pcall(function()
+		mesh.Begin(m, MATERIAL_QUADS, (last - first + 1) * DROP_CODES)
+		for p = first, last do
+			for code = 0, DROP_CODES - 1 do
+				for corner = 0, 3 do
+					mesh.Position(p, code, corner)
+					mesh.AdvanceVertex()
+				end
 			end
+		end
+		mesh.End()
+	end)
 
-			tiles[key] = { ix = tix, iy = tiy, z = fz, level = level, mesh = buildTile(tix, tiy, fz, level) }
-			budget = budget - 1
+	if not ok then
+		m:Destroy()
+		return
+	end
+
+	return { first = first, mesh = m }
+end
+
+local function updateDrops()
+	local n = #dropChunks
+	local first = n * DROP_CHUNK
+	if first >= DROP_PAIRS then return end
+
+	dropChunks[n + 1] = buildDropChunk(first)
+end
+
+local cubeModel
+local function setVertexConstants(rows)
+	if not IsValid(cubeModel) then
+		cubeModel = ClientsideModel("models/shadertest/vertexlit.mdl")
+		cubeModel:SetNoDraw(true)
+		cubeModel:SetModelScale(0)
+	end
+
+	render.SuppressEngineLighting(true)
+	for i = 0, 5 do
+		local r = rows[i + 1]
+		if r then
+			render.SetModelLighting(i, r[1], r[2], r[3])
+		else
+			render.SetModelLighting(i, 0, 0, 0)
 		end
 	end
+
+	cubeModel:DrawModel()
+	render.SuppressEngineLighting(false)
 end
 
 --------------------------------------------------------------------------
@@ -476,17 +454,17 @@ local function prepare()
 	local rain = tod and tod.rain
 	if not rain or rain.amount <= 0.001 then
 		dropSplashes()
-		dropTiles()
 		ripplesDirty = true
 		return
 	end
 
-	if not MAT and not build() then return end
+	if not DROP_MAT and not build() then return end
 
 	local eye = EyePos()
 	submerged = bit.band(util.PointContents(eye), IN_WATER) ~= 0
 	updateColumns(eye)
-	updateTiles(eye, densityLevel(rain.amount))
+	updateField(eye)
+	updateDrops()
 
 	if ripplesDirty and RealTime() >= nextRipple then
 		ripplesDirty, nextRipple = false, RealTime() + SPLASH_REBUILD
@@ -495,33 +473,111 @@ local function prepare()
 	end
 end
 
+local dropRows = { {}, {}, {}, {} }
+local dropMatrix = Matrix()
+local DROP_LEAN_X = (WIND[1] * LEAN_MAX + WIND[2] * SWING_MAX) * HALF_H
+local DROP_LEAN_Y = (WIND[2] * LEAN_MAX + WIND[1] * SWING_MAX) * HALF_H
+local DROP_SPREAD = CROSS_SPREAD * 0.5 + HALF_W
+local planes = { Vector(), Vector(), Vector(), Vector() }
+local corner = Vector()
+
+local function setPlanes(fwd, right, up, vs)
+	local h = math.rad(vs.fov) * 0.5
+	local v = math.atan(math.tan(h) / vs.aspect)
+	local sh, ch, sv, cv = math.sin(h), math.cos(h), math.sin(v), math.cos(v)
+	planes[1]:Set(fwd * sh + right * ch)
+	planes[2]:Set(fwd * sh - right * ch)
+	planes[3]:Set(fwd * sv + up * cv)
+	planes[4]:Set(fwd * sv - up * cv)
+end
+
+local function tileVisible(eye, tx, ty, fz)
+	local lean = math.max(math.abs(eye.z + Z_FADE_END - fz), math.abs(eye.z - Z_FADE_END - fz)) / HALF_H
+	local rx, ry = DROP_LEAN_X * lean + DROP_SPREAD, DROP_LEAN_Y * lean + DROP_SPREAD
+	local x0, x1 = tx - rx - eye.x, tx + DROP_TILE + rx - eye.x
+	local y0, y1 = ty - ry - eye.y, ty + DROP_TILE + ry - eye.y
+	local nx, ny = math.max(x0, 0, -x1), math.max(y0, 0, -y1)
+	if nx * nx + ny * ny > FADE_END * FADE_END then return false end
+
+	local z0, z1 = -Z_FADE_END, Z_FADE_END
+	for _, n in ipairs(planes) do
+		local inside = false
+		for i = 0, 7 do
+			corner.x = bit.band(i, 1) == 0 and x0 or x1
+			corner.y = bit.band(i, 2) == 0 and y0 or y1
+			corner.z = bit.band(i, 4) == 0 and z0 or z1
+			if corner:Dot(n) >= 0 then
+				inside = true
+				break
+			end
+		end
+
+		if not inside then return false end
+	end
+
+	return true
+end
+
+local function drawDrops(eye, time, level)
+	if #dropChunks == 0 or not fieldZ then return end
+
+	local pairsCount = math.floor(DROP_PAIRS * level / DENSITY_STEPS)
+	local vs = render.GetViewSetup()
+	local ang = EyeAngles()
+	local fwd, right, up = ang:Forward(), ang:Right(), ang:Up()
+	local pixel = 2 * math.tan(math.rad(vs.fov) * 0.5) / vs.width
+	local r = dropRows
+	r[1][1], r[1][2], r[1][3] = time, pairsCount, math.floor(255 * level / DENSITY_STEPS) / 255
+	r[2][1], r[2][2], r[2][3] = right.x * pixel, right.y * pixel, right.z * pixel
+	r[3][1], r[3][2], r[3][3] = up.x * pixel, up.y * pixel, up.z * pixel
+	r[4][1], r[4][2], r[4][3] = fwd.x, fwd.y, fwd.z
+	setVertexConstants(r)
+	setPlanes(fwd, right, up, vs)
+
+	render.SetMaterial(DROP_MAT)
+	local fx, fy = (math.floor(eye.x / TILE) - 1) * TILE, (math.floor(eye.y / TILE) - 1) * TILE
+	local span = 3 * TILE / DROP_TILE - 1
+	for dx = 0, span do
+		for dy = 0, span do
+			local tx, ty = fx + dx * DROP_TILE, fy + dy * DROP_TILE
+			if tileVisible(eye, tx, ty, fieldZ) then
+				dropMatrix:SetTranslation(Vector(tx, ty, fieldZ))
+				cam.PushModelMatrix(dropMatrix)
+				for _, chunk in ipairs(dropChunks) do
+					if chunk.first < pairsCount then
+						chunk.mesh:Draw()
+					end
+				end
+				cam.PopModelMatrix()
+			end
+		end
+	end
+end
+
 local function draw(bDepth, _, b3DSky)
 	if bDepth or b3DSky or submerged or render.GetRenderTarget() then return end
 	local rain = tod and tod.rain
-	if not rain or next(tiles) == nil then return end
+	if not rain then return end
 
 	local k = rain.amount
 	if k <= 0.001 then return end
 
-	if not MAT then return end
+	if not DROP_MAT then return end
 
 	local eye = EyePos()
 	local tonemap = render.GetToneMappingScaleLinear().x
 
 	-- bound again every frame: the targets are recreated across a map change
-	MAT:SetTexture("$basetexture", coverRT)
-	MAT:SetFloat("$c0_x", eye.x)
-	MAT:SetFloat("$c0_y", eye.y)
-	MAT:SetFloat("$c0_z", eye.z)
-	MAT:SetFloat("$c0_w", CurTime() % WRAP)
+	DROP_MAT:SetTexture("$basetexture", coverRT)
+	DROP_MAT:SetFloat("$c0_x", eye.x)
+	DROP_MAT:SetFloat("$c0_y", eye.y)
+	DROP_MAT:SetFloat("$c0_z", eye.z)
+	DROP_MAT:SetFloat("$c0_w", CurTime() % WRAP)
 	local body, head = streakColor()
-	MAT:SetFloat("$c1_w", packColor(body[1], body[2], body[3]))
-	MAT:SetFloat("$c2_x", packColor(head[1], head[2], head[3]))
-	MAT:SetFloat("$c1_x", ALPHA * k * tonemap)
-	render.SetMaterial(MAT)
-	for _, t in pairs(tiles) do
-		t.mesh:Draw()
-	end
+	DROP_MAT:SetFloat("$c1_w", packColor(body[1], body[2], body[3]))
+	DROP_MAT:SetFloat("$c2_x", packColor(head[1], head[2], head[3]))
+	DROP_MAT:SetFloat("$c1_x", ALPHA * k * tonemap)
+	drawDrops(eye, CurTime() % WRAP, densityLevel(k))
 
 	if splashMesh then
 		local dir, sky, light = wetLight()
@@ -544,19 +600,26 @@ local function stop()
 	hook.Remove("PreRender", "ms_rain")
 	hook.Remove("PostDrawTranslucentRenderables", "ms_rain")
 	dropSplashes()
-	dropTiles()
+	for i = #dropChunks, 1, -1 do
+		dropChunks[i].mesh:Destroy()
+		dropChunks[i] = nil
+	end
+
+	if IsValid(cubeModel) then
+		cubeModel:Remove()
+	end
 end
 
 -- a new material every start: a kept one from an older version of this file
 -- would silently drop the constants it was not created with
 local materialSerial = 0
 
-local function material(name, pixelShader)
+local function material(name, pixelShader, vertexShader)
 	materialSerial = materialSerial + 1
 
 	return CreateMaterial(name .. "_" .. os.time() .. "_" .. materialSerial, "screenspace_general", {
 		["$pixshader"] = pixelShader,
-		["$vertexshader"] = VS,
+		["$vertexshader"] = vertexShader or VS,
 		["$basetexture"] = "",
 		["$linearread_basetexture"] = 1, -- the cover map is data
 		["$ignorez"] = 0,
@@ -601,8 +664,8 @@ function build()
 	render.PopRenderTarget()
 	owner, ground, queue, queued = {}, {}, {}, {}
 	traceZ, winX, winY, fieldZ = nil, nil, nil, nil
-	MAT = material("ms_rain", PS)
-	MAT:SetTexture("$basetexture", coverRT)
+	DROP_MAT = material("ms_raindrop", DROP_PS, DROP_VS)
+	DROP_MAT:SetTexture("$basetexture", coverRT)
 	SPLASH_MAT = material("ms_rainsplash", SPLASH_PS)
 	SPLASH_MAT:SetFloat("$c1_y", SPLASH_FADE_START)
 	SPLASH_MAT:SetFloat("$c1_z", SPLASH_FADE_END)
@@ -612,13 +675,13 @@ end
 
 local function start()
 	stop()
-	MAT, SPLASH_MAT = nil, nil
+	SPLASH_MAT, DROP_MAT = nil, nil
 	hook.Add("PreRender", "ms_rain", prepare)
 	hook.Add("PostDrawTranslucentRenderables", "ms_rain", draw)
 end
 
 local function shadersAvailable()
-	for _, name in ipairs({ PS, VS, SPLASH_PS }) do
+	for _, name in ipairs({ VS, SPLASH_PS, DROP_PS, DROP_VS }) do
 		if not file.Exists("shaders/fxc/" .. name .. ".vcs", "GAME") then return false end
 	end
 

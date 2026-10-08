@@ -33,8 +33,9 @@ sampler CoverTex : register(s0);
 struct PS_IN
 {
 	float2 uv    : TEXCOORD0;
-	float4 color : TEXCOORD1;
+	float4 strip : TEXCOORD1;
 	float3 wpos  : TEXCOORD2;
+	float4 owner : TEXCOORD3;
 };
 
 float3 unpackColor(float v)
@@ -92,16 +93,14 @@ float4 main(PS_IN i) : COLOR
 	float2 cuv = frac(col / COLUMNS) + 0.5 / COLUMNS;
 	float2 c = tex2D(CoverTex, cuv).rg;
 	float cut = (c.r * 65280.0 + c.g * 255.0) / 65535.0 * Z_RANGE + Z_MIN;
-	if (i.wpos.z < cut)
-	{
-		return float4(0.0, 0.0, 0.0, 0.0);
-	}
 
 	float px = fwidth(i.uv.x);
 	float pv = fwidth(-i.wpos.z / PERIOD);
-	float phase = i.color.r;
-	float bright = i.color.b;
-	float sp = 0.1 * floor(i.color.g * 4.0 + 0.5);
+	float phase = floor(i.strip.x + 0.5) / 255.0;
+	float sp = 0.1 * floor(i.strip.y + 0.5);
+	float bright = floor(i.strip.z + 0.5) / 255.0;
+	float j = floor(i.owner.x + 0.5);
+	float m = floor(i.owner.y + 0.5);
 	float size = 0.75 + 0.5 * frac(phase * 13.7 + bright * 5.1);
 
 	float gw = 2.0 * PI * GUST_N / WRAP;
@@ -109,11 +108,21 @@ float4 main(PS_IN i) : COLOR
 	float f = -i.wpos.z / PERIOD + phase * SLOTS;
 	float salt = frac(phase * 13.1 + bright * 7.9);
 
-	float2 a = drop(f - t * SPEED * (0.8 + sp), i.uv.x, 0.5, salt, SEG, WIDTH * size, px, pv);
-	float2 b = drop(f - t * SPEED * (0.9 + sp) + 0.37, i.uv.x, 0.5, salt + 0.41, SEG * 0.8, WIDTH * 0.8 * size, px, pv);
-	float2 d = drop(f - t * SPEED * (0.7 + sp) + 0.71, i.uv.x, 0.5, salt + 0.83, SEG * 0.65, WIDTH * 0.7 * size, px, pv);
+	float fa = f - t * SPEED * (0.8 + sp);
+	float fb = f - t * SPEED * (0.9 + sp) + 0.37;
+	float fd = f - t * SPEED * (0.7 + sp) + 0.71;
+	float2 a = drop(fa, i.uv.x, 0.5, salt, SEG, WIDTH * size, px, pv);
+	float2 b = drop(fb, i.uv.x, 0.5, salt + 0.41, SEG * 0.8, WIDTH * 0.8 * size, px, pv);
+	float2 d = drop(fd, i.uv.x, 0.5, salt + 0.83, SEG * 0.65, WIDTH * 0.7 * size, px, pv);
+	float win = a.x > b.x ? 0.0 : 1.0;
 	a = a.x > b.x ? a : b;
+	win = a.x > d.x ? win : 2.0;
 	a = a.x > d.x ? a : d;
+
+	float fown = j < 0.5 ? fa : (j < 1.5 ? fb : fd);
+	float slot = floor(fown);
+	float own = frac(slot / SLOTS) * SLOTS;
+	bool mine = abs(win - j) < 0.5 && abs(own - m) < 0.5 && i.wpos.z >= i.owner.z && i.wpos.z <= i.owner.w && i.wpos.z >= cut;
 
 	float dist = distance(i.wpos, EYE);
 	float fade = (1.0 - smoothstep(FADE_START, FADE_END, dist)) * smoothstep(NEAR * 0.3, NEAR, dist);
@@ -122,5 +131,5 @@ float4 main(PS_IN i) : COLOR
 	float3 body = unpackColor(Constants1.w);
 	float3 head = unpackColor(Constants2.x);
 
-	return float4(lerp(body, head, saturate(a.y)), a.x * fade * INTENSITY * (0.45 + 0.55 * bright) / max(i.color.a, 0.02));
+	return float4(lerp(body, head, saturate(a.y)), mine ? a.x * fade * INTENSITY * (0.45 + 0.55 * bright) / max(i.strip.w, 0.02) : 0.0);
 }
