@@ -379,6 +379,34 @@ local function dropMeshes()
 	end
 end
 
+local OPENNESS_GRID = 6
+local OPENNESS_LIFT = 4
+local OPENNESS_LENGTH = 32768
+local opennessTrace = { mask = MASK_SOLID_BRUSHONLY, start = Vector(), endpos = Vector(), output = {} }
+
+local function bodyOpenness(g)
+	local start, endpos = opennessTrace.start, opennessTrace.endpos
+	local open, total = 0, 0
+	for x = 0, OPENNESS_GRID - 1 do
+		for y = 0, OPENNESS_GRID - 1 do
+			start:SetUnpacked(
+				g.minX + (x + 0.5) / OPENNESS_GRID * (g.maxX - g.minX),
+				g.minY + (y + 0.5) / OPENNESS_GRID * (g.maxY - g.minY),
+				g.surfaceZ + OPENNESS_LIFT
+			)
+			endpos:Set(start)
+			endpos.z = endpos.z + OPENNESS_LENGTH
+			local tr = util.TraceLine(opennessTrace)
+			if not tr.StartSolid then
+				total = total + 1
+				if not tr.Hit or tr.HitSky then open = open + 1 end
+			end
+		end
+	end
+
+	return total > 0 and open / total or 1
+end
+
 local function writeBodyMesh(g, ent)
 	if g.mesh then g.mesh:Destroy() end
 
@@ -401,6 +429,7 @@ local function writeBodyMesh(g, ent)
 	g.mesh = msh
 	g.minX, g.minY, g.maxX, g.maxY, g.surfaceZ = minX, minY, maxX, maxY, maxZ
 	g.center = nil
+	g.openness = bodyOpenness(g)
 end
 
 local WATER_SURFACEPROPS = { water = true, slime = true, wade = true }
@@ -584,6 +613,19 @@ local function bodySunlit(g, sun)
 	return g.sunlit
 end
 
+local AMBIENT_REFLECTANCE = 0.25
+
+local function bodyAmbient(g)
+	local now = RealTime()
+	if not g.ambientAt or now - g.ambientAt > SUN_TRACE_INTERVAL then
+		g.ambientAt = now
+		g.center = g.center or Vector((g.minX + g.maxX) * 0.5, (g.minY + g.maxY) * 0.5, g.surfaceZ + SUN_TRACE_LIFT)
+		g.ambient = render.GetLightColor(g.center) * AMBIENT_REFLECTANCE
+	end
+
+	return g.ambient
+end
+
 local IDENTITY_MATRIX = Matrix()
 
 local MATERIAL_VAR_NO_DRAW = 4
@@ -643,6 +685,20 @@ local function skyColors()
 	return fr, fg, fb, fr, fg, fb
 end
 
+local function bodySkyColors(g)
+	local hr, hg, hb, zr, zg, zb = skyColors()
+	if not g then return hr, hg, hb, zr, zg, zb end
+
+	local open = g.openness
+	if open >= 1 then return hr, hg, hb, zr, zg, zb end
+
+	local tonemap = render.GetToneMappingScaleLinear().x
+	local amb = bodyAmbient(g)
+	local ar, ag, ab = amb.x * tonemap, amb.y * tonemap, amb.z * tonemap
+
+	return Lerp(open, ar, hr), Lerp(open, ag, hg), Lerp(open, ab, hb), Lerp(open, ar, zr), Lerp(open, ag, zg), Lerp(open, ab, zb)
+end
+
 local depthWanted = true
 
 local function drawSurface(eyePos, eyeUnderwater, writeDepth)
@@ -666,14 +722,6 @@ local function drawSurface(eyePos, eyeUnderwater, writeDepth)
 	SURF_MAT:SetFloat("$c1_y", eyePos.y)
 	SURF_MAT:SetFloat("$c1_z", eyePos.z)
 
-	local hr, hg, hb, zr, zg, zb = skyColors()
-	SURF_MAT:SetFloat("$c2_x", hr)
-	SURF_MAT:SetFloat("$c2_y", hg)
-	SURF_MAT:SetFloat("$c2_z", hb)
-	SURF_MAT:SetFloat("$c0_y", zr)
-	SURF_MAT:SetFloat("$c0_z", zg)
-	SURF_MAT:SetFloat("$c0_w", zb)
-
 	local sun = sunDir()
 	SURF_MAT:SetFloat("$c3_x", sun.x)
 	SURF_MAT:SetFloat("$c3_y", sun.y)
@@ -685,6 +733,13 @@ local function drawSurface(eyePos, eyeUnderwater, writeDepth)
 		if not bodyDrawable(g, pvs) then continue end
 
 		SURF_MAT:SetTexture("$texture2", g.normalmap)
+		local hr, hg, hb, zr, zg, zb = bodySkyColors(g)
+		SURF_MAT:SetFloat("$c2_x", hr)
+		SURF_MAT:SetFloat("$c2_y", hg)
+		SURF_MAT:SetFloat("$c2_z", hb)
+		SURF_MAT:SetFloat("$c0_y", zr)
+		SURF_MAT:SetFloat("$c0_z", zg)
+		SURF_MAT:SetFloat("$c0_w", zb)
 		SURF_MAT:SetFloat("$c2_w", bodySunlit(g, sun))
 		render.SetMaterial(SURF_MAT)
 		g.mesh:Draw()
@@ -866,7 +921,7 @@ local function drawTranslucent(bDepth, bSkybox, bSkybox3D)
 	UNDER_MAT:SetFloat("$c1_z", fwd.z)
 	UNDER_MAT:SetFloat("$c1_w", CurTime() % 3600)
 
-	local _, _, _, zr, zg, zb = skyColors()
+	local _, _, _, zr, zg, zb = bodySkyColors(body)
 	UNDER_MAT:SetFloat("$c2_x", zr)
 	UNDER_MAT:SetFloat("$c2_y", zg)
 	UNDER_MAT:SetFloat("$c2_z", zb)
