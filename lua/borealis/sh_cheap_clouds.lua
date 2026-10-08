@@ -15,14 +15,12 @@ end
 
 require("skyboxer")
 
-local Tag = "buildmovingsky"
-local ms_build_skyclouds = CreateClientConVar("ms_build_skyclouds", "1", true, false, "Enable skybox moving clouds on build", 0, 1)
+local Tag = "ms_cheap_clouds"
+local ENABLED = CreateClientConVar("cl_draw_clouds", "1", true, false, "Draw cheap clouds in the skybox", 0, 1)
 
--- the outdoor level the camera is in, from sh_skylevels, or nil for indoors
--- and the dead space between levels, neither of which has a sky to draw on
 local function level()
 	if procsky and procsky.theme and procsky.theme.clouds == false then return end
-	if not ms_build_skyclouds:GetBool() then return end
+	if not ENABLED:GetBool() then return end
 
 	return skylevels and skylevels.Get()
 end
@@ -33,13 +31,6 @@ local WIND = { 0.012, 0.004 } -- noise units per second
 local NOISE_SCALE = 20000 -- world units per noise unit, S_LO in clouds_ps30
 local EYE_K = 1 / NOISE_SCALE -- parallax while moving, the same at any deck height
 local NOISE_PERIOD = 64
--- The decks sit at world heights instead of riding the camera, so climbing
--- spreads them out and passing one leaves it below.  A level's deck sits at its
--- sky, unless that sky hangs so close over the level's floor that the shader's
--- own fade would have dissolved the deck before you saw it: the fishing level
--- has barely 3000 units of air, so its deck goes above its sky instead.
--- Overcast pulls a low deck up to the sky deck, so crossing the build area's
--- sky in the rain does not jump.
 local DECK_CLEAR = 4800 -- least a deck stands over its level's floor, past FADE_H in clouds_ps30
 local SKY_DECK_Z = 14000 -- the overcast deck, and the deck outside every level
 

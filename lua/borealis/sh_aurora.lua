@@ -58,7 +58,7 @@ local function start(PIXEL_SHADER, SKY_SHADER)
 		return CreateMaterial(name .. "_" .. os.time(), "screenspace_general", kv)
 	end
 
-	local MAT = shaderMaterial("aurora_sky", PIXEL_SHADER, {
+	local MAT = shaderMaterial("ms_aurora_sky", PIXEL_SHADER, {
 		["$basetexture"] = "aurora/noise",
 		["$linearread_basetexture"] = 1,
 		["$c0_x"] = 1, ["$c0_y"] = 0,
@@ -71,7 +71,7 @@ local function start(PIXEL_SHADER, SKY_SHADER)
 		["$c3_z"] = SHARPNESS, ["$c3_w"] = 0,
 	})
 
-	local SKY_MAT = shaderMaterial("aurora_nightsky", SKY_SHADER, {
+	local SKY_MAT = shaderMaterial("ms_aurora_nightsky", SKY_SHADER, {
 		["$basetexture"] = "aurora/milkyway",
 		["$linearread_basetexture"] = 1,
 		["$c0_x"] = 1, ["$c0_y"] = 0,
@@ -239,7 +239,7 @@ local function start(PIXEL_SHADER, SKY_SHADER)
 		render_DrawScreenQuad(true)
 	end
 
-	hook.Remove("PostDraw2DSkyBox", "aurora_sky")
+	hook.Remove("PostDraw2DSkyBox", "ms_aurora_sky")
 	if skyboxer then
 		skyboxer.RemoveHook("b_aurora_nightsky")
 		skyboxer.RemoveHook("d_aurora_curtains")
@@ -250,7 +250,7 @@ local function start(PIXEL_SHADER, SKY_SHADER)
 			drawAurora()
 		end)
 	else
-		hook.Add("PostDraw2DSkyBox", "aurora_sky", function()
+		hook.Add("PostDraw2DSkyBox", "ms_aurora_sky", function()
 			if not AURORA_ENABLED:GetBool() then return end
 			drawNightSky()
 			drawAurora()
@@ -273,10 +273,10 @@ local function tryStart()
 	return true
 end
 
-hook.Remove("ShaderMounted", "aurora_sky")
+hook.Remove("ShaderMounted", "ms_aurora_sky")
 if not tryStart() and HAS_SHADER_TO_GMA and not SHADER_MOUNTED then
-	hook.Add("ShaderMounted", "aurora_sky", function()
-		hook.Remove("ShaderMounted", "aurora_sky")
+	hook.Add("ShaderMounted", "ms_aurora_sky", function()
+		hook.Remove("ShaderMounted", "ms_aurora_sky")
 
 		tryStart()
 	end)
