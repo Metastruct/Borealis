@@ -10,6 +10,8 @@ if SERVER then
 	resource.AddShader("rainsplash_ps30")
 	resource.AddShader("raindrop_vs30")
 	resource.AddShader("raindrop_ps30")
+	resource.AddShader("snow_vs30")
+	resource.AddShader("snow_ps30")
 
 	return
 end
@@ -37,10 +39,11 @@ end
 -- constant set per tile lands on the wrong tiles.  The constants are set once
 -- per frame, and each tile's position rides in its model matrix.
 
-local RAIN_ENABLED = CreateClientConVar("cl_draw_rain", "1", true, false, "draw falling rain")
+local ENABLED = CreateClientConVar("cl_draw_precipitations", "1", true, false, "draw falling rain and snow")
 local VS = "rain_vs30"
 local SPLASH_PS = "rainsplash_ps30"
 local DROP_PS, DROP_VS = "raindrop_ps30", "raindrop_vs30"
+local SNOW_PS, SNOW_VS = "snow_ps30", "snow_vs30"
 
 local TILE = 512 -- world units, the field is the 3 x 3 of these around the eye
 local DROP_TILE = 256
@@ -79,6 +82,15 @@ local SOLID = MASK_SOLID
 local WATER = MASK_WATER
 local IN_WATER = CONTENTS_WATER
 
+local SNOW_COUNT = 12
+local SNOW_REPS = 8
+local SNOW_REBUILDS = 4
+local SNOW_WRAP = 64
+local SNOW_MARGIN = 130
+local SNOW_ALPHA = 0.9
+local SNOW_LIGHT = 2.5
+local SNOW_FLOOR = 0.12
+
 local SPLASH_STEP = 2 -- ripples on a coarser grid than the cover map, one quad per block of columns
 local SPLASH_QUAD = 3 -- ripple quad size in cells: overlapping, so spots cross block borders
 local SPLASH_ALPHA = 0.5
@@ -99,7 +111,7 @@ local function packColor(r, g, b)
 	return math.floor(math.Clamp(r, 0, 1) * 255) * 65536 + math.floor(math.Clamp(g, 0, 1) * 255) * 256 + math.floor(math.Clamp(b, 0, 1) * 255)
 end
 
-local SPLASH_MAT, DROP_MAT, coverRT, splashMesh
+local SPLASH_MAT, DROP_MAT, SNOW_MAT, coverRT, splashMesh
 local build -- the cover map and the materials, once the render targets are real
 local dropChunks = {}
 
@@ -215,7 +227,8 @@ end
 -- cover map: owner[texel] = the column key written there, ground[key] = the
 -- level ground's z for the ripples, traced a few per frame from a queue
 --------------------------------------------------------------------------
-local owner, ground, queue, queued = {}, {}, {}, {}
+local owner, ground, cuts, queue, queued = {}, {}, {}, {}, {}
+local snowTiles, snowDirty = {}, {}
 local traceZ, winX, winY
 local idle = false -- the queue holds a refresh, not a window change
 local ripplesDirty, nextRipple = false, 0
@@ -236,6 +249,16 @@ local function columnFromKey(key)
 	local cx = math.floor(key / 65536)
 
 	return cx - KEY_OFFSET, key - cx * 65536 - KEY_OFFSET
+end
+
+local function markSnowDirty(cx, cy)
+	local tx0, tx1 = math.floor(cx * COLUMN / DROP_TILE), math.floor(((cx + 1) * COLUMN - 1) / DROP_TILE)
+	local ty0, ty1 = math.floor(cy * COLUMN / DROP_TILE), math.floor(((cy + 1) * COLUMN - 1) / DROP_TILE)
+	for tx = tx0, tx1 do
+		for ty = ty0, ty1 do
+			snowDirty[columnKey(tx, ty)] = true
+		end
+	end
 end
 
 -- where the rain stops in this column: the top of the world when the sky over
@@ -368,9 +391,15 @@ local function updateColumns(eye)
 			local prev = owner[texel]
 			if prev and prev ~= key then
 				ground[prev] = nil
+				cuts[prev] = nil
 			end
 
 			owner[texel] = key
+			if cuts[key] ~= cut then
+				cuts[key] = cut
+				markSnowDirty(cx, cy)
+			end
+
 			if (ground[key] or false) ~= level then
 				ground[key] = level or nil
 				ripplesDirty = true
@@ -382,6 +411,80 @@ local function updateColumns(eye)
 
 	render.SetViewPort(0, 0, COLUMNS, COLUMNS)
 	render.PopRenderTarget()
+end
+
+local function cutAt(x, y)
+	local cx, cy = math.floor(x / COLUMN), math.floor(y / COLUMN)
+	local key = columnKey(cx, cy)
+	if owner[cx % COLUMNS * COLUMNS + cy % COLUMNS] ~= key then return nil end
+
+	return cuts[key]
+end
+
+local function snowRand(tx, ty, p, k)
+	return (math.sin(tx * 12.9898 + ty * 78.233 + p * 37.719 + k * 4.581) * 43758.5453) % 1
+end
+
+local function buildSnowTile(tx, ty)
+	local m = Mesh()
+	mesh.Begin(m, MATERIAL_QUADS, SNOW_COUNT * SNOW_REPS)
+	for p = 0, SNOW_COUNT - 1 do
+		local x = (tx + snowRand(tx, ty, p, 0)) * DROP_TILE
+		local y = (ty + snowRand(tx, ty, p, 1)) * DROP_TILE
+		local cut = cutAt(x, y) or Z_MIN
+
+		for rep = 0, SNOW_REPS - 1 do
+			for corner = 0, 3 do
+				mesh.Position(x, y, cut)
+				mesh.TexCoord(0, p, rep * 4 + corner)
+				mesh.AdvanceVertex()
+			end
+		end
+	end
+
+	mesh.End()
+
+	return m
+end
+
+local function dropSnowTiles()
+	for key, m in pairs(snowTiles) do
+		m:Destroy()
+		snowTiles[key] = nil
+	end
+
+	snowDirty = {}
+end
+
+local function updateSnowTiles(eye)
+	local reach = FADE_END + SNOW_MARGIN
+	local tx0, tx1 = math.floor((eye.x - reach) / DROP_TILE), math.floor((eye.x + reach) / DROP_TILE)
+	local ty0, ty1 = math.floor((eye.y - reach) / DROP_TILE), math.floor((eye.y + reach) / DROP_TILE)
+
+	for key, m in pairs(snowTiles) do
+		local tx, ty = columnFromKey(key)
+		if tx < tx0 - 1 or tx > tx1 + 1 or ty < ty0 - 1 or ty > ty1 + 1 then
+			m:Destroy()
+			snowTiles[key] = nil
+			snowDirty[key] = nil
+		end
+	end
+
+	local budget = SNOW_REBUILDS
+	for tx = tx0, tx1 do
+		for ty = ty0, ty1 do
+			local key = columnKey(tx, ty)
+			if budget > 0 and (not snowTiles[key] or snowDirty[key]) then
+				budget = budget - 1
+				if snowTiles[key] then
+					snowTiles[key]:Destroy()
+				end
+
+				snowTiles[key] = buildSnowTile(tx, ty)
+				snowDirty[key] = nil
+			end
+		end
+	end
 end
 
 --------------------------------------------------------------------------
@@ -451,11 +554,13 @@ end
 -- drawing
 --------------------------------------------------------------------------
 local function prepare()
-	local rain = tod and tod.rain
-	if not rain or rain.amount <= 0.001 then
+	local rain, snow = tod and tod.rain, tod and tod.snow
+	local raining = rain and rain.amount > 0.001
+	local snowing = snow and snow.amount > 0.001
+	if not raining then
 		dropSplashes()
 		ripplesDirty = true
-		return
+		if not snowing then return end
 	end
 
 	if not DROP_MAT and not build() then return end
@@ -463,6 +568,12 @@ local function prepare()
 	local eye = EyePos()
 	submerged = bit.band(util.PointContents(eye), IN_WATER) ~= 0
 	updateColumns(eye)
+	if snowing then
+		updateSnowTiles(eye)
+	end
+
+	if not raining then return end
+
 	updateField(eye)
 	updateDrops()
 
@@ -491,11 +602,7 @@ local function setPlanes(fwd, right, up, vs)
 	planes[4]:Set(fwd * sv - up * cv)
 end
 
-local function tileVisible(eye, tx, ty, fz)
-	local lean = math.max(math.abs(eye.z + Z_FADE_END - fz), math.abs(eye.z - Z_FADE_END - fz)) / HALF_H
-	local rx, ry = DROP_LEAN_X * lean + DROP_SPREAD, DROP_LEAN_Y * lean + DROP_SPREAD
-	local x0, x1 = tx - rx - eye.x, tx + DROP_TILE + rx - eye.x
-	local y0, y1 = ty - ry - eye.y, ty + DROP_TILE + ry - eye.y
+local function boxVisible(x0, x1, y0, y1)
 	local nx, ny = math.max(x0, 0, -x1), math.max(y0, 0, -y1)
 	if nx * nx + ny * ny > FADE_END * FADE_END then return false end
 
@@ -516,6 +623,13 @@ local function tileVisible(eye, tx, ty, fz)
 	end
 
 	return true
+end
+
+local function tileVisible(eye, tx, ty, fz)
+	local lean = math.max(math.abs(eye.z + Z_FADE_END - fz), math.abs(eye.z - Z_FADE_END - fz)) / HALF_H
+	local rx, ry = DROP_LEAN_X * lean + DROP_SPREAD, DROP_LEAN_Y * lean + DROP_SPREAD
+
+	return boxVisible(tx - rx - eye.x, tx + DROP_TILE + rx - eye.x, ty - ry - eye.y, ty + DROP_TILE + ry - eye.y)
 end
 
 local function drawDrops(eye, time, level)
@@ -554,8 +668,47 @@ local function drawDrops(eye, time, level)
 	end
 end
 
+local snowRows = { {}, {}, {} }
+
+local function drawSnow(eye, amount)
+	local r, g, b = render.GetFogColor()
+	SNOW_MAT:SetTexture("$basetexture", coverRT)
+	SNOW_MAT:SetFloat("$c0_x", eye.x)
+	SNOW_MAT:SetFloat("$c0_y", eye.y)
+	SNOW_MAT:SetFloat("$c0_z", eye.z)
+	SNOW_MAT:SetFloat("$c1_x", SNOW_ALPHA * render.GetToneMappingScaleLinear().x)
+	SNOW_MAT:SetFloat("$c1_w", packColor(
+		math.max(r / 255 * SNOW_LIGHT, SNOW_FLOOR),
+		math.max(g / 255 * SNOW_LIGHT, SNOW_FLOOR),
+		math.max(b / 255 * SNOW_LIGHT, SNOW_FLOOR)))
+
+	local vs = render.GetViewSetup()
+	local ang = EyeAngles()
+	local fwd, right, up = ang:Forward(), ang:Right(), ang:Up()
+	local rows = snowRows
+	rows[1][1], rows[1][2], rows[1][3] = CurTime() % SNOW_WRAP, math.ceil(SNOW_COUNT * amount), 2 * math.tan(math.rad(vs.fov) * 0.5) / vs.width
+	rows[2][1], rows[2][2], rows[2][3] = right.x, right.y, right.z
+	rows[3][1], rows[3][2], rows[3][3] = up.x, up.y, up.z
+	setVertexConstants(rows)
+	setPlanes(fwd, right, up, vs)
+
+	render.SetMaterial(SNOW_MAT)
+	for key, m in pairs(snowTiles) do
+		local tx, ty = columnFromKey(key)
+		tx, ty = tx * DROP_TILE, ty * DROP_TILE
+		if boxVisible(tx - SNOW_MARGIN - eye.x, tx + DROP_TILE + SNOW_MARGIN - eye.x, ty - SNOW_MARGIN - eye.y, ty + DROP_TILE + SNOW_MARGIN - eye.y) then
+			m:Draw()
+		end
+	end
+end
+
 local function draw(bDepth, _, b3DSky)
 	if bDepth or b3DSky or submerged or render.GetRenderTarget() then return end
+	local snow = tod and tod.snow
+	if snow and snow.amount > 0.001 and SNOW_MAT then
+		drawSnow(EyePos(), snow.amount)
+	end
+
 	local rain = tod and tod.rain
 	if not rain then return end
 
@@ -597,8 +750,8 @@ local function draw(bDepth, _, b3DSky)
 end
 
 local function stop()
-	hook.Remove("PreRender", "ms_rain")
-	hook.Remove("PostDrawTranslucentRenderables", "ms_rain")
+	hook.Remove("PreRender", "ms_precipitations")
+	hook.Remove("PostDrawTranslucentRenderables", "ms_precipitations")
 	dropSplashes()
 	for i = #dropChunks, 1, -1 do
 		dropChunks[i].mesh:Destroy()
@@ -608,6 +761,8 @@ local function stop()
 	if IsValid(cubeModel) then
 		cubeModel:Remove()
 	end
+
+	dropSnowTiles()
 end
 
 -- a new material every start: a kept one from an older version of this file
@@ -662,26 +817,29 @@ function build()
 	render.PushRenderTarget(coverRT)
 	render.Clear(0, 0, 0, 255)
 	render.PopRenderTarget()
-	owner, ground, queue, queued = {}, {}, {}, {}
+	owner, ground, cuts, queue, queued = {}, {}, {}, {}, {}
+	dropSnowTiles()
 	traceZ, winX, winY, fieldZ = nil, nil, nil, nil
 	DROP_MAT = material("ms_raindrop", DROP_PS, DROP_VS)
 	DROP_MAT:SetTexture("$basetexture", coverRT)
 	SPLASH_MAT = material("ms_rainsplash", SPLASH_PS)
 	SPLASH_MAT:SetFloat("$c1_y", SPLASH_FADE_START)
 	SPLASH_MAT:SetFloat("$c1_z", SPLASH_FADE_END)
+	SNOW_MAT = material("ms_snow", SNOW_PS, SNOW_VS)
+	SNOW_MAT:SetTexture("$basetexture", coverRT)
 
 	return true
 end
 
 local function start()
 	stop()
-	SPLASH_MAT, DROP_MAT = nil, nil
-	hook.Add("PreRender", "ms_rain", prepare)
-	hook.Add("PostDrawTranslucentRenderables", "ms_rain", draw)
+	SPLASH_MAT, DROP_MAT, SNOW_MAT = nil, nil, nil
+	hook.Add("PreRender", "ms_precipitations", prepare)
+	hook.Add("PostDrawTranslucentRenderables", "ms_precipitations", draw)
 end
 
 local function shadersAvailable()
-	for _, name in ipairs({ VS, SPLASH_PS, DROP_PS, DROP_VS }) do
+	for _, name in ipairs({ VS, SPLASH_PS, DROP_PS, DROP_VS, SNOW_PS, SNOW_VS }) do
 		if not file.Exists("shaders/fxc/" .. name .. ".vcs", "GAME") then return false end
 	end
 
@@ -689,7 +847,7 @@ local function shadersAvailable()
 end
 
 local function apply()
-	if not RAIN_ENABLED:GetBool() then
+	if not ENABLED:GetBool() then
 		stop()
 		return
 	end
@@ -697,16 +855,16 @@ local function apply()
 	if shadersAvailable() then
 		start()
 	elseif HAS_SHADER_TO_GMA and not SHADER_MOUNTED then
-		hook.Add("ShaderMounted", "ms_rain", function()
-			hook.Remove("ShaderMounted", "ms_rain")
-			if RAIN_ENABLED:GetBool() and shadersAvailable() then
+		hook.Add("ShaderMounted", "ms_precipitations", function()
+			hook.Remove("ShaderMounted", "ms_precipitations")
+			if ENABLED:GetBool() and shadersAvailable() then
 				start()
 			end
 		end)
 	end
 end
 
-cvars.RemoveChangeCallback("cl_draw_rain", "ms_rain")
-cvars.AddChangeCallback("cl_draw_rain", apply, "ms_rain")
-hook.Remove("ShaderMounted", "ms_rain")
+cvars.RemoveChangeCallback("cl_draw_precipitations", "ms_precipitations")
+cvars.AddChangeCallback("cl_draw_precipitations", apply, "ms_precipitations")
+hook.Remove("ShaderMounted", "ms_precipitations")
 apply()

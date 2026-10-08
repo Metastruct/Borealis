@@ -2,7 +2,7 @@ local TAG = "ms_shaderpack_bench"
 local SETTLE, MEASURE = 20, 30
 local VIEWS = { { "horizon", 0 }, { "up", -30 } }
 local GENERAL = { "cl_draw_procsky", "cl_draw_clouds", "cl_draw_skyterrain", "cl_draw_sunshafts", "cl_draw_water", "cl_draw_grass", "cl_draw_vclouds" }
-local RAIN = { "cl_draw_rain", "cl_draw_fog" }
+local RAIN = { "cl_draw_precipitations", "cl_draw_fog" }
 local NIGHT = { "cl_draw_auroras" }
 
 local running
