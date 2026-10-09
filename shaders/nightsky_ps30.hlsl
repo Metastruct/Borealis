@@ -1,3 +1,5 @@
+#include "include/common.hlsl"
+
 const float4 Constants0 : register(c0);
 const float4 Constants1 : register(c1);
 const float4 Constants2 : register(c2);
@@ -64,16 +66,6 @@ float3 starLayer(float3 dir, float cells, float density)
 	tint = lerp(float3(1.0, 1.0, 1.0), tint, 0.6);
 
 	return tint * (core * (0.25 + 1.75 * mag) + halo) * tw;
-}
-
-float3 unpackColor(float v)
-{
-	float r = floor(v / 65536.0);
-	v -= r * 65536.0;
-	float g = floor(v / 256.0);
-	float b = v - g * 256.0;
-
-	return float3(r, g, b) / 255.0;
 }
 
 float4 main(PS_IN i) : COLOR

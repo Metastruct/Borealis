@@ -1,3 +1,6 @@
+#include "include/common.hlsl"
+#include "include/slices.hlsl"
+
 const float4 Constants0 : register(c0);
 const float4 Constants1 : register(c1);
 const float4 Constants2 : register(c2);
@@ -22,9 +25,6 @@ sampler3D Detail : register(s3);
 #define THICK 3500.0
 #define DENSITY 0.0025
 
-#define DEPTH_SCALE 4000.0
-
-#define SKY_EPS 0.0005
 #define MAX_RANGE 40000.0
 #define FADE_RANGE 24000.0
 
@@ -48,11 +48,6 @@ sampler3D Detail : register(s3);
 #define ERODE 0.45
 #define LOG_RANGE 12.0
 
-#define SLICES 32.0
-#define SLICE_NEAR 16.0
-#define SLICE_RATIO 1.2219785 // (8000 / 16) ^ (1 / 31)
-#define SLICE_SLACK 1.02
-#define SLICE_EXACT 64.0
 #define SKIP_ALPHA (254.5 / 255.0)
 
 struct PS_IN
@@ -67,16 +62,6 @@ float decodeScale(float v)
 	return exp2((v * 2.0 - 1.0) * LOG_RANGE);
 }
 
-float3 unpackColor(float v)
-{
-	float r = floor(v / 65536.0);
-	v -= r * 65536.0;
-	float g = floor(v / 256.0);
-	float b = v - g * 256.0;
-
-	return float3(r, g, b) / 255.0;
-}
-
 float3 unpackFog(float v)
 {
 	float start = floor(v / 65536.0);
@@ -84,11 +69,6 @@ float3 unpackFog(float v)
 	float range = floor(v / 256.0);
 
 	return float3(start * 64.0, max(range * 128.0, 1.0), (v - range * 256.0) / 255.0);
-}
-
-float remap(float v, float a, float b, float c, float d)
-{
-	return c + (v - a) * (d - c) / (b - a);
 }
 
 float heightFraction(float3 p)
@@ -162,29 +142,12 @@ float4 main(PS_IN i) : COLOR
 
 	float raw = tex2Dlod(Depth, float4(uv, 0.0, 0.0)).r;
 	float d = raw * DEPTH_SCALE;
-	if (raw <= 0.0 || abs(raw - 1.0) < SKY_EPS)
+	if (IsSkyDepth(raw))
 	{
 		d = MAX_RANGE * 4.0;
 	}
 
-	float code = frame.a * 255.0;
-	float ks = floor(code + 0.5) - 1.0;
-	if (code > SLICE_EXACT - 0.5)
-	{
-		if (d > SLICE_NEAR * pow(SLICE_RATIO, code - SLICE_EXACT + 1.0))
-		{
-			d = SLICE_NEAR * pow(SLICE_RATIO, code - SLICE_EXACT);
-		}
-	}
-	else
-	{
-		float samples = max(floor(i.color.b * 255.0 + 0.5), 1.0);
-		d = max(d, SLICE_NEAR * pow(SLICE_RATIO, SLICES - 1.0 - samples * (SLICES - code)) / SLICE_SLACK);
-		if (ks >= 0.0 && ks < SLICES - 1.0 && d > SLICE_NEAR * pow(SLICE_RATIO, ks + 1.0) * SLICE_SLACK)
-		{
-			d = SLICE_NEAR * pow(SLICE_RATIO, ks + 0.5);
-		}
-	}
+	d = SliceDepth(d, frame.a * 255.0, max(floor(i.color.b * 255.0 + 0.5), 1.0));
 
 	float3 ray = normalize(i.wpos - EYE);
 	float cosF = max(dot(ray, FWD), 0.05);
@@ -192,6 +155,7 @@ float4 main(PS_IN i) : COLOR
 
 	if (i.color.b > 0.75)
 	{
+		float ks = floor(frame.a * 255.0 + 0.5) - 1.0;
 		if (ks < 0.0) return float4(1.0, 0.0, 0.0, 1.0);
 		if (ks >= SLICES - 1.0) return float4(0.0, 0.0, 1.0, 1.0);
 

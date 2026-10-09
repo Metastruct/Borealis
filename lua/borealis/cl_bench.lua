@@ -1,9 +1,10 @@
 local TAG = "ms_shaderpack_bench"
 local SETTLE, MEASURE = 20, 30
 local VIEWS = { { "horizon", 0 }, { "up", -30 } }
-local GENERAL = { "cl_draw_procsky", "cl_draw_clouds", "cl_draw_skyterrain", "cl_draw_sunshafts", "cl_draw_water", "cl_draw_grass", "cl_draw_vclouds" }
+local GENERAL = { "cl_draw_procsky", "cl_draw_clouds", "cl_draw_skyterrain", "cl_draw_sunshafts", "cl_draw_water", "cl_draw_grass", "cl_draw_seagrass", "cl_draw_kelp", "cl_draw_vclouds" }
 local RAIN = { "cl_draw_precipitations", "cl_draw_fog" }
 local NIGHT = { "cl_draw_auroras" }
+local PAUSED = { cl_draw_grass = "grass", cl_draw_seagrass = "seagrass", cl_draw_kelp = "kelp" }
 
 local running
 
@@ -155,9 +156,15 @@ local function start()
 
 	local function setCvars(off)
 		for name, value in pairs(original) do
-			local want = name == off and "0" or value
+			local want = name == off and not PAUSED[name] and "0" or value
 			if GetConVar(name):GetString() ~= want then
 				RunConsoleCommand(name, want)
+			end
+		end
+
+		if foliage and foliage.SetPaused then
+			for cvar, layer in pairs(PAUSED) do
+				foliage.SetPaused(layer, cvar == off)
 			end
 		end
 	end
@@ -244,7 +251,7 @@ local function start()
 				local c = conds[b.cond]
 				c.sun = procsky and procsky.GetLights and select(3, procsky.GetLights()) or 0
 				c.rain = tod and tod.rain and tod.rain.amount or 0
-				c.overcast = procsky and procsky.GetOvercast and procsky.GetOvercast() or 0
+				c.overcast = shaderpack.Overcast()
 			end
 		end
 

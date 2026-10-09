@@ -1,13 +1,7 @@
-local HAS_SHADER_TO_GMA = file.Exists("includes/modules/shader_to_gma.lua", "LUA")
-if HAS_SHADER_TO_GMA then
-	require("shader_to_gma")
-end
+local MARK_PS, MARK_VS = "depthmark_ps30", "fog_vs30"
 
 if SERVER then
-	if not resource.AddShader then return end
-
-	resource.AddShader("fog_vs30")
-	resource.AddShader("depthmark_ps30")
+	shaderpack.AddResources({ MARK_VS, MARK_PS })
 
 	return
 end
@@ -19,7 +13,6 @@ local NEAR = 16
 local FAR = 8000
 local QUAD_NEAR = 12 -- the clearing quad sits this far in front of the eye
 local OVERSIZE = 6 -- quads are sized past the frustum
-local MARK_PS, MARK_VS = "depthmark_ps30", "fog_vs30"
 local MARK_BIAS = 0.002
 local CLAMP = 4 + 8
 
@@ -59,10 +52,9 @@ local function quadNear(vs)
 end
 
 local function viewFan()
-	local vs = render.GetViewSetup()
-	local halfW = math.tan(math.rad(vs.fov) * 0.5)
+	local halfW, halfH, vs = shaderpack.ViewTan()
 
-	return EyePos(), EyeAngles():Forward(), halfW, halfW / vs.aspect, vs
+	return EyePos(), EyeAngles():Forward(), halfW, halfH, vs
 end
 
 local function fillAlpha(col)
@@ -145,6 +137,31 @@ function depthslices.KeepAlpha(draw)
 	render.OverrideAlphaWriteEnable(false, false)
 end
 
+-- The render targets do not exist yet while the map loads, and asking for one
+-- then hands back a 32 x 32 error texture that answers IsError with false.
+-- Bound as the depth, it reads as garbage.  They are rebound every frame: the
+-- targets are recreated across a map change and a material built before they
+-- existed holds the error texture forever.
+function depthslices.Composite(mat, color)
+	local depth, fb = render.GetResolvedFullFrameDepth(), render.GetScreenEffectTexture()
+	if not shaderpack.UsableRT(depth) or not shaderpack.UsableRT(fb) then return false end
+
+	depthslices.Capture()
+	render.UpdateScreenEffectTexture()
+	mat:SetTexture("$texture1", depth)
+	mat:SetTexture("$basetexture", fb)
+
+	local eye, fwd, halfW, halfH, vs = viewFan()
+	depthslices.KeepAlpha(function()
+		render.OverrideDepthEnable(true, false)
+		render.SetMaterial(mat)
+		quad(eye, fwd, halfW, halfH, quadNear(vs), color)
+		render.OverrideDepthEnable(false, false)
+	end)
+
+	return true
+end
+
 --------------------------------------------------------------------------
 -- the ordered composite pass
 --------------------------------------------------------------------------
@@ -153,10 +170,10 @@ local function byOrder(a, b)
 end
 
 -- order is a distance: the farther volume takes the lower number
-function depthslices.AddEffect(name, order, draw, refog)
+function depthslices.AddEffect(name, order, draw, refog, needsDepth)
 	depthslices.RemoveEffect(name)
 	local t = depthslices.effects
-	t[#t + 1] = { name = name, order = order, draw = draw, refog = refog }
+	t[#t + 1] = { name = name, order = order, draw = draw, refog = refog, needsDepth = needsDepth }
 	table.sort(t, byOrder)
 end
 
@@ -169,9 +186,7 @@ function depthslices.RemoveEffect(name)
 	end
 end
 
-local function usableRT(t, w, h)
-	return t ~= nil and not t:IsError() and t:Width() == w and t:Height() == h
-end
+local usableRT = shaderpack.UsableRT
 
 local function markReady()
 	local w, h = ScrW(), ScrH()
@@ -179,27 +194,22 @@ local function markReady()
 	if RealTime() < markRetry then return false end
 	markRetry = RealTime() + 5
 
-	if not file.Exists("shaders/fxc/" .. MARK_PS .. ".vcs", "GAME") or not file.Exists("shaders/fxc/" .. MARK_VS .. ".vcs", "GAME") then return false end
+	if not shaderpack.Available({ MARK_PS, MARK_VS }) then return false end
 
 	local codes = GetRenderTargetEx("ms_depthslices_codes_" .. w .. "x" .. h, w, h, RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE, CLAMP, 0, IMAGE_FORMAT_RGBA8888)
 	if not usableRT(codes, w, h) then return false end
 
 	CODES = codes
-	MARK = CreateMaterial("ms_depthslices_mark_" .. w .. "x" .. h .. "_" .. os.time(), "screenspace_general", {
+	MARK = CreateShaderMaterial("ms_depthslices_mark_" .. w .. "x" .. h .. "_" .. os.time(), {
 		["$pixshader"] = MARK_PS,
 		["$vertexshader"] = MARK_VS,
 		["$basetexture"] = codes:GetName(),
-		["$texture1"] = "",
-		["$texture2"] = "",
-		["$linearread_basetexture"] = 1,
 		["$linearread_texture1"] = 1,
 		["$linearread_texture2"] = 1,
 		["$linearwrite"] = 0,
 		["$ignorez"] = 0,
-		["$vertexcolor"] = 1,
-		["$vertextransform"] = 1,
+		["$alpha_blend"] = 0,
 		["$nocull"] = 1,
-		["<dx90"] = { ["$no_draw"] = 1 },
 		["$c0_x"] = 3, ["$c0_y"] = 30000, ["$c0_z"] = MARK_BIAS, ["$c0_w"] = 0,
 	})
 
@@ -212,9 +222,7 @@ local function refog()
 	MARK:SetTexture("$texture2", render.GetScreenEffectTexture())
 	MARK:SetTexture("$basetexture", CODES)
 	MARK:SetTexture("$texture1", render.GetResolvedFullFrameDepth())
-	MARK:SetFloat("$c0_x", vs.znear)
-	MARK:SetFloat("$c0_y", vs.zfar)
-	MARK:SetFloat("$c0_w", depthslices.Samples())
+	shaderpack.SetConstant(MARK, "$c0", vs.znear, vs.zfar, nil, depthslices.Samples())
 
 	capturedFrame = -1
 	depthslices.Capture()
@@ -252,6 +260,17 @@ local function refog()
 	fillAlpha(ALPHA1)
 	render.SetStencilEnable(false)
 end
+
+-- NeedsDepthPass takes the FIRST non-nil return of all its hooks, so
+-- returning false here would cancel another consumer's true and leave the
+-- depth buffer stale.  Ask when it is needed, stay silent otherwise.
+hook.Add("NeedsDepthPass", "ms_depthslices", function()
+	local t = depthslices.effects
+	for i = 1, #t do
+		local needsDepth = t[i].needsDepth
+		if needsDepth and needsDepth() then return true end
+	end
+end)
 
 hook.Add("PreDrawTranslucentRenderables", "ms_depthslices_effects", function(bDepth, bSkybox, b3DSky)
 	if bDepth or bSkybox or b3DSky or render.GetRenderTarget() then return end

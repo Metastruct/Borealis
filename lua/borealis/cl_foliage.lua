@@ -1,4 +1,5 @@
 foliage = foliage or {}
+foliage.layers = foliage.layers or {}
 
 local CHUNK = 512 -- world units per chunk
 local BUILD_BUDGET_MS = 3 -- generation work per frame
@@ -10,11 +11,48 @@ local FILL_K = 0.5 -- ambient cube share added as fill light, not scaled by tod'
 local Layer = {}
 Layer.__index = Layer
 
-function foliage.PackColor(r, g, b)
-	return math.floor(math.Clamp(r, 0, 1) * 255) * 65536 + math.floor(math.Clamp(g, 0, 1) * 255) * 256 + math.floor(math.Clamp(b, 0, 1) * 255)
+local packColor, setConstant = shaderpack.PackColor, shaderpack.SetConstant
+
+local function lattice(ix, iy)
+	local h = (ix * 73856093 + iy * 19349663) % 2147483648
+	h = (h * 1103515245 + 12345) % 2147483648
+	h = (h * 1103515245 + 12345) % 2147483648
+
+	return h / 2147483648
 end
 
-local packColor = foliage.PackColor
+function foliage.ValueNoise(x, y, cell)
+	local fx, fy = x / cell, y / cell
+	local ix, iy = math.floor(fx), math.floor(fy)
+	local tx, ty = fx - ix, fy - iy
+	tx, ty = tx * tx * (3 - 2 * tx), ty * ty * (3 - 2 * ty)
+	local a, b = lattice(ix, iy), lattice(ix + 1, iy)
+	local c, d = lattice(ix, iy + 1), lattice(ix + 1, iy + 1)
+	local top = a + (b - a) * tx
+
+	return top + (c + (d - c) * tx - top) * ty
+end
+
+function foliage.Smoothstep(e0, e1, v)
+	local t = math.Clamp((v - e0) / (e1 - e0), 0, 1)
+
+	return t * t * (3 - 2 * t)
+end
+
+function foliage.SurfaceClassifier(kinds)
+	return function(name)
+		local mat = Material(name)
+		local sp = (mat:GetString("$surfaceprop") or ""):lower()
+		local sp2 = (mat:GetString("$surfaceprop2") or ""):lower()
+		if kinds[sp] and (sp2 == "" or kinds[sp2]) then
+			return 1
+		elseif kinds[sp] then
+			return 2
+		elseif kinds[sp2] then
+			return 3
+		end
+	end
+end
 
 -- tod rescales the lightmaps at runtime through the named light_environment's
 -- light style; ComputeLighting returns the unscaled lightmap, so the current
@@ -25,28 +63,6 @@ local function worldLightScale()
 	if not isnumber(code) then return 1 end
 
 	return (code - 97) * 22 / 256
-end
-
-local cubeModel
-function foliage.SetVertexConstants(rows)
-	if not IsValid(cubeModel) then
-		cubeModel = ClientsideModel("models/shadertest/vertexlit.mdl")
-		cubeModel:SetNoDraw(true)
-		cubeModel:SetModelScale(0)
-	end
-
-	render.SuppressEngineLighting(true)
-	for i = 0, 5 do
-		local r = rows[i + 1]
-		if r then
-			render.SetModelLighting(i, r[1], r[2], r[3])
-		else
-			render.SetModelLighting(i, 0, 0, 0)
-		end
-	end
-
-	cubeModel:DrawModel()
-	render.SuppressEngineLighting(false)
 end
 
 local function chunkKey(cx, cy)
@@ -361,6 +377,7 @@ function Layer:load()
 end
 
 function Layer:think()
+	if self.paused then return end
 	local t0 = SysTime()
 	if not self.ready then
 		local ok, res, why = coroutine.resume(self.loader)
@@ -418,17 +435,14 @@ local function sightBlocked(x, y, z)
 end
 
 function Layer:draw(sky3d)
-	if not self.ready or sky3d or render.GetRenderTarget() then return end
+	if self.paused or not self.ready or sky3d or render.GetRenderTarget() then return end
 	local MAT, DEPTH_MAT = self.mat, self.depthMat
 	local eye = EyePos()
 	local fwd = EyeVector()
 	local amb = render.GetAmbientLightColor()
 	local time = CurTime() * (self.cfg.timeScale or 1) % (self.cfg.timeWrap or 1000)
 
-	MAT:SetFloat("$c0_x", eye.x)
-	MAT:SetFloat("$c0_y", eye.y)
-	MAT:SetFloat("$c0_z", eye.z)
-	MAT:SetFloat("$c0_w", time)
+	setConstant(MAT, "$c0", eye.x, eye.y, eye.z, time)
 	MAT:SetFloat("$c1_y", packColor(amb.x * FILL_K, amb.y * FILL_K, amb.z * FILL_K))
 	MAT:SetFloat("$c2_x", worldLightScale())
 	if self.cfg.frame then self.cfg.frame(MAT, DEPTH_MAT) end
@@ -534,13 +548,8 @@ function Layer:draw(sky3d)
 	render.OverrideDepthEnable(false, false)
 
 	if DEPTH_MAT and shown > 0 and depthslices and depthslices.BeginDepthWrite() then
-		DEPTH_MAT:SetFloat("$c0_x", eye.x)
-		DEPTH_MAT:SetFloat("$c0_y", eye.y)
-		DEPTH_MAT:SetFloat("$c0_z", eye.z)
-		DEPTH_MAT:SetFloat("$c0_w", time)
-		DEPTH_MAT:SetFloat("$c2_x", fwd.x)
-		DEPTH_MAT:SetFloat("$c2_y", fwd.y)
-		DEPTH_MAT:SetFloat("$c2_z", fwd.z)
+		setConstant(DEPTH_MAT, "$c0", eye.x, eye.y, eye.z, time)
+		setConstant(DEPTH_MAT, "$c2", fwd.x, fwd.y, fwd.z)
 		render.SetMaterial(DEPTH_MAT)
 		for i = 1, shown do
 			drawn[i]:Draw()
@@ -595,19 +604,15 @@ end
 function Layer:Start()
 	self:Stop()
 	local cfg = self.cfg
-	self.mat = self.mat or CreateMaterial("ms_" .. cfg.name .. "_" .. os.time(), "screenspace_general", {
+	self.mat = self.mat or CreateShaderMaterial("ms_" .. cfg.name .. "_" .. os.time(), {
 		["$pixshader"] = cfg.pixelShader,
 		["$vertexshader"] = cfg.vertexShader,
-		["$basetexture"] = "",
 		["$ignorez"] = 0,
 		["$depthtest"] = 1,
-		["$vertexcolor"] = 1,
-		["$vertextransform"] = 1,
 		["$additive"] = 0,
 		["$alpha_blend"] = 0,
 		["$linearwrite"] = 0, -- sRGB write like the world shaders, the baked light is linear
 		["$nocull"] = 1,
-		["<dx90"] = { ["$no_draw"] = 1 },
 		["$c0_x"] = 0, ["$c0_y"] = 0, ["$c0_z"] = 0, ["$c0_w"] = 0,
 		["$c1_x"] = 0, ["$c1_y"] = 0, ["$c1_z"] = 0, ["$c1_w"] = 0,
 		["$c2_x"] = 1, ["$c2_y"] = 0, ["$c2_z"] = 0, ["$c2_w"] = 1,
@@ -615,17 +620,11 @@ function Layer:Start()
 	})
 
 	if not self.depthMat and file.Exists("shaders/fxc/" .. cfg.depthShader .. ".vcs", "GAME") then
-		self.depthMat = CreateMaterial("ms_" .. cfg.name .. "depth_" .. os.time(), "screenspace_general", {
+		self.depthMat = CreateShaderMaterial("ms_" .. cfg.name .. "depth_" .. os.time(), {
 			["$pixshader"] = cfg.depthShader,
 			["$vertexshader"] = cfg.vertexShader,
-			["$basetexture"] = "",
-			["$ignorez"] = 1,
-			["$vertexcolor"] = 1,
-			["$vertextransform"] = 1,
 			["$alpha_blend"] = 0,
-			["$linearwrite"] = 1,
 			["$nocull"] = 1,
-			["<dx90"] = { ["$no_draw"] = 1 },
 			["$c0_x"] = 0, ["$c0_y"] = 0, ["$c0_z"] = 0, ["$c0_w"] = 0,
 			["$c1_x"] = 0, ["$c1_y"] = 0, ["$c1_z"] = 0, ["$c1_w"] = 0,
 			["$c2_x"] = 0, ["$c2_y"] = 0, ["$c2_z"] = 0, ["$c2_w"] = 0,
@@ -645,9 +644,19 @@ function Layer:Start()
 end
 
 function foliage.Layer(cfg)
-	return setmetatable({
-		cfg = cfg, height = 1, radius = 3072, lastThinkMs = 0, ready = false,
+	local layer = setmetatable({
+		cfg = cfg, height = 1, radius = 3072, lastThinkMs = 0, ready = false, paused = false,
 		visible = {}, drawn = {}, queueDirty = false, queueEye = Vector(),
 		sightEpoch = 0, sightEye = Vector(), sightNext = 0, evictNext = 0,
 	}, Layer)
+	foliage.layers[cfg.name] = layer
+
+	return layer
+end
+
+function foliage.SetPaused(name, paused)
+	local layer = foliage.layers[name]
+	if layer then
+		layer.paused = paused
+	end
 end

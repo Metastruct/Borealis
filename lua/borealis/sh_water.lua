@@ -1,18 +1,5 @@
-local HAS_SHADER_TO_GMA = file.Exists("includes/modules/shader_to_gma.lua", "LUA")
-if HAS_SHADER_TO_GMA then
-	require("shader_to_gma")
-end
-
 if SERVER then
-	if not resource.AddShader then return end
-
-	resource.AddShader("water_vs30")
-	resource.AddShader("water_ps30")
-	resource.AddShader("underwater_ps30")
-	resource.AddShader("water_skyfill_ps30")
-	resource.AddShader("water_sun_ps30")
-	resource.AddShader("waterdepth_ps30")
-	resource.AddFile("materials/procsky/fognoise.vtf")
+	shaderpack.AddResources({ "water_vs30", "water_ps30", "underwater_ps30", "water_skyfill_ps30", "water_sun_ps30", "waterdepth_ps30" }, { "materials/procsky/fognoise.vtf" })
 
 	return
 end
@@ -246,46 +233,6 @@ local function prepareWaterBodyMaterials(matNames)
 	return fogEnd
 end
 
-local SHADER_MAT_KVS = [==[
-	screenspace_general
-	{
-		$pixshader ""
-		$vertexshader ""
-
-		$basetexture ""
-		$texture1    ""
-		$texture2    ""
-		$texture3    ""
-
-		// Mandatory, don't touch
-		$ignorez            1
-		$vertexcolor        1
-		$vertextransform    1
-		"<dx90"
-		{
-			$no_draw 1
-		}
-
-		$copyalpha                 0
-		$alpha_blend_color_overlay 0
-		$alpha_blend               1
-		$linearwrite               1
-		$linearread_basetexture    1
-	}
-]==]
-
-local function createShaderMaterial(name, opts)
-	local keyValues = util.KeyValuesToTable(SHADER_MAT_KVS, false, true)
-
-	if opts then
-		for k, v in pairs(opts) do
-			keyValues[k] = v
-		end
-	end
-
-	return CreateMaterial(name, "screenspace_general", keyValues)
-end
-
 local SURF_MAT, DEPTH_MAT
 local meshes = {}
 local visibleClusters = function() end
@@ -429,7 +376,7 @@ local function initialize()
 	materialSerial = materialSerial + 1
 	local suffix = os.time() .. "_" .. materialSerial
 	local px, vs = "water_ps30", "water_vs30"
-	UNDER_MAT = createShaderMaterial("water_underwater_" .. suffix, {
+	UNDER_MAT = CreateShaderMaterial("water_underwater_" .. suffix, {
 		["$pixshader"] = "underwater_ps30",
 		["$vertexshader"] = vs,
 		["$alpha_blend"] = 0,
@@ -443,14 +390,14 @@ local function initialize()
 		["$c3_x"] = 0, ["$c3_y"] = 0, ["$c3_z"] = 0, ["$c3_w"] = 0,
 	})
 
-	SKY_MAT = createShaderMaterial("water_skyfill_" .. suffix, {
+	SKY_MAT = CreateShaderMaterial("water_skyfill_" .. suffix, {
 		["$pixshader"] = "water_skyfill_ps30",
 		["$vertexshader"] = vs,
 		["$alpha_blend"] = 0,
 		["$ignorez"] = 0,
 	})
 
-	SUN_MAT = createShaderMaterial("water_sun_" .. suffix, {
+	SUN_MAT = CreateShaderMaterial("water_sun_" .. suffix, {
 		["$pixshader"] = "water_sun_ps30",
 		["$vertexshader"] = vs,
 		["$texture1"] = "procsky/fognoise",
@@ -463,7 +410,7 @@ local function initialize()
 		["$c2_x"] = 1, ["$c2_y"] = 0, ["$c2_z"] = 0, ["$c2_w"] = 0,
 	})
 
-	SURF_MAT = createShaderMaterial("water_surface_" .. suffix, {
+	SURF_MAT = CreateShaderMaterial("water_surface_" .. suffix, {
 		["$pixshader"] = px,
 		["$vertexshader"] = vs,
 		["$alpha_blend"] = 0,
@@ -478,7 +425,7 @@ local function initialize()
 		["$c3_x"] = 0, ["$c3_y"] = 0, ["$c3_z"] = 0, ["$c3_w"] = 0,
 	})
 
-	DEPTH_MAT = file.Exists("shaders/fxc/waterdepth_ps30.vcs", "GAME") and createShaderMaterial("water_depth_" .. suffix, {
+	DEPTH_MAT = file.Exists("shaders/fxc/waterdepth_ps30.vcs", "GAME") and CreateShaderMaterial("water_depth_" .. suffix, {
 		["$pixshader"] = "waterdepth_ps30",
 		["$vertexshader"] = vs,
 		["$alpha_blend"] = 0,
@@ -487,20 +434,7 @@ local function initialize()
 	buildMeshes()
 end
 
-local function toLinear(c)
-	c = c / 255
-	return c <= 0.04045 and c / 12.92 or ((c + 0.055) / 1.055) ^ 2.4
-end
-
-local function sunDir()
-	if procsky and procsky.GetLights then
-		return procsky.GetLights()
-	elseif tod and tod.CurrentParams and isangle(tod.CurrentParams.sun_angles) then
-		return -tod.CurrentParams.sun_angles:Forward()
-	end
-
-	return Vector(0, 0, 1)
-end
+local toLinear, sunDir, setConstant = shaderpack.ToLinear, shaderpack.SunDir, shaderpack.SetConstant
 
 local SUN_TRACE_LENGTH = 32768
 local SUN_TRACE_LIFT = 4
@@ -635,15 +569,10 @@ local function drawSurface(eyePos, eyeUnderwater, writeDepth)
 	SURF_MAT:SetTexture("$basetexture", render.GetScreenEffectTexture())
 	SURF_MAT:SetTexture("$texture1", render.GetResolvedFullFrameDepth())
 	SURF_MAT:SetFloat("$c0_x", CurTime() % 3600)
-
-	SURF_MAT:SetFloat("$c1_x", eyePos.x)
-	SURF_MAT:SetFloat("$c1_y", eyePos.y)
-	SURF_MAT:SetFloat("$c1_z", eyePos.z)
+	setConstant(SURF_MAT, "$c1", eyePos.x, eyePos.y, eyePos.z)
 
 	local sun = sunDir()
-	SURF_MAT:SetFloat("$c3_x", sun.x)
-	SURF_MAT:SetFloat("$c3_y", sun.y)
-	SURF_MAT:SetFloat("$c3_z", sun.z)
+	setConstant(SURF_MAT, "$c3", sun.x, sun.y, sun.z)
 
 	render.OverrideDepthEnable(true, writeDepth)
 	cam.PushModelMatrix(IDENTITY_MATRIX, false)
@@ -652,13 +581,8 @@ local function drawSurface(eyePos, eyeUnderwater, writeDepth)
 
 		SURF_MAT:SetTexture("$texture2", g.normalmap)
 		local hr, hg, hb, zr, zg, zb = bodySkyColors(g)
-		SURF_MAT:SetFloat("$c2_x", hr)
-		SURF_MAT:SetFloat("$c2_y", hg)
-		SURF_MAT:SetFloat("$c2_z", hb)
-		SURF_MAT:SetFloat("$c0_y", zr)
-		SURF_MAT:SetFloat("$c0_z", zg)
-		SURF_MAT:SetFloat("$c0_w", zb)
-		SURF_MAT:SetFloat("$c2_w", bodySunlit(g, sun))
+		setConstant(SURF_MAT, "$c2", hr, hg, hb, bodySunlit(g, sun))
+		setConstant(SURF_MAT, "$c0", nil, zr, zg, zb)
 		render.SetMaterial(SURF_MAT)
 		g.mesh:Draw()
 	end
@@ -682,25 +606,19 @@ local QUAD_COLOR = Color(255, 255, 255, 255)
 
 local function drawScreenQuad(mat, eyePos, distance)
 	local fwd = EyeAngles():Forward()
-	local vs = render.GetViewSetup()
+	local halfW, halfH, vs = shaderpack.ViewTan()
 	distance = distance or math.max(QUAD_NEAR, vs.znear * 1.5)
-	local halfW = math.tan(math.rad(vs.fov) * 0.5)
 	local size = distance * QUAD_OVERSIZE
 	render.SetMaterial(mat)
 	cam.PushModelMatrix(IDENTITY_MATRIX, false)
-	render.DrawQuadEasy(eyePos + fwd * distance, -fwd, halfW * size, halfW / vs.aspect * size, QUAD_COLOR, 0)
+	render.DrawQuadEasy(eyePos + fwd * distance, -fwd, halfW * size, halfH * size, QUAD_COLOR, 0)
 	cam.PopModelMatrix()
 end
 
 local SKY_FILL_FAR = 0.98
 local SUN_FAR = 0.97
 
-local function usableRT(t, w, h)
-	if t == nil or t:IsError() then return false end
-	if w then return t:Width() == w and t:Height() == h end
-
-	return t:Width() > 64
-end
+local usableRT = shaderpack.UsableRT
 
 local function targetsReady()
 	return usableRT(render.GetScreenEffectTexture()) and usableRT(render.GetResolvedFullFrameDepth())
@@ -838,44 +756,25 @@ local function drawTranslucent(bDepth, bSkybox, bSkybox3D)
 
 	local fwd = EyeAngles():Forward()
 	UNDER_MAT:SetTexture("$texture2", body and body.normalmap or "dev/water_normal")
-	UNDER_MAT:SetFloat("$c2_w", body and body.murk or 1)
-	UNDER_MAT:SetFloat("$c0_x", eyePos.x)
-	UNDER_MAT:SetFloat("$c0_y", eyePos.y)
-	UNDER_MAT:SetFloat("$c0_z", eyePos.z)
-	UNDER_MAT:SetFloat("$c0_w", surfaceZ)
-	UNDER_MAT:SetFloat("$c1_x", fwd.x)
-	UNDER_MAT:SetFloat("$c1_y", fwd.y)
-	UNDER_MAT:SetFloat("$c1_z", fwd.z)
-	UNDER_MAT:SetFloat("$c1_w", CurTime() % 3600)
+	setConstant(UNDER_MAT, "$c0", eyePos.x, eyePos.y, eyePos.z, surfaceZ)
+	setConstant(UNDER_MAT, "$c1", fwd.x, fwd.y, fwd.z, CurTime() % 3600)
 
 	local _, _, _, zr, zg, zb = bodySkyColors(body)
-	UNDER_MAT:SetFloat("$c2_x", zr)
-	UNDER_MAT:SetFloat("$c2_y", zg)
-	UNDER_MAT:SetFloat("$c2_z", zb)
+	setConstant(UNDER_MAT, "$c2", zr, zg, zb, body and body.murk or 1)
 
 	local sun = sunDir()
-	UNDER_MAT:SetFloat("$c3_x", sun.x)
-	UNDER_MAT:SetFloat("$c3_y", sun.y)
-	UNDER_MAT:SetFloat("$c3_z", sun.z)
 	eyeSurfacePoint:SetUnpacked(eyePos.x, eyePos.y, surfaceZ + SUN_TRACE_LIFT)
 	local sunlit = sunReaches(eyeSurfacePoint, sun)
-	UNDER_MAT:SetFloat("$c3_w", sunlit)
+	setConstant(UNDER_MAT, "$c3", sun.x, sun.y, sun.z, sunlit)
 
 	drawScreenQuad(UNDER_MAT, eyePos)
 
 	if not eyeUnderwater then return end
 
 	SUN_MAT:SetTexture("$basetexture", body and body.normalmap or "dev/water_normal")
-	SUN_MAT:SetFloat("$c0_x", eyePos.x)
-	SUN_MAT:SetFloat("$c0_y", eyePos.y)
-	SUN_MAT:SetFloat("$c0_z", eyePos.z)
-	SUN_MAT:SetFloat("$c0_w", surfaceZ)
-	SUN_MAT:SetFloat("$c1_x", sun.x)
-	SUN_MAT:SetFloat("$c1_y", sun.y)
-	SUN_MAT:SetFloat("$c1_z", sun.z)
-	SUN_MAT:SetFloat("$c1_w", CurTime() % 3600)
-	SUN_MAT:SetFloat("$c2_x", body and body.murk or 1)
-	SUN_MAT:SetFloat("$c2_y", sunlit)
+	setConstant(SUN_MAT, "$c0", eyePos.x, eyePos.y, eyePos.z, surfaceZ)
+	setConstant(SUN_MAT, "$c1", sun.x, sun.y, sun.z, CurTime() % 3600)
+	setConstant(SUN_MAT, "$c2", body and body.murk or 1, sunlit)
 	render.OverrideDepthEnable(true, true)
 	drawScreenQuad(SUN_MAT, eyePos, (render.GetViewSetup().zfar or 30000) * SUN_FAR)
 	render.OverrideDepthEnable(false, false)
@@ -884,7 +783,6 @@ end
 local function stop()
 	hook.Remove("PostDrawOpaqueRenderables", "ms_water")
 	hook.Remove("PostDrawTranslucentRenderables", "ms_water_underwater")
-	hook.Remove("NeedsDepthPass", "ms_water")
 	depthslices.RemoveEffect("ms_water")
 	hideSun(false)
 	dropMeshes()
@@ -896,48 +794,8 @@ local function start()
 	initialize()
 	hook.Add("PostDrawOpaqueRenderables", "ms_water", drawOpaque)
 	hook.Add("PostDrawTranslucentRenderables", "ms_water_underwater", drawTranslucent)
-	depthslices.AddEffect("ms_water", SURFACE_ORDER, drawSurfaceAbove)
 	depthWanted = true
-	hook.Add("NeedsDepthPass", "ms_water", function()
-		if depthWanted then return true end
-	end)
+	depthslices.AddEffect("ms_water", SURFACE_ORDER, drawSurfaceAbove, false, function() return depthWanted end)
 end
 
-local function shadersAvailable()
-	for _, name in ipairs(SHADERS) do
-		if not file.Exists("shaders/fxc/" .. name .. ".vcs", "GAME") then return false end
-	end
-
-	return true
-end
-
-local function apply()
-	if not WATER_ENABLED:GetBool() then
-		stop()
-		return
-	end
-
-	if shadersAvailable() then
-		start()
-	elseif HAS_SHADER_TO_GMA and not SHADER_MOUNTED then
-		hook.Add("ShaderMounted", "ms_water", function()
-			hook.Remove("ShaderMounted", "ms_water")
-			if WATER_ENABLED:GetBool() and shadersAvailable() then
-				start()
-			end
-		end)
-	end
-end
-
-cvars.RemoveChangeCallback("cl_draw_water", "ms_water")
-cvars.AddChangeCallback("cl_draw_water", apply, "ms_water")
-hook.Remove("ShaderMounted", "ms_water")
-
-if LocalPlayer and IsValid(LocalPlayer()) then
-	apply()
-else
-	hook.Add("InitPostEntity", "ms_water", function()
-		hook.Remove("InitPostEntity", "ms_water")
-		apply()
-	end)
-end
+shaderpack.AfterWorld("ms_water", shaderpack.Toggle("ms_water", WATER_ENABLED, SHADERS, start, stop))

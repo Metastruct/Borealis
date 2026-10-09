@@ -1,14 +1,5 @@
-local HAS_SHADER_TO_GMA = file.Exists("includes/modules/shader_to_gma.lua", "LUA")
-if HAS_SHADER_TO_GMA then
-	require("shader_to_gma")
-end
-
 if SERVER then
-	if not resource.AddShader then return end
-
-	resource.AddShader("grass_vs30")
-	resource.AddShader("grass_ps30")
-	resource.AddShader("grassdepth_ps30")
+	shaderpack.AddResources({ "grass_vs30", "grass_ps30", "grassdepth_ps30" })
 
 	return
 end
@@ -38,20 +29,7 @@ local WIND_ANGLE = math.atan2(0.6, 0.8)
 local WIND = 0.45 -- bend at the tip, in quad widths
 local TRANSLUCENCY = 0.35
 
-local packColor = foliage.PackColor
-
-local function grassMode(name)
-	local mat = Material(name)
-	local sp = (mat:GetString("$surfaceprop") or ""):lower()
-	local sp2 = (mat:GetString("$surfaceprop2") or ""):lower()
-	if sp == "grass" and (sp2 == "" or sp2 == "grass") then
-		return 1
-	elseif sp == "grass" then
-		return 2
-	elseif sp2 == "grass" then
-		return 3
-	end
-end
+local packColor, setConstant = shaderpack.PackColor, shaderpack.SetConstant
 
 local basePos = Vector()
 local function keep(x, y, z, r)
@@ -63,16 +41,11 @@ end
 
 local lastWet = 0
 local function palette(mat, depthMat)
-	mat:SetFloat("$c1_x", WIND_ANGLE)
-	mat:SetFloat("$c1_z", WIND)
-	mat:SetFloat("$c2_y", packColor(unpack(ROOT_COLOR)))
-	mat:SetFloat("$c2_z", packColor(unpack(TIP_COLOR)))
-	mat:SetFloat("$c3_x", TRANSLUCENCY)
-	mat:SetFloat("$c3_y", DRYNESS)
-	mat:SetFloat("$c3_z", packColor(unpack(DRY_COLOR)))
+	setConstant(mat, "$c1", WIND_ANGLE, nil, WIND)
+	setConstant(mat, "$c2", nil, packColor(unpack(ROOT_COLOR)), packColor(unpack(TIP_COLOR)))
+	setConstant(mat, "$c3", TRANSLUCENCY, DRYNESS, packColor(unpack(DRY_COLOR)))
 	if depthMat then
-		depthMat:SetFloat("$c1_x", WIND_ANGLE)
-		depthMat:SetFloat("$c1_z", WIND)
+		setConstant(depthMat, "$c1", WIND_ANGLE, nil, WIND)
 	end
 
 	lastWet = -1
@@ -83,15 +56,14 @@ local function frame(mat)
 	if wet == lastWet then return end
 	lastWet = wet
 	local k = 1 - 0.3 * wet
-	mat:SetFloat("$c2_y", packColor(ROOT_COLOR[1] * k, ROOT_COLOR[2] * k, ROOT_COLOR[3] * k))
-	mat:SetFloat("$c2_z", packColor(TIP_COLOR[1] * k, TIP_COLOR[2] * (1 - 0.2 * wet), TIP_COLOR[3] * k))
+	setConstant(mat, "$c2", nil, packColor(ROOT_COLOR[1] * k, ROOT_COLOR[2] * k, ROOT_COLOR[3] * k), packColor(TIP_COLOR[1] * k, TIP_COLOR[2] * (1 - 0.2 * wet), TIP_COLOR[3] * k))
 	mat:SetFloat("$c3_z", packColor(DRY_COLOR[1] * k, DRY_COLOR[2] * k, DRY_COLOR[3] * k))
 end
 
 local layer = foliage.Layer({
 	name = "grass",
 	pixelShader = "grass_ps30", vertexShader = "grass_vs30", depthShader = "grassdepth_ps30",
-	classify = grassMode, minNormalZ = MAX_SLOPE_Z,
+	classify = foliage.SurfaceClassifier({ grass = true }), minNormalZ = MAX_SLOPE_Z,
 	spacing = 18, jitter = 8, quadW = 26, quadH = 40,
 	keep = keep, palette = palette, frame = frame,
 })
@@ -103,33 +75,10 @@ end
 
 setDistance()
 
-local function shadersAvailable()
-	return file.Exists("shaders/fxc/grass_ps30.vcs", "GAME") and file.Exists("shaders/fxc/grass_vs30.vcs", "GAME")
-end
+local apply = shaderpack.Toggle("ms_grass", GRASS_ENABLED, { "grass_ps30", "grass_vs30" }, function() layer:Start() end, function() layer:Stop() end)
 
-local function apply()
-	if not GRASS_ENABLED:GetBool() then
-		layer:Stop()
-		return
-	end
-
-	if shadersAvailable() then
-		layer:Start()
-	elseif HAS_SHADER_TO_GMA and not SHADER_MOUNTED then
-		hook.Add("ShaderMounted", "ms_grass", function()
-			hook.Remove("ShaderMounted", "ms_grass")
-			if GRASS_ENABLED:GetBool() and shadersAvailable() then
-				layer:Start()
-			end
-		end)
-	end
-end
-
-cvars.RemoveChangeCallback("cl_draw_grass", "ms_grass")
-cvars.AddChangeCallback("cl_draw_grass", apply, "ms_grass")
 cvars.RemoveChangeCallback("cl_draw_grass_distance", "ms_grass")
 cvars.AddChangeCallback("cl_draw_grass_distance", setDistance, "ms_grass")
-hook.Remove("ShaderMounted", "ms_grass")
 
 hook.Add("TOD_WinterRemoved", "ms_grass", function()
 	if not WINTER then return end
@@ -147,11 +96,4 @@ hook.Add("TOD_Autumn", "ms_grass", function()
 	end
 end)
 
-if LocalPlayer and IsValid(LocalPlayer()) then
-	apply()
-else
-	hook.Add("InitPostEntity", "ms_grass", function()
-		hook.Remove("InitPostEntity", "ms_grass")
-		apply()
-	end)
-end
+shaderpack.AfterWorld("ms_grass", apply)

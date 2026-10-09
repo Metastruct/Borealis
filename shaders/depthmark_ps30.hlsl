@@ -1,3 +1,5 @@
+#include "include/slices.hlsl"
+
 const float4 Constants0 : register(c0);
 
 sampler Codes : register(s0);
@@ -9,13 +11,6 @@ sampler Frame : register(s2);
 #define BIAS  Constants0.z
 #define SAMPLES Constants0.w
 
-#define DEPTH_SCALE 4000.0
-#define SKY_EPS 0.0005
-#define SLICES 32.0
-#define SLICE_NEAR 16.0
-#define SLICE_RATIO 1.2219785
-#define SLICE_SLACK 1.02
-#define SLICE_EXACT 64.0
 #define CHANGE_EPS (0.5 / 255.0)
 #define SLOPE_K 1.0
 #define EDGE_SLOPE 0.08
@@ -35,7 +30,7 @@ struct PS_OUT
 
 float surfaceDepth(float raw, float2 uv)
 {
-	float d = (raw <= 0.0 || abs(raw - 1.0) < SKY_EPS) ? ZFAR : raw * DEPTH_SCALE;
+	float d = IsSkyDepth(raw) ? ZFAR : raw * DEPTH_SCALE;
 
 	float code = tex2D(Codes, uv).a * 255.0;
 	if (code > SLICE_EXACT - 0.5)

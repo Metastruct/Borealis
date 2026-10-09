@@ -1,3 +1,6 @@
+#include "include/common.hlsl"
+#include "include/slices.hlsl"
+
 const float4 Constants0 : register(c0);
 const float4 Constants1 : register(c1);
 const float4 Constants2 : register(c2);
@@ -15,16 +18,6 @@ sampler3D Detail : register(s3);
 #define SUN_DIR   Constants2.xyz
 #define COVERAGE  Constants2.w
 #define STRENGTH  Constants3.w
-
-#define DEPTH_SCALE 4000.0
-
-#define SKY_EPS 0.0005
-
-#define SLICES 32.0
-#define SLICE_NEAR 16.0
-#define SLICE_RATIO 1.2219785
-#define SLICE_SLACK 1.02
-#define SLICE_EXACT 64.0
 
 #define FADE_START 9000.0
 #define FADE_END 20000.0
@@ -52,11 +45,6 @@ struct PS_IN
 	float3 wpos  : TEXCOORD1;
 	float4 spos  : TEXCOORD2;
 };
-
-float remap(float v, float a, float b, float c, float d)
-{
-	return c + (v - a) * (d - c) / (b - a);
-}
 
 float coverAt(float3 p)
 {
@@ -117,29 +105,12 @@ float4 main(PS_IN i) : COLOR
 
 	float raw = tex2D(Depth, uv).r;
 	float d = raw * DEPTH_SCALE;
-	if (raw <= 0.0 || abs(raw - 1.0) < SKY_EPS)
+	if (IsSkyDepth(raw))
 	{
 		d = FADE_END * 4.0;
 	}
 
-	float code = frame.a * 255.0;
-	float ks = floor(code + 0.5) - 1.0;
-	if (code > SLICE_EXACT - 0.5)
-	{
-		if (d > SLICE_NEAR * pow(SLICE_RATIO, code - SLICE_EXACT + 1.0))
-		{
-			d = SLICE_NEAR * pow(SLICE_RATIO, code - SLICE_EXACT);
-		}
-	}
-	else
-	{
-		float samples = max(floor(i.color.b * 255.0 + 0.5), 1.0);
-		d = max(d, SLICE_NEAR * pow(SLICE_RATIO, SLICES - 1.0 - samples * (SLICES - code)) / SLICE_SLACK);
-		if (ks < SLICES - 1.0 && d > SLICE_NEAR * pow(SLICE_RATIO, ks + 1.0) * SLICE_SLACK)
-		{
-			d = SLICE_NEAR * pow(SLICE_RATIO, ks + 0.5);
-		}
-	}
+	d = SliceDepth(d, frame.a * 255.0, max(floor(i.color.b * 255.0 + 0.5), 1.0));
 
 	float3 ray = normalize(i.wpos - EYE);
 	float cosF = max(dot(ray, FWD), 0.05);

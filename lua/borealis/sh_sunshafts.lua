@@ -1,13 +1,7 @@
-local HAS_SHADER_TO_GMA = file.Exists("includes/modules/shader_to_gma.lua", "LUA")
-if HAS_SHADER_TO_GMA then
-	require("shader_to_gma")
-end
+local SHADERS = { "sunshafts_ps30", "aurora_vs30" }
 
 if SERVER then
-	if not resource.AddShader then return end
-
-	resource.AddShader("aurora_vs30")
-	resource.AddShader("sunshafts_ps30")
+	shaderpack.AddResources(SHADERS)
 
 	return
 end
@@ -38,18 +32,13 @@ local CLAMP = 4 + 8 -- TEXTUREFLAGS_CLAMPS + TEXTUREFLAGS_CLAMPT, not defined as
 local W, H, maskRT, blurA, blurB, BLUR1, BLUR2, COMPOSITE
 
 local function blurMaterial(name, src, falloff)
-	local mat = CreateMaterial(name .. "_" .. W .. "x" .. H, "screenspace_general", {
+	local mat = CreateShaderMaterial(name .. "_" .. W .. "x" .. H, {
 		["$pixshader"] = "sunshafts_ps30",
 		["$vertexshader"] = "aurora_vs30",
-		["$basetexture"] = "",
-		["$ignorez"] = 1,
-		["$vertexcolor"] = 1,
-		["$vertextransform"] = 1,
 		["$additive"] = 0,
 		["$alpha_blend"] = 0,
 		["$linearwrite"] = 0,
 		["$linearread_basetexture"] = 0,
-		["<dx90"] = { ["$no_draw"] = 1 },
 		["$c0_x"] = 0.5, ["$c0_y"] = 0.5, ["$c0_z"] = RAY_LEN, ["$c0_w"] = DECAY,
 		["$c1_x"] = RADIUS, ["$c1_y"] = W / H, ["$c1_z"] = falloff, ["$c1_w"] = 1,
 	})
@@ -64,9 +53,7 @@ end
 -- handle in hand heals, the binding inside the material does not.  So nothing
 -- is built until the targets are usable, and the bindings are made again in
 -- drawShafts every frame.
-local function usableRT(t, w, h)
-	return t ~= nil and not t:IsError() and t:Width() == w and t:Height() == h
-end
+local usableRT = shaderpack.UsableRT
 
 local function build()
 	local w, h = ScrW(), ScrH()
@@ -97,10 +84,9 @@ end
 -- basis from EyeAngles (right inside a RenderView too), fan from the view setup
 local function viewFan()
 	local ang = EyeAngles()
-	local vs = render.GetViewSetup()
-	local halfW = math.tan(math.rad(vs.fov) * 0.5)
+	local halfW, halfH = shaderpack.ViewTan()
 
-	return ang:Forward(), ang:Right(), ang:Up(), halfW, halfW / vs.aspect
+	return ang:Forward(), ang:Right(), ang:Up(), halfW, halfH
 end
 
 local sunDir = Vector(0, 0, 1)
@@ -109,11 +95,7 @@ local sunWeight = 0
 
 -- screen position of the sun and a weight fading it out of view and below the horizon
 local function updateSun()
-	if procsky and procsky.GetLights then
-		sunDir = procsky.GetLights()
-	elseif tod and tod.CurrentParams and isangle(tod.CurrentParams.sun_angles) then
-		sunDir = -tod.CurrentParams.sun_angles:Forward()
-	end
+	sunDir = shaderpack.SunDir()
 
 	local fwd, right, up, halfW, halfH = viewFan()
 	local f = sunDir:Dot(fwd)
@@ -128,11 +110,10 @@ local function updateSun()
 
 	local off = math.max(math.abs(x), math.abs(y))
 	local inView = 1 - math.Clamp((off - 1) / 0.6, 0, 1)
-	local elev = math.deg(math.asin(math.Clamp(sunDir.z, -1, 1)))
+	local elev = shaderpack.Elevation(sunDir)
 	local risen = math.Clamp((elev + 1) / 4, 0, 1)
 	local low = 1 + 0.5 * (1 - math.Clamp(elev / 40, 0, 1)) -- stronger near the horizon
-	local overcast = procsky and procsky.GetOvercast and procsky.GetOvercast() or 0
-	sunWeight = inView * risen * low * (1 - overcast)
+	sunWeight = inView * risen * low * (1 - shaderpack.Overcast())
 end
 
 --------------------------------------------------------------------------
@@ -196,10 +177,8 @@ local function drawShafts()
 	BLUR1:SetTexture("$basetexture", maskRT)
 	BLUR2:SetTexture("$basetexture", blurA)
 	COMPOSITE:SetTexture("$basetexture", blurB)
-	BLUR1:SetFloat("$c0_x", sunUV[1])
-	BLUR1:SetFloat("$c0_y", sunUV[2])
-	BLUR2:SetFloat("$c0_x", sunUV[1])
-	BLUR2:SetFloat("$c0_y", sunUV[2])
+	shaderpack.SetConstant(BLUR1, "$c0", sunUV[1], sunUV[2])
+	shaderpack.SetConstant(BLUR2, "$c0", sunUV[1], sunUV[2])
 
 	render.PushRenderTarget(blurA)
 	render.SetMaterial(BLUR1)
@@ -212,7 +191,7 @@ local function drawShafts()
 	render.PopRenderTarget()
 
 	-- sun colour through the atmosphere: warm at low sun
-	local elev = math.deg(math.asin(math.Clamp(sunDir.z, -1, 1)))
+	local elev = shaderpack.Elevation(sunDir)
 	local warm = 1 - math.Clamp(elev / 30, 0, 1)
 	local k = math.Clamp(INTENSITY * sunWeight, 0, 1) * 255
 	surface.SetDrawColor(k, (0.92 - 0.35 * warm) * k, (0.8 - 0.6 * warm) * k, 255)
@@ -236,29 +215,4 @@ local function start()
 	hook.Add("RenderScreenspaceEffects", "ms_sunshafts", drawShafts)
 end
 
-local function shadersAvailable()
-	return file.Exists("shaders/fxc/sunshafts_ps30.vcs", "GAME") and file.Exists("shaders/fxc/aurora_vs30.vcs", "GAME")
-end
-
-local function apply()
-	if not SHAFTS_ENABLED:GetBool() then
-		stop()
-		return
-	end
-
-	if shadersAvailable() then
-		start()
-	elseif HAS_SHADER_TO_GMA and not SHADER_MOUNTED then
-		hook.Add("ShaderMounted", "ms_sunshafts", function()
-			hook.Remove("ShaderMounted", "ms_sunshafts")
-			if SHAFTS_ENABLED:GetBool() and shadersAvailable() then
-				start()
-			end
-		end)
-	end
-end
-
-cvars.RemoveChangeCallback("cl_draw_sunshafts", "ms_sunshafts")
-cvars.AddChangeCallback("cl_draw_sunshafts", apply, "ms_sunshafts")
-hook.Remove("ShaderMounted", "ms_sunshafts")
-apply()
+shaderpack.Toggle("ms_sunshafts", SHAFTS_ENABLED, SHADERS, start, stop)()

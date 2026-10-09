@@ -1,20 +1,13 @@
-local HAS_SHADER_TO_GMA = file.Exists("includes/modules/shader_to_gma.lua", "LUA")
-if HAS_SHADER_TO_GMA then
-	require("shader_to_gma")
-end
+local PIXEL_SHADER, DEPTH_SHADER, VERTEX_SHADER = "seagrass_ps30", "seagrassdepth_ps30", "grass_vs30"
 
 if SERVER then
-	if not resource.AddShader then return end
-
-	resource.AddShader("seagrass_ps30")
-	resource.AddShader("seagrassdepth_ps30")
+	shaderpack.AddResources({ PIXEL_SHADER, DEPTH_SHADER })
 
 	return
 end
 
 local SEAGRASS_ENABLED = CreateClientConVar("cl_draw_seagrass", "0", true, false, "draw seagrass meadows on sunlit sandy water beds")
 
-local PIXEL_SHADER, DEPTH_SHADER, VERTEX_SHADER = "seagrass_ps30", "seagrassdepth_ps30", "grass_vs30"
 local RADIUS = 2048
 local MIN_DEPTH, MAX_DEPTH, DEPTH_FADE = 40, 350, 60
 local WARP_CELL, WARP = 1200, 900
@@ -30,46 +23,8 @@ local TIP_COLOR = { 0.09, 0.14, 0.05 }
 
 local SAND = { sand = true, antlionsand = true }
 
-local packColor = foliage.PackColor
-
-local function sandMode(name)
-	local mat = Material(name)
-	local sp = (mat:GetString("$surfaceprop") or ""):lower()
-	local sp2 = (mat:GetString("$surfaceprop2") or ""):lower()
-	if SAND[sp] and (sp2 == "" or SAND[sp2]) then
-		return 1
-	elseif SAND[sp] then
-		return 2
-	elseif SAND[sp2] then
-		return 3
-	end
-end
-
-local function lattice(ix, iy)
-	local h = (ix * 73856093 + iy * 19349663) % 2147483648
-	h = (h * 1103515245 + 12345) % 2147483648
-	h = (h * 1103515245 + 12345) % 2147483648
-
-	return h / 2147483648
-end
-
-local function valueNoise(x, y, cell)
-	local fx, fy = x / cell, y / cell
-	local ix, iy = math.floor(fx), math.floor(fy)
-	local tx, ty = fx - ix, fy - iy
-	tx, ty = tx * tx * (3 - 2 * tx), ty * ty * (3 - 2 * ty)
-	local a, b = lattice(ix, iy), lattice(ix + 1, iy)
-	local c, d = lattice(ix, iy + 1), lattice(ix + 1, iy + 1)
-	local top = a + (b - a) * tx
-
-	return top + (c + (d - c) * tx - top) * ty
-end
-
-local function smoothstep(e0, e1, v)
-	local t = math.Clamp((v - e0) / (e1 - e0), 0, 1)
-
-	return t * t * (3 - 2 * t)
-end
+local packColor, setConstant = shaderpack.PackColor, shaderpack.SetConstant
+local valueNoise, smoothstep = foliage.ValueNoise, foliage.Smoothstep
 
 local function patchDensity(x, y)
 	local wx = valueNoise(x + 1700, y - 900, WARP_CELL) - 0.5
@@ -101,8 +56,7 @@ end
 
 local function palette(mat, depthMat)
 	mat:SetFloat("$c1_z", SWAY)
-	mat:SetFloat("$c2_y", packColor(unpack(ROOT_COLOR)))
-	mat:SetFloat("$c2_z", packColor(unpack(TIP_COLOR)))
+	setConstant(mat, "$c2", nil, packColor(unpack(ROOT_COLOR)), packColor(unpack(TIP_COLOR)))
 	if depthMat then depthMat:SetFloat("$c1_z", SWAY) end
 end
 
@@ -135,53 +89,22 @@ local function frame(mat)
 
 	local k = normalmap and (tonumber(sunlit) or (sunlit and 1 or 0)) or 0
 	mat:SetFloat("$c1_x", surfaceZ or -1e6)
-	mat:SetFloat("$c3_x", sun and sun.x * k or 0)
-	mat:SetFloat("$c3_y", sun and sun.y * k or 0)
-	mat:SetFloat("$c3_z", sun and sun.z * k or 0)
+	setConstant(mat, "$c3", sun and sun.x * k or 0, sun and sun.y * k or 0, sun and sun.z * k or 0)
 end
 
 local layer = foliage.Layer({
 	name = "seagrass",
 	pixelShader = PIXEL_SHADER, vertexShader = VERTEX_SHADER, depthShader = DEPTH_SHADER,
-	classify = sandMode, minNormalZ = 0.7,
+	classify = foliage.SurfaceClassifier(SAND), minNormalZ = 0.7,
 	spacing = 14, jitter = 7, quadW = 26, quadH = 72,
 	keep = keep, minLight = MIN_LIGHT, timeWrap = 3600,
 	palette = palette, frame = frame,
 })
 layer:SetDistance(RADIUS)
 
-local function shadersAvailable()
-	return file.Exists("shaders/fxc/" .. PIXEL_SHADER .. ".vcs", "GAME") and file.Exists("shaders/fxc/" .. VERTEX_SHADER .. ".vcs", "GAME")
-end
-
-local function apply()
-	if not SEAGRASS_ENABLED:GetBool() then
-		layer:Stop()
-		return
-	end
-
+local function start()
 	lastNormalMap = nil
-	if shadersAvailable() then
-		layer:Start()
-	elseif HAS_SHADER_TO_GMA and not SHADER_MOUNTED then
-		hook.Add("ShaderMounted", "ms_seagrass", function()
-			hook.Remove("ShaderMounted", "ms_seagrass")
-			if SEAGRASS_ENABLED:GetBool() and shadersAvailable() then
-				layer:Start()
-			end
-		end)
-	end
+	layer:Start()
 end
 
-cvars.RemoveChangeCallback("cl_draw_seagrass", "ms_seagrass")
-cvars.AddChangeCallback("cl_draw_seagrass", apply, "ms_seagrass")
-hook.Remove("ShaderMounted", "ms_seagrass")
-
-if LocalPlayer and IsValid(LocalPlayer()) then
-	apply()
-else
-	hook.Add("InitPostEntity", "ms_seagrass", function()
-		hook.Remove("InitPostEntity", "ms_seagrass")
-		apply()
-	end)
-end
+shaderpack.AfterWorld("ms_seagrass", shaderpack.Toggle("ms_seagrass", SEAGRASS_ENABLED, { PIXEL_SHADER, VERTEX_SHADER }, start, function() layer:Stop() end))

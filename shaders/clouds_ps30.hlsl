@@ -1,3 +1,5 @@
+#include "include/common.hlsl"
+
 const float4 Constants0 : register(c0);
 const float4 Constants1 : register(c1);
 const float4 Constants2 : register(c2);
@@ -37,16 +39,6 @@ struct PS_IN
 {
 	float2 uv : TEXCOORD0;
 };
-
-float3 unpackColor(float v)
-{
-	float r = floor(v / 65536.0);
-	v -= r * 65536.0;
-	float g = floor(v / 256.0);
-	float b = v - g * 256.0;
-
-	return float3(r, g, b) / 255.0;
-}
 
 float vnoise(float2 p)
 {

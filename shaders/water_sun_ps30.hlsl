@@ -7,6 +7,7 @@ sampler NormalMap : register(s0);
 sampler3D Noise : register(s1);
 
 #include "include/water_waves.hlsl"
+#include "include/slices.hlsl"
 #include "include/water_optics.hlsl"
 
 #define EYE_POS   Constants0.xyz

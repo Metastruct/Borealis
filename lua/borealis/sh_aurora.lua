@@ -1,19 +1,9 @@
 AddCSLuaFile()
 
-local HAS_SHADER_TO_GMA = file.Exists("includes/modules/shader_to_gma.lua", "LUA")
-if HAS_SHADER_TO_GMA then
-	require("shader_to_gma")
-end
+local SHADERS = { "aurora_vs30", "aurora_ps30", "aurora_map_ps30", "nightsky_ps30" }
 
 if SERVER then
-	if not resource.AddShader then return end
-
-	resource.AddShader("aurora_vs30")
-	resource.AddShader("aurora_ps30")
-	resource.AddShader("aurora_map_ps30")
-	resource.AddShader("nightsky_ps30")
-	resource.AddFile("materials/aurora/noise.vtf")
-	resource.AddFile("materials/aurora/milkyway.vtf")
+	shaderpack.AddResources(SHADERS, { "materials/aurora/noise.vtf", "materials/aurora/milkyway.vtf" })
 
 	return
 end
@@ -38,32 +28,26 @@ local SKY_AXIS = Angle(-55, 0, 0):Forward()
 local SKY_TURN_RATE = 0.25
 local MAP_SIZE = 1024
 
+local setConstant = shaderpack.SetConstant
+
 local function start(PIXEL_SHADER, SKY_SHADER, MAP_SHADER)
 	local function shaderMaterial(name, pixelShader, constants)
 		local kv = {
 			["$pixshader"] = pixelShader,
 			["$vertexshader"] = "aurora_vs30",
-			["$basetexture"] = "",
-			["$ignorez"] = 1,
-			["$vertexcolor"] = 1,
-			["$vertextransform"] = 1,
 			["$additive"] = 1,
 			["$alpha_blend"] = 0,
-			["$linearwrite"] = 1,
-			["<dx90"] = { ["$no_draw"] = 1 },
 		}
 
 		for k, v in pairs(constants) do
 			kv[k] = v
 		end
 
-		return CreateMaterial(name .. "_" .. os.time(), "screenspace_general", kv)
+		return CreateShaderMaterial(name .. "_" .. os.time(), kv)
 	end
 
 	local MAT = shaderMaterial("ms_aurora_sky", PIXEL_SHADER, {
 		["$basetexture"] = "aurora/noise",
-		["$linearread_basetexture"] = 1,
-		["$texture1"] = "",
 		["$linearread_texture1"] = 1,
 		["$c0_x"] = 1, ["$c0_y"] = 0,
 		["$c0_z"] = 0, ["$c0_w"] = 0,
@@ -77,7 +61,6 @@ local function start(PIXEL_SHADER, SKY_SHADER, MAP_SHADER)
 
 	local SKY_MAT = shaderMaterial("ms_aurora_nightsky", SKY_SHADER, {
 		["$basetexture"] = "aurora/milkyway",
-		["$linearread_basetexture"] = 1,
 		["$c0_x"] = 1, ["$c0_y"] = 0,
 		["$c0_z"] = 0, ["$c0_w"] = 0,
 		["$c1_x"] = 0, ["$c1_y"] = 1,
@@ -90,7 +73,6 @@ local function start(PIXEL_SHADER, SKY_SHADER, MAP_SHADER)
 
 	local MAP_MAT = shaderMaterial("ms_aurora_map", MAP_SHADER, {
 		["$basetexture"] = "aurora/noise",
-		["$linearread_basetexture"] = 1,
 		["$additive"] = 0,
 		["$c0_x"] = 0, ["$c0_y"] = SCALE,
 		["$c0_z"] = 0, ["$c0_w"] = 0,
@@ -119,7 +101,7 @@ local function start(PIXEL_SHADER, SKY_SHADER, MAP_SHADER)
 		local C = tod and tod.CurrentParams
 		if not (C and isangle(C.sun_angles)) then return nil end
 
-		return math.deg(math.asin(math.Clamp(-C.sun_angles:Forward().z, -1, 1)))
+		return shaderpack.Elevation(-C.sun_angles:Forward())
 	end
 
 	local function nightFactor()
@@ -182,10 +164,9 @@ local function start(PIXEL_SHADER, SKY_SHADER, MAP_SHADER)
 		if night <= 0.001 then return end
 
 		local ang = EyeAngles()
-		local vs = render.GetViewSetup()
-		local halfW = math.tan(math.rad(vs.fov) * 0.5)
+		local halfW, halfH = shaderpack.ViewTan()
 
-		return night, ang:Forward(), ang:Right(), halfW, halfW / vs.aspect
+		return night, ang:Forward(), ang:Right(), halfW, halfH
 	end
 
 	local function drawNightSky()
@@ -200,18 +181,9 @@ local function start(PIXEL_SHADER, SKY_SHADER, MAP_SHADER)
 		local gain = night * SKY_INTENSITY
 		local t = theme()
 
-		SKY_MAT:SetFloat("$c0_x", sFwd.x)
-		SKY_MAT:SetFloat("$c0_y", sFwd.y)
-		SKY_MAT:SetFloat("$c0_z", sFwd.z)
-		SKY_MAT:SetFloat("$c0_w", CurTime() % TIME_PERIOD)
-		SKY_MAT:SetFloat("$c1_x", sRight.x * halfW)
-		SKY_MAT:SetFloat("$c1_y", sRight.y * halfW)
-		SKY_MAT:SetFloat("$c1_z", sRight.z * halfW)
-		SKY_MAT:SetFloat("$c1_w", halfH)
-		SKY_MAT:SetFloat("$c2_x", sUp.x)
-		SKY_MAT:SetFloat("$c2_y", SKY_STARS * gain * (t.stars or 1))
-		SKY_MAT:SetFloat("$c2_z", SKY_MILKYWAY * gain)
-		SKY_MAT:SetFloat("$c2_w", sUp.y)
+		setConstant(SKY_MAT, "$c0", sFwd.x, sFwd.y, sFwd.z, CurTime() % TIME_PERIOD)
+		setConstant(SKY_MAT, "$c1", sRight.x * halfW, sRight.y * halfW, sRight.z * halfW, halfH)
+		setConstant(SKY_MAT, "$c2", sUp.x, SKY_STARS * gain * (t.stars or 1), SKY_MILKYWAY * gain, sUp.y)
 		SKY_MAT:SetFloat("$c3_w", SKY_AIRGLOW * gain * (t.airglow or 1))
 		render_SetMaterial(SKY_MAT)
 		render_DrawScreenQuad(true)
@@ -228,9 +200,7 @@ local function start(PIXEL_SHADER, SKY_SHADER, MAP_SHADER)
 		if not AURORA_ENABLED:GetBool() or auroraWindow() <= 0.001 or nightFactor() <= 0.001 then return end
 
 		local drift = CurTime()
-		MAP_MAT:SetFloat("$c0_x", drift % TIME_PERIOD)
-		MAP_MAT:SetFloat("$c0_z", (drift * SCROLL_X) % SCROLL_WRAP)
-		MAP_MAT:SetFloat("$c0_w", (drift * SCROLL_Y) % SCROLL_WRAP)
+		setConstant(MAP_MAT, "$c0", drift % TIME_PERIOD, nil, (drift * SCROLL_X) % SCROLL_WRAP, (drift * SCROLL_Y) % SCROLL_WRAP)
 
 		render.PushRenderTarget(curtainMap)
 		render_SetMaterial(MAP_MAT)
@@ -251,19 +221,10 @@ local function start(PIXEL_SHADER, SKY_SHADER, MAP_SHADER)
 
 		local drift = CurTime()
 
-		MAT:SetFloat("$c0_x", fwd.x)
-		MAT:SetFloat("$c0_y", fwd.y)
-		MAT:SetFloat("$c0_z", fwd.z)
-		MAT:SetFloat("$c0_w", drift % TIME_PERIOD)
-		MAT:SetFloat("$c1_x", right.x * halfW)
-		MAT:SetFloat("$c1_y", right.y * halfW)
-		MAT:SetFloat("$c1_z", right.z * halfW)
-		MAT:SetFloat("$c1_w", halfH)
-		MAT:SetFloat("$c2_x", night * window * INTENSITY)
-		MAT:SetFloat("$c2_w", theme().auroraHue or HUE)
-		MAT:SetFloat("$c2_z", (drift * SCROLL_X) % SCROLL_WRAP)
-		MAT:SetFloat("$c3_x", curtainHeight())
-		MAT:SetFloat("$c3_w", (drift * SCROLL_Y) % SCROLL_WRAP)
+		setConstant(MAT, "$c0", fwd.x, fwd.y, fwd.z, drift % TIME_PERIOD)
+		setConstant(MAT, "$c1", right.x * halfW, right.y * halfW, right.z * halfW, halfH)
+		setConstant(MAT, "$c2", night * window * INTENSITY, nil, (drift * SCROLL_X) % SCROLL_WRAP, theme().auroraHue or HUE)
+		setConstant(MAT, "$c3", curtainHeight(), nil, nil, (drift * SCROLL_Y) % SCROLL_WRAP)
 
 		render_SetMaterial(MAT)
 		render_DrawScreenQuad(true)
@@ -290,26 +251,6 @@ local function start(PIXEL_SHADER, SKY_SHADER, MAP_SHADER)
 	end
 end
 
-local function shadersAvailable()
-	for _, name in ipairs({ "aurora_vs30", "aurora_ps30", "aurora_map_ps30", "nightsky_ps30" }) do
-		if not file.Exists("shaders/fxc/" .. name .. ".vcs", "GAME") then return false end
-	end
-
-	return true
-end
-
-local function tryStart()
-	if not shadersAvailable() then return false end
+shaderpack.WhenMounted("ms_aurora_sky", SHADERS, function()
 	start("aurora_ps30", "nightsky_ps30", "aurora_map_ps30")
-
-	return true
-end
-
-hook.Remove("ShaderMounted", "ms_aurora_sky")
-if not tryStart() and HAS_SHADER_TO_GMA and not SHADER_MOUNTED then
-	hook.Add("ShaderMounted", "ms_aurora_sky", function()
-		hook.Remove("ShaderMounted", "ms_aurora_sky")
-
-		tryStart()
-	end)
-end
+end)

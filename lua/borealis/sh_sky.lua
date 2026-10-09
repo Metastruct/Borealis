@@ -1,14 +1,7 @@
-local HAS_SHADER_TO_GMA = file.Exists("includes/modules/shader_to_gma.lua", "LUA")
-if HAS_SHADER_TO_GMA then
-	require("shader_to_gma")
-end
+local SHADERS = { "sky_ps30", "skylut_ps30", "aurora_vs30" }
 
 if SERVER then
-	if not resource.AddShader then return end
-
-	resource.AddShader("aurora_vs30")
-	resource.AddShader("sky_ps30")
-	resource.AddShader("skylut_ps30")
+	shaderpack.AddResources(SHADERS)
 
 	return
 end
@@ -16,6 +9,7 @@ end
 require("skyboxer")
 
 local SKY_ENABLED = CreateClientConVar("cl_draw_procsky", "1", true, false, "draw the procedural atmosphere sky")
+local setConstant = shaderpack.SetConstant
 
 local INTENSITY = 1
 local MOON_INTENSITY = 0.012 -- relative to the sun
@@ -211,7 +205,7 @@ local function todLights()
 	local sun = C and isangle(C.sun_angles) and -C.sun_angles:Forward() or Vector(0, 0, 1)
 	local moon = C and isangle(C.moon_angles) and -C.moon_angles:Forward() or -sun
 
-	return sun, moon, math.deg(math.asin(math.Clamp(sun.z, -1, 1)))
+	return sun, moon, shaderpack.Elevation(sun)
 end
 
 local function updateState()
@@ -373,13 +367,8 @@ local function renderLut()
 
 	lutDirty = false
 	local sun, moon = state.sun, state.moon
-	LUT_MAT:SetFloat("$c0_x", sun.x)
-	LUT_MAT:SetFloat("$c0_y", sun.y)
-	LUT_MAT:SetFloat("$c0_z", sun.z)
-	LUT_MAT:SetFloat("$c1_x", moon.x)
-	LUT_MAT:SetFloat("$c1_y", moon.y)
-	LUT_MAT:SetFloat("$c1_z", moon.z)
-	LUT_MAT:SetFloat("$c1_w", MOON_INTENSITY * moonGain)
+	setConstant(LUT_MAT, "$c0", sun.x, sun.y, sun.z)
+	setConstant(LUT_MAT, "$c1", moon.x, moon.y, moon.z, MOON_INTENSITY * moonGain)
 
 	render.PushRenderTarget(lut)
 	render.SetMaterial(LUT_MAT)
@@ -391,10 +380,9 @@ end
 -- from the view setup (fov is the aspect-adjusted horizontal one)
 local function viewRays()
 	local ang = EyeAngles()
-	local vs = render.GetViewSetup()
-	local halfW = math.tan(math.rad(vs.fov) * 0.5)
+	local halfW, halfH = shaderpack.ViewTan()
 
-	return ang:Forward(), ang:Right(), halfW, halfW / vs.aspect
+	return ang:Forward(), ang:Right(), halfW, halfH
 end
 
 local function drawSky()
@@ -402,20 +390,10 @@ local function drawSky()
 	local fwd, right, halfW, halfH = viewRays()
 	local sun, disc = state.sun, state.disc
 
-	MAT:SetFloat("$c0_x", fwd.x)
-	MAT:SetFloat("$c0_y", fwd.y)
-	MAT:SetFloat("$c0_z", fwd.z)
-	MAT:SetFloat("$c0_w", INTENSITY * render.GetToneMappingScaleLinear().x * (1 - 0.3 * state.overcast))
-	MAT:SetFloat("$c1_x", right.x * halfW)
-	MAT:SetFloat("$c1_y", right.y * halfW)
-	MAT:SetFloat("$c1_z", right.z * halfW)
-	MAT:SetFloat("$c1_w", halfH)
-	MAT:SetFloat("$c2_x", sun.x)
-	MAT:SetFloat("$c2_y", sun.y)
-	MAT:SetFloat("$c2_z", sun.z)
-	MAT:SetFloat("$c3_x", disc[1])
-	MAT:SetFloat("$c3_y", disc[2])
-	MAT:SetFloat("$c3_z", disc[3])
+	setConstant(MAT, "$c0", fwd.x, fwd.y, fwd.z, INTENSITY * render.GetToneMappingScaleLinear().x * (1 - 0.3 * state.overcast))
+	setConstant(MAT, "$c1", right.x * halfW, right.y * halfW, right.z * halfW, halfH)
+	setConstant(MAT, "$c2", sun.x, sun.y, sun.z)
+	setConstant(MAT, "$c3", disc[1], disc[2], disc[3])
 
 	render.SetMaterial(MAT)
 	render.DrawScreenQuad(true)
@@ -445,35 +423,22 @@ end
 
 local function start()
 	stop()
-	MAT = MAT or CreateMaterial("ms_procsky_" .. os.time(), "screenspace_general", {
+	MAT = MAT or CreateShaderMaterial("ms_procsky_" .. os.time(), {
 		["$pixshader"] = "sky_ps30",
 		["$vertexshader"] = "aurora_vs30",
-		["$basetexture"] = "",
-		["$ignorez"] = 1,
-		["$vertexcolor"] = 1,
-		["$vertextransform"] = 1,
 		["$additive"] = 0,
 		["$alpha_blend"] = 0,
-		["$linearread_basetexture"] = 1,
-		["$linearwrite"] = 1,
-		["<dx90"] = { ["$no_draw"] = 1 },
 		["$c0_x"] = 1, ["$c0_y"] = 0, ["$c0_z"] = 0, ["$c0_w"] = 1,
 		["$c1_x"] = 0, ["$c1_y"] = 1, ["$c1_z"] = 0, ["$c1_w"] = 1,
 		["$c2_x"] = 0, ["$c2_y"] = 0, ["$c2_z"] = 1, ["$c2_w"] = 0,
 		["$c3_x"] = 0, ["$c3_y"] = 0, ["$c3_z"] = 0, ["$c3_w"] = 0,
 	})
 
-	LUT_MAT = LUT_MAT or CreateMaterial("ms_procsky_lut_" .. os.time(), "screenspace_general", {
+	LUT_MAT = LUT_MAT or CreateShaderMaterial("ms_procsky_lut_" .. os.time(), {
 		["$pixshader"] = "skylut_ps30",
 		["$vertexshader"] = "aurora_vs30",
-		["$basetexture"] = "",
-		["$ignorez"] = 1,
-		["$vertexcolor"] = 1,
-		["$vertextransform"] = 1,
 		["$additive"] = 0,
 		["$alpha_blend"] = 0,
-		["$linearwrite"] = 1,
-		["<dx90"] = { ["$no_draw"] = 1 },
 		["$c0_x"] = 0, ["$c0_y"] = 0, ["$c0_z"] = 1, ["$c0_w"] = LUT_W,
 		["$c1_x"] = 0, ["$c1_y"] = 0, ["$c1_z"] = -1, ["$c1_w"] = 0,
 		["$c2_x"] = 1, ["$c2_y"] = LUT_H, ["$c2_z"] = 0, ["$c2_w"] = 0,
@@ -490,27 +455,7 @@ local function start()
 	end
 end
 
-local function shadersAvailable()
-	return file.Exists("shaders/fxc/sky_ps30.vcs", "GAME") and file.Exists("shaders/fxc/skylut_ps30.vcs", "GAME") and file.Exists("shaders/fxc/aurora_vs30.vcs", "GAME")
-end
-
-local function apply()
-	if not SKY_ENABLED:GetBool() then
-		stop()
-		return
-	end
-
-	if shadersAvailable() then
-		start()
-	elseif HAS_SHADER_TO_GMA and not SHADER_MOUNTED then
-		hook.Add("ShaderMounted", "ms_procsky", function()
-			hook.Remove("ShaderMounted", "ms_procsky")
-			if SKY_ENABLED:GetBool() and shadersAvailable() then
-				start()
-			end
-		end)
-	end
-end
+local apply = shaderpack.Toggle("ms_procsky", SKY_ENABLED, SHADERS, start, stop)
 
 -- the lights, the theme and the tint stay live while the sky itself is off:
 -- the sun shafts, the clouds and the night sky read them
@@ -522,8 +467,4 @@ hook.Add("RenderScreenspaceEffects", "ms_procsky_tint", function()
 	end
 end)
 
-cvars.RemoveChangeCallback("cl_draw_procsky", "ms_procsky")
-
-cvars.AddChangeCallback("cl_draw_procsky", apply, "ms_procsky")
-hook.Remove("ShaderMounted", "ms_procsky")
 apply()

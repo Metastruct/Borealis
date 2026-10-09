@@ -1,15 +1,7 @@
-local HAS_SHADER_TO_GMA = file.Exists("includes/modules/shader_to_gma.lua", "LUA")
-if HAS_SHADER_TO_GMA then
-	require("shader_to_gma")
-end
+local PS, VS = "cloudshadows_slab_ps30", "fog_vs30"
 
 if SERVER then
-	if not resource.AddShader then return end
-
-	resource.AddShader("fog_vs30")
-	resource.AddShader("cloudshadows_slab_ps30")
-	resource.AddFile("materials/procsky/cloudshape.vtf")
-	resource.AddFile("materials/procsky/clouddetail.vtf")
+	shaderpack.AddResources({ VS, PS }, { "materials/procsky/cloudshape.vtf", "materials/procsky/clouddetail.vtf" })
 
 	return
 end
@@ -49,11 +41,8 @@ local STRENGTH = 2.0
 -- drags one cloud's shade across the whole map.  Shade fades out well before
 -- that, which also costs the low sun the shadows it would throw the furthest.
 local MIN_ELEV, FADE_ELEV = 2, 10 -- degrees of sun elevation: nothing at MIN, full at MIN + FADE
-local NEAR = 12 -- the quad sits this far in front of the eye
-local QUAD_OVERSIZE = 6 -- sized past the frustum, the shader uses the clip position
 local ORDER = 5 -- the farthest volume: the clouds and then the fog composite over this
 local TIME_WRAP = 3600 -- the same clock sh_vclouds sends, or the two disagree on where a cloud is
-local PS, VS = "cloudshadows_slab_ps30", "fog_vs30"
 
 --------------------------------------------------------------------------
 -- material, a new one every start so a kept one never lacks a constant
@@ -61,21 +50,11 @@ local PS, VS = "cloudshadows_slab_ps30", "fog_vs30"
 local MAT
 local materialSerial = 0
 
--- The render targets do not exist yet while the map loads, and asking for one
--- then hands back a 32 x 32 error texture that answers IsError with false.
--- Bound as the depth, every pixel reads as one distance and the whole frame
--- takes the same shade.
-local function usableRT(t)
-	return t ~= nil and not t:IsError() and t:Width() > 64
-end
-
 local function build()
 	materialSerial = materialSerial + 1
-	MAT = CreateMaterial("ms_cloudshadows_" .. os.time() .. "_" .. materialSerial, "screenspace_general", {
+	MAT = CreateShaderMaterial("ms_cloudshadows_" .. os.time() .. "_" .. materialSerial, {
 		["$pixshader"] = PS,
 		["$vertexshader"] = VS,
-		["$basetexture"] = "",
-		["$texture1"] = "",
 		["$texture2"] = "procsky/cloudshape",
 		["$texture3"] = "procsky/clouddetail",
 		["$linearread_basetexture"] = 0,
@@ -83,13 +62,9 @@ local function build()
 		["$linearread_texture2"] = 1,
 		["$linearread_texture3"] = 1,
 		["$linearwrite"] = 0,
-		["$ignorez"] = 1,
-		["$vertexcolor"] = 1,
-		["$vertextransform"] = 1,
 		["$additive"] = 0,
 		["$alpha_blend"] = 0,
 		["$nocull"] = 1,
-		["<dx90"] = { ["$no_draw"] = 1 },
 		["$c0_x"] = 0, ["$c0_y"] = 0, ["$c0_z"] = 0, ["$c0_w"] = 0,
 		["$c1_x"] = 0, ["$c1_y"] = 0, ["$c1_z"] = 0, ["$c1_w"] = 0,
 		["$c2_x"] = 0, ["$c2_y"] = 0, ["$c2_z"] = 1, ["$c2_w"] = 0,
@@ -117,7 +92,7 @@ local function sunInfo()
 	local params = tod and tod.CurrentParams
 	local sun = params and isangle(params.sun_angles) and -params.sun_angles:Forward() or Vector(0, 0, 1)
 
-	return sun, math.deg(math.asin(math.Clamp(sun.z, -1, 1)))
+	return sun, shaderpack.Elevation(sun)
 end
 
 local function update()
@@ -136,7 +111,7 @@ local function update()
 
 	local sun, elev = sunInfo()
 	-- a closed sky has no shaft of direct light left for a cloud to interrupt
-	local overcast = procsky and procsky.GetOvercast and procsky.GetOvercast() or 0
+	local overcast = shaderpack.Overcast()
 	local g = STRENGTH * math.Clamp((elev - MIN_ELEV) / FADE_ELEV, 0, 1) * (1 - overcast)
 	if g <= 0.001 then
 		active = false
@@ -156,47 +131,16 @@ local quadColor = Color(255, 255, 0, 255) -- blue is the MSAA sample count, past
 local function draw()
 	if not active then return end
 
-	-- rebound every frame: the targets are recreated across a map change and a
-	-- material built before they existed holds the error texture forever
-	local depth, fb = render.GetResolvedFullFrameDepth(), render.GetScreenEffectTexture()
-	if not usableRT(depth) or not usableRT(fb) then return end
 	if not MAT and not build() then return end
 
 	local eye = EyePos()
 	local fwd = EyeAngles():Forward()
-	local vs = render.GetViewSetup()
-	local halfW = math.tan(math.rad(vs.fov) * 0.5)
-	local halfH = halfW / vs.aspect
-	local near = math.max(NEAR, vs.znear * 1.5)
-
-	depthslices.Capture()
-	render.UpdateScreenEffectTexture()
-	MAT:SetTexture("$texture1", depth)
-	MAT:SetTexture("$basetexture", fb)
-
-	MAT:SetFloat("$c0_x", eye.x)
-	MAT:SetFloat("$c0_y", eye.y)
-	MAT:SetFloat("$c0_z", eye.z)
-	MAT:SetFloat("$c0_w", CurTime() % TIME_WRAP)
-	MAT:SetFloat("$c1_x", fwd.x)
-	MAT:SetFloat("$c1_y", fwd.y)
-	MAT:SetFloat("$c1_z", fwd.z)
-	MAT:SetFloat("$c1_w", layerZ)
-	MAT:SetFloat("$c2_x", sunDir.x)
-	MAT:SetFloat("$c2_y", sunDir.y)
-	MAT:SetFloat("$c2_z", sunDir.z)
-	MAT:SetFloat("$c2_w", coverage)
+	shaderpack.SetConstant(MAT, "$c0", eye.x, eye.y, eye.z, CurTime() % TIME_WRAP)
+	shaderpack.SetConstant(MAT, "$c1", fwd.x, fwd.y, fwd.z, layerZ)
+	shaderpack.SetConstant(MAT, "$c2", sunDir.x, sunDir.y, sunDir.z, coverage)
 	MAT:SetFloat("$c3_w", gain)
 	quadColor.b = depthslices.Samples()
-
-	-- alpha writes stay off so the slice indices survive for the next effect;
-	-- sh_depthslices puts the frame's alpha back after the translucent pass
-	depthslices.KeepAlpha(function()
-		render.OverrideDepthEnable(true, false)
-		render.SetMaterial(MAT)
-		render.DrawQuadEasy(eye + fwd * near, -fwd, halfW * near * QUAD_OVERSIZE, halfH * near * QUAD_OVERSIZE, quadColor, 0)
-		render.OverrideDepthEnable(false, false)
-	end)
+	depthslices.Composite(MAT, quadColor)
 end
 
 --------------------------------------------------------------------------
@@ -204,7 +148,6 @@ end
 --------------------------------------------------------------------------
 local function stop()
 	hook.Remove("Think", "ms_cloudshadows")
-	hook.Remove("NeedsDepthPass", "ms_cloudshadows")
 	depthslices.RemoveEffect("ms_cloudshadows")
 	active = false
 end
@@ -213,31 +156,7 @@ local function start()
 	stop()
 	MAT = nil
 	hook.Add("Think", "ms_cloudshadows", update)
-	-- NeedsDepthPass takes the FIRST non-nil return of all its hooks, so
-	-- returning false here would cancel another consumer's true and leave the
-	-- depth buffer stale.  Ask when it is needed, stay silent otherwise.
-	hook.Add("NeedsDepthPass", "ms_cloudshadows", function()
-		if active then return true end
-	end)
-	depthslices.AddEffect("ms_cloudshadows", ORDER, draw)
+	depthslices.AddEffect("ms_cloudshadows", ORDER, draw, false, function() return active end)
 end
 
-local function shadersAvailable()
-	return file.Exists("shaders/fxc/" .. PS .. ".vcs", "GAME") and file.Exists("shaders/fxc/" .. VS .. ".vcs", "GAME")
-end
-
-local function apply()
-	if shadersAvailable() then
-		start()
-	elseif HAS_SHADER_TO_GMA and not SHADER_MOUNTED then
-		hook.Add("ShaderMounted", "ms_cloudshadows", function()
-			hook.Remove("ShaderMounted", "ms_cloudshadows")
-			if shadersAvailable() then
-				start()
-			end
-		end)
-	end
-end
-
-hook.Remove("ShaderMounted", "ms_cloudshadows")
-apply()
+shaderpack.WhenMounted("ms_cloudshadows", { PS, VS }, start)

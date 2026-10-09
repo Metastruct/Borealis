@@ -1,14 +1,5 @@
-local HAS_SHADER_TO_GMA = file.Exists("includes/modules/shader_to_gma.lua", "LUA")
-if HAS_SHADER_TO_GMA then
-	require("shader_to_gma")
-end
-
 if SERVER then
-	if resource.AddShader then
-		resource.AddShader("clouds_ps30")
-	end
-
-	resource.AddFile("materials/clouds/noise.vtf")
+	shaderpack.AddResources({ "clouds_ps30" }, { "materials/clouds/noise.vtf" })
 
 	return
 end
@@ -40,9 +31,7 @@ local function deckHeight(lvl, overcast)
 	return Lerp(overcast, z, math.max(z, SKY_DECK_Z))
 end
 
-local function packColor(r, g, b)
-	return math.floor(math.Clamp(r, 0, 1) * 255) * 65536 + math.floor(math.Clamp(g, 0, 1) * 255) * 256 + math.floor(math.Clamp(b, 0, 1) * 255)
-end
+local packColor, setConstant = shaderpack.PackColor, shaderpack.SetConstant
 
 local function lightInfo()
 	if procsky and procsky.IsActive() then
@@ -74,18 +63,11 @@ local function lightInfo()
 end
 
 local function startShader(PIXEL_SHADER)
-	local MAT = CreateMaterial("buildclouds_" .. os.time(), "screenspace_general", {
+	local MAT = CreateShaderMaterial("buildclouds_" .. os.time(), {
 		["$pixshader"] = PIXEL_SHADER,
 		["$vertexshader"] = "aurora_vs30",
 		["$basetexture"] = "clouds/noise",
-		["$linearread_basetexture"] = 1,
-		["$ignorez"] = 1,
-		["$vertexcolor"] = 1,
-		["$vertextransform"] = 1,
 		["$additive"] = 0,
-		["$alpha_blend"] = 1,
-		["$linearwrite"] = 1,
-		["<dx90"] = { ["$no_draw"] = 1 },
 		["$c0_x"] = 1, ["$c0_y"] = 0, ["$c0_z"] = 0, ["$c0_w"] = 1,
 		["$c1_x"] = 0, ["$c1_y"] = 1, ["$c1_z"] = 0, ["$c1_w"] = 1,
 		["$c2_x"] = 0, ["$c2_y"] = 0, ["$c2_z"] = 1, ["$c2_w"] = COVERAGE,
@@ -96,10 +78,9 @@ local function startShader(PIXEL_SHADER)
 	-- from the view setup's fov (horizontal, aspect-adjusted)
 	local function viewRays()
 		local ang = EyeAngles()
-		local vs = render.GetViewSetup()
-		local halfW = math.tan(math.rad(vs.fov) * 0.5)
+		local halfW, halfH = shaderpack.ViewTan()
 
-		return ang:Forward(), ang:Right(), halfW, halfW / vs.aspect
+		return ang:Forward(), ang:Right(), halfW, halfH
 	end
 
 	local deckLight, deckAmb = { 0, 0, 0 }, { 0, 0, 0 }
@@ -108,7 +89,7 @@ local function startShader(PIXEL_SHADER)
 	local function drawClouds()
 		-- the volumetric clouds replace this deck, overcast included, while on
 		if vclouds and vclouds.IsActive() then return end
-		local overcast = procsky and procsky.GetOvercast and procsky.GetOvercast() or 0
+		local overcast = shaderpack.Overcast()
 		local lvl = level()
 		if not lvl and overcast < 0.01 then return end
 		-- the shader lerps its threshold by coverage, so past 1 the deck closes up
@@ -134,22 +115,10 @@ local function startShader(PIXEL_SHADER)
 		local t = CurTime()
 		local deckZ = lvl and deckHeight(lvl, overcast) or SKY_DECK_Z
 
-		MAT:SetFloat("$c0_x", fwd.x)
-		MAT:SetFloat("$c0_y", fwd.y)
-		MAT:SetFloat("$c0_z", fwd.z)
-		MAT:SetFloat("$c0_w", INTENSITY * render.GetToneMappingScaleLinear().x)
-		MAT:SetFloat("$c1_x", right.x * halfW)
-		MAT:SetFloat("$c1_y", right.y * halfW)
-		MAT:SetFloat("$c1_z", right.z * halfW)
-		MAT:SetFloat("$c1_w", halfH)
-		MAT:SetFloat("$c2_x", lightDir.x)
-		MAT:SetFloat("$c2_y", lightDir.y)
-		MAT:SetFloat("$c2_z", deckZ - ep.z)
-		MAT:SetFloat("$c2_w", coverage)
-		MAT:SetFloat("$c3_x", (WIND[1] * t + ep.x * EYE_K) % NOISE_PERIOD)
-		MAT:SetFloat("$c3_y", (WIND[2] * t + ep.y * EYE_K) % NOISE_PERIOD)
-		MAT:SetFloat("$c3_z", packColor(light[1], light[2], light[3]))
-		MAT:SetFloat("$c3_w", packColor(amb[1], amb[2], amb[3]))
+		setConstant(MAT, "$c0", fwd.x, fwd.y, fwd.z, INTENSITY * render.GetToneMappingScaleLinear().x)
+		setConstant(MAT, "$c1", right.x * halfW, right.y * halfW, right.z * halfW, halfH)
+		setConstant(MAT, "$c2", lightDir.x, lightDir.y, deckZ - ep.z, coverage)
+		setConstant(MAT, "$c3", (WIND[1] * t + ep.x * EYE_K) % NOISE_PERIOD, (WIND[2] * t + ep.y * EYE_K) % NOISE_PERIOD, packColor(light[1], light[2], light[3]), packColor(amb[1], amb[2], amb[3]))
 
 		render.SetMaterial(MAT)
 		render.DrawScreenQuad(true)
@@ -258,21 +227,6 @@ local function startMesh()
 	skyboxer.AddHook("d_" .. Tag, drawMesh)
 end
 
-local function tryStart()
-	if not file.Exists("shaders/fxc/clouds_ps30.vcs", "GAME") or not file.Exists("shaders/fxc/aurora_vs30.vcs", "GAME") then return false end
-	startShader("clouds_ps30")
-
-	return true
-end
-
-hook.Remove("ShaderMounted", Tag)
-if not tryStart() then
+if not shaderpack.WhenMounted(Tag, { "clouds_ps30", "aurora_vs30" }, function() startShader("clouds_ps30") end) then
 	startMesh()
-
-	if HAS_SHADER_TO_GMA and not SHADER_MOUNTED then
-		hook.Add("ShaderMounted", Tag, function()
-			hook.Remove("ShaderMounted", Tag)
-			tryStart()
-		end)
-	end
 end

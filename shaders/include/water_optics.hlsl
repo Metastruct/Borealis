@@ -27,21 +27,13 @@ float3 WaterInScatter(float3 zenithColor, float3 rayDir, float depthBelowSurface
     return WATER_INSCATTER * sky * direction * lightAtDepth;
 }
 
-#define SLICE_COUNT     32.0
-#define SLICE_NEAR      16.0
-#define SLICE_RATIO     1.2219785
 #define SLICE_TOLERANCE 1.05
-#define SLICE_EXACT     64.0
-
-float ExactDepthAlpha(float viewDepth) {
-    return (SLICE_EXACT + log(max(viewDepth, SLICE_NEAR) / SLICE_NEAR) / log(SLICE_RATIO)) / 255.0;
-}
 
 float SceneDepth(float engineDepth, float frameAlpha) {
     float slice = floor(frameAlpha * 255.0 + 0.5) - 1.0;
     float nearer = slice < 0.0 ? 0.0 : SLICE_NEAR * pow(SLICE_RATIO, slice);
     float farther = SLICE_NEAR * pow(SLICE_RATIO, slice + 1.0);
-    bool occluded = slice < SLICE_COUNT - 1.0 && engineDepth > farther * SLICE_TOLERANCE;
+    bool occluded = slice < SLICES - 1.0 && engineDepth > farther * SLICE_TOLERANCE;
 
     return occluded ? (nearer + farther) * 0.5 : engineDepth;
 }

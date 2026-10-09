@@ -1,15 +1,7 @@
-local HAS_SHADER_TO_GMA = file.Exists("includes/modules/shader_to_gma.lua", "LUA")
-if HAS_SHADER_TO_GMA then
-	require("shader_to_gma")
-end
+local PS, VS = "vclouds_ps30", "fog_vs30"
 
 if SERVER then
-	if not resource.AddShader then return end
-
-	resource.AddShader("fog_vs30")
-	resource.AddShader("vclouds_ps30")
-	resource.AddFile("materials/procsky/cloudshape.vtf")
-	resource.AddFile("materials/procsky/clouddetail.vtf")
+	shaderpack.AddResources({ VS, PS }, { "materials/procsky/cloudshape.vtf", "materials/procsky/clouddetail.vtf" })
 
 	return
 end
@@ -64,10 +56,7 @@ local COVERAGE_PERIOD_B = 1900
 -- light fades to this share once the sun is well down
 local NIGHT_GAIN = 0.2
 local NIGHT_ELEV = -6 -- sun elevation, in degrees, where NIGHT_GAIN is reached
-local NEAR = 12 -- the quad sits this far in front of the eye
-local QUAD_OVERSIZE = 6 -- sized past the frustum, the shader uses the clip position
 local LOG_RANGE = 12 -- light scales span 2^-12 .. 2^12, matches vclouds_ps30
-local PS, VS = "vclouds_ps30", "fog_vs30"
 
 vclouds = vclouds or {}
 
@@ -83,19 +72,11 @@ end
 local MAT
 local materialSerial = 0
 
--- the render targets do not exist while the map loads, and asking then hands
--- back a 32 x 32 error texture that answers IsError with false
-local function usableRT(t)
-	return t ~= nil and not t:IsError() and t:Width() > 64
-end
-
 local function build()
 	materialSerial = materialSerial + 1
-	MAT = CreateMaterial("ms_vclouds_" .. os.time() .. "_" .. materialSerial, "screenspace_general", {
+	MAT = CreateShaderMaterial("ms_vclouds_" .. os.time() .. "_" .. materialSerial, {
 		["$pixshader"] = PS,
 		["$vertexshader"] = VS,
-		["$basetexture"] = "",
-		["$texture1"] = "",
 		["$texture2"] = "procsky/cloudshape",
 		["$texture3"] = "procsky/clouddetail",
 		["$linearread_basetexture"] = 0,
@@ -103,13 +84,9 @@ local function build()
 		["$linearread_texture2"] = 1,
 		["$linearread_texture3"] = 1,
 		["$linearwrite"] = 0,
-		["$ignorez"] = 1,
-		["$vertexcolor"] = 1,
-		["$vertextransform"] = 1,
 		["$additive"] = 0,
 		["$alpha_blend"] = 0,
 		["$nocull"] = 1,
-		["<dx90"] = { ["$no_draw"] = 1 },
 		["$c0_x"] = 0, ["$c0_y"] = 0, ["$c0_z"] = 0, ["$c0_w"] = 0,
 		["$c1_x"] = 0, ["$c1_y"] = 0, ["$c1_z"] = 0, ["$c1_w"] = 0,
 		["$c2_x"] = 0, ["$c2_y"] = 0, ["$c2_z"] = 1, ["$c2_w"] = 0,
@@ -128,7 +105,7 @@ local function coverage()
 	local t = os.time()
 	local wander = (math.sin(t / COVERAGE_PERIOD_A * TAU) + math.sin(t / COVERAGE_PERIOD_B * TAU)) * 0.5
 	local base = COVERAGE_BASE + COVERAGE_SWING * wander
-	local overcast = procsky and procsky.GetOvercast and procsky.GetOvercast() or 0
+	local overcast = shaderpack.Overcast()
 
 	return Lerp(overcast, base, COVERAGE_OVERCAST)
 end
@@ -150,9 +127,7 @@ function vclouds.GetLayer()
 	return baseZ(), coverage()
 end
 
-local function packColor(r, g, b)
-	return math.floor(math.Clamp(r, 0, 1) * 255) * 65536 + math.floor(math.Clamp(g, 0, 1) * 255) * 256 + math.floor(math.Clamp(b, 0, 1) * 255)
-end
+local packColor, toLinear, setConstant = shaderpack.PackColor, shaderpack.ToLinear, shaderpack.SetConstant
 
 -- a colour splits into an 8 bit hue and a log encoded scale: one 8 bit triple
 -- cannot hold both a midday sun and a moonlit ambient of 0.002
@@ -169,12 +144,6 @@ end
 
 local FOG_START_STEP, FOG_RANGE_STEP = 64, 128
 local fogLinear = { 0, 0, 0 }
-
-local function toLinear(c)
-	c = c / 255
-
-	return c <= 0.04045 and c / 12.92 or ((c + 0.055) / 1.055) ^ 2.4
-end
 
 -- The same fog the engine gave the world: a hue and a log scale like the light,
 -- and one packed float holding the start in 64 unit steps, the range in 128 unit
@@ -233,68 +202,33 @@ local quadColor = Color(255, 255, 0, 255)
 local ORDER = 10 -- the far volume: the fog composites over these
 
 local function draw()
-	-- rebound every frame: the targets are recreated across a map change and a
-	-- material built before they existed holds the error texture forever
-	local depth, fb = render.GetResolvedFullFrameDepth(), render.GetScreenEffectTexture()
-	if not usableRT(depth) or not usableRT(fb) then return end
 	if not MAT and not build() then return end
 
 	local eye = EyePos()
 	local fwd = EyeAngles():Forward()
-	local vs = render.GetViewSetup()
-	local halfW = math.tan(math.rad(vs.fov) * 0.5)
-	local halfH = halfW / vs.aspect
-	local near = math.max(NEAR, vs.znear * 1.5)
 	local sun, light, amb = lighting()
 	local tonemap = render.GetToneMappingScaleLinear().x
 	local lightHue, lightScale = splitColor(light, tonemap)
 	local ambHue, ambScale = splitColor(amb, tonemap)
 	local fogHue, fogPacked, fogScale = fogRamp(tonemap)
 
-	depthslices.Capture()
-	render.UpdateScreenEffectTexture()
-	MAT:SetTexture("$texture1", depth)
-	MAT:SetTexture("$basetexture", fb)
-
-	MAT:SetFloat("$c0_x", eye.x)
-	MAT:SetFloat("$c0_y", eye.y)
-	MAT:SetFloat("$c0_z", eye.z)
-	MAT:SetFloat("$c0_w", lightHue)
-	MAT:SetFloat("$c1_x", fwd.x)
-	MAT:SetFloat("$c1_y", fwd.y)
-	MAT:SetFloat("$c1_z", fwd.z)
-	MAT:SetFloat("$c1_w", CurTime() % 3600)
-	MAT:SetFloat("$c2_x", sun.x)
-	MAT:SetFloat("$c2_y", sun.y)
-	MAT:SetFloat("$c2_z", sun.z)
-	MAT:SetFloat("$c2_w", ambHue)
-	MAT:SetFloat("$c3_x", baseZ())
-	MAT:SetFloat("$c3_y", fogHue)
-	MAT:SetFloat("$c3_z", coverage())
-	MAT:SetFloat("$c3_w", fogPacked)
+	setConstant(MAT, "$c0", eye.x, eye.y, eye.z, lightHue)
+	setConstant(MAT, "$c1", fwd.x, fwd.y, fwd.z, CurTime() % 3600)
+	setConstant(MAT, "$c2", sun.x, sun.y, sun.z, ambHue)
+	setConstant(MAT, "$c3", baseZ(), fogHue, coverage(), fogPacked)
 
 	quadColor.r = ambScale * 255
 	quadColor.g = lightScale * 255
 	quadColor.b = depthslices.Samples()
 	quadColor.a = fogScale * 255
 
-	-- alpha writes stay off so the slice indices survive for the next effect;
-	-- sh_depthslices puts the frame's alpha back after the translucent pass
-	depthslices.KeepAlpha(function()
-		render.OverrideDepthEnable(true, false)
-		render.SetMaterial(MAT)
-		render.DrawQuadEasy(eye + fwd * near, -fwd, halfW * near * QUAD_OVERSIZE, halfH * near * QUAD_OVERSIZE, quadColor, 0)
-		render.OverrideDepthEnable(false, false)
-	end)
-
-	return true
+	return depthslices.Composite(MAT, quadColor)
 end
 
 --------------------------------------------------------------------------
 -- lifecycle
 --------------------------------------------------------------------------
 local function stop()
-	hook.Remove("NeedsDepthPass", "ms_vclouds")
 	hook.Remove("PreDrawTranslucentRenderables", "ms_vclouds")
 	hook.Remove("RenderScreenspaceEffects", "ms_vclouds")
 	depthslices.RemoveEffect("ms_vclouds")
@@ -304,39 +238,7 @@ end
 local function start()
 	stop()
 	active = true
-	-- NeedsDepthPass takes the FIRST non-nil return of all its hooks, so
-	-- returning false here would cancel another consumer's true and leave the
-	-- depth buffer stale.  Ask when it is needed, stay silent otherwise.
-	hook.Add("NeedsDepthPass", "ms_vclouds", function()
-		if active then return true end
-	end)
-	depthslices.AddEffect("ms_vclouds", ORDER, draw, true)
+	depthslices.AddEffect("ms_vclouds", ORDER, draw, true, function() return active end)
 end
 
-local function shadersAvailable()
-	return file.Exists("shaders/fxc/" .. PS .. ".vcs", "GAME") and file.Exists("shaders/fxc/" .. VS .. ".vcs", "GAME")
-end
-
-local function apply()
-	if not ENABLED:GetBool() then
-		stop()
-
-		return
-	end
-
-	if shadersAvailable() then
-		start()
-	elseif HAS_SHADER_TO_GMA and not SHADER_MOUNTED then
-		hook.Add("ShaderMounted", "ms_vclouds", function()
-			hook.Remove("ShaderMounted", "ms_vclouds")
-			if ENABLED:GetBool() and shadersAvailable() then
-				start()
-			end
-		end)
-	end
-end
-
-cvars.RemoveChangeCallback("cl_draw_vclouds", "ms_vclouds")
-cvars.AddChangeCallback("cl_draw_vclouds", apply, "ms_vclouds")
-hook.Remove("ShaderMounted", "ms_vclouds")
-apply()
+shaderpack.Toggle("ms_vclouds", ENABLED, { PS, VS }, start, stop)()

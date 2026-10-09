@@ -29,6 +29,7 @@ float2 ClipToUV(float4 pixel) {
 }
 
 #include "include/water_waves.hlsl"
+#include "include/slices.hlsl"
 #include "include/water_optics.hlsl"
 
 float3 WorldAbove(float2 lookupUV, float3 sky) {
@@ -48,7 +49,6 @@ float4 main(PS_IN i) : COLOR
     float3 SUN_DIR = Constants3.xyz;
     float SUNLIT = Constants2.w;
 
-    const float SOURCE_DEPTH_SCALE = 4000.0;
     const float SKY_DEPTH_TOLERANCE = 2.0;
     const float SSR_MAX_DISTANCE = 32000.0;
     const float SSR_MIN_THICKNESS = 16.0;
@@ -92,18 +92,18 @@ float4 main(PS_IN i) : COLOR
     if (!FROM_BELOW) {
         float2 wobble = (normal.xy / i.spos.w) * ABOVE_REFRACTION;
         float4 frame = tex2D(Frame, uv + wobble);
-        float depth = SceneDepth(tex2D(Depth, uv + wobble).r * SOURCE_DEPTH_SCALE, frame.a);
+        float depth = SceneDepth(tex2D(Depth, uv + wobble).r * DEPTH_SCALE, frame.a);
         float thickness = depth - i.spos.w;
 
         if (thickness < 0) {
             frame = tex2D(Frame, uv);
-            depth = SceneDepth(tex2D(Depth, uv).r * SOURCE_DEPTH_SCALE, frame.a);
+            depth = SceneDepth(tex2D(Depth, uv).r * DEPTH_SCALE, frame.a);
             thickness = depth - i.spos.w;
         }
 
         float3 seabedPos = EYE_POS + (i.wpos - EYE_POS) * (depth / i.spos.w);
         float caustics = CausticLight(NormalMap, seabedPos, EYE_POS, i.wpos.z, SUN_DIR, TIME);
-        bool seabedSky = abs(depth - SOURCE_DEPTH_SCALE) < SKY_DEPTH_TOLERANCE;
+        bool seabedSky = abs(depth - DEPTH_SCALE) < SKY_DEPTH_TOLERANCE;
         frame.rgb *= seabedSky ? 1.0 : lerp(1.0, caustics, SUNLIT);
 
         transmitted = WaterAttenuate(frame.rgb, thickness * MURK, skyScatter);
@@ -147,9 +147,9 @@ float4 main(PS_IN i) : COLOR
         if (projectedUV.x < 0 || projectedUV.y < 0 || projectedUV.x > 1 || projectedUV.y > 1)
             break;
 
-        float projectedDepth = tex2Dlod(Depth, float4(projectedUV, 0, 0)).r * SOURCE_DEPTH_SCALE;
+        float projectedDepth = tex2Dlod(Depth, float4(projectedUV, 0, 0)).r * DEPTH_SCALE;
         float behind = projected.w - projectedDepth;
-        bool projectedSky = abs(projectedDepth - SOURCE_DEPTH_SCALE) < SKY_DEPTH_TOLERANCE;
+        bool projectedSky = abs(projectedDepth - DEPTH_SCALE) < SKY_DEPTH_TOLERANCE;
         if (projectedDepth > 0 && projectedDepth < projected.w && behind < (t - tPrev) && !projectedSky)
         {
             float tNear = tPrev;
@@ -162,9 +162,9 @@ float4 main(PS_IN i) : COLOR
                 float tMid = (tNear + tFar) * 0.5;
                 float4 refinement = ProjectToClip(i.wpos + reflectDir * tMid, i);
                 float2 refinementUV = ClipToUV(refinement);
-                float refinementDepth = tex2Dlod(Depth, float4(refinementUV, 0.0, 0.0)).r * SOURCE_DEPTH_SCALE;
+                float refinementDepth = tex2Dlod(Depth, float4(refinementUV, 0.0, 0.0)).r * DEPTH_SCALE;
 
-                if (refinementDepth < refinement.w && abs(refinementDepth - SOURCE_DEPTH_SCALE) >= SKY_DEPTH_TOLERANCE) {
+                if (refinementDepth < refinement.w && abs(refinementDepth - DEPTH_SCALE) >= SKY_DEPTH_TOLERANCE) {
                     tFar = tMid;
                     farBehind = refinement.w - refinementDepth;
                     farDepth = refinementDepth;

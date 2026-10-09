@@ -1,21 +1,13 @@
-local HAS_SHADER_TO_GMA = file.Exists("includes/modules/shader_to_gma.lua", "LUA")
-if HAS_SHADER_TO_GMA then
-	require("shader_to_gma")
-end
+local PIXEL_SHADER, DEPTH_SHADER, VERTEX_SHADER = "kelp_ps30", "kelpdepth_ps30", "kelp_vs30"
 
 if SERVER then
-	if not resource.AddShader then return end
-
-	resource.AddShader("kelp_vs30")
-	resource.AddShader("kelp_ps30")
-	resource.AddShader("kelpdepth_ps30")
+	shaderpack.AddResources({ VERTEX_SHADER, PIXEL_SHADER, DEPTH_SHADER })
 
 	return
 end
 
 local KELP_ENABLED = CreateClientConVar("cl_draw_kelp", "0", true, false, "draw kelp forests on sunlit rocky sea beds")
 
-local PIXEL_SHADER, DEPTH_SHADER, VERTEX_SHADER = "kelp_ps30", "kelpdepth_ps30", "kelp_vs30"
 local RADIUS = 3072
 local MIN_DEPTH, MAX_DEPTH, DEPTH_FADE = 400, 1300, 120
 local WARP_CELL, WARP = 1600, 1200
@@ -37,47 +29,9 @@ local TRANSLUCENCY = 0.45
 
 local ROCKY = { gravel = true, rock = true, boulder = true }
 
-local packColor = foliage.PackColor
+local packColor, setConstant = shaderpack.PackColor, shaderpack.SetConstant
+local valueNoise, smoothstep = foliage.ValueNoise, foliage.Smoothstep
 local CURRENT_X, CURRENT_Y = math.cos(CURRENT_ANGLE), math.sin(CURRENT_ANGLE)
-
-local function rockyMode(name)
-	local mat = Material(name)
-	local sp = (mat:GetString("$surfaceprop") or ""):lower()
-	local sp2 = (mat:GetString("$surfaceprop2") or ""):lower()
-	if ROCKY[sp] and (sp2 == "" or ROCKY[sp2]) then
-		return 1
-	elseif ROCKY[sp] then
-		return 2
-	elseif ROCKY[sp2] then
-		return 3
-	end
-end
-
-local function lattice(ix, iy)
-	local h = (ix * 73856093 + iy * 19349663) % 2147483648
-	h = (h * 1103515245 + 12345) % 2147483648
-	h = (h * 1103515245 + 12345) % 2147483648
-
-	return h / 2147483648
-end
-
-local function valueNoise(x, y, cell)
-	local fx, fy = x / cell, y / cell
-	local ix, iy = math.floor(fx), math.floor(fy)
-	local tx, ty = fx - ix, fy - iy
-	tx, ty = tx * tx * (3 - 2 * tx), ty * ty * (3 - 2 * ty)
-	local a, b = lattice(ix, iy), lattice(ix + 1, iy)
-	local c, d = lattice(ix, iy + 1), lattice(ix + 1, iy + 1)
-	local top = a + (b - a) * tx
-
-	return top + (c + (d - c) * tx - top) * ty
-end
-
-local function smoothstep(e0, e1, v)
-	local t = math.Clamp((v - e0) / (e1 - e0), 0, 1)
-
-	return t * t * (3 - 2 * t)
-end
 
 local function forestDensity(x, y)
 	local wx = valueNoise(x - 4100, y + 2600, WARP_CELL) - 0.5
@@ -214,21 +168,20 @@ local function emit(tufts, o, write)
 end
 
 local function palette(mat)
-	mat:SetFloat("$c2_y", packColor(unpack(BASE_COLOR)))
-	mat:SetFloat("$c2_z", packColor(unpack(TIP_COLOR)))
+	setConstant(mat, "$c2", nil, packColor(unpack(BASE_COLOR)), packColor(unpack(TIP_COLOR)))
 	mat:SetFloat("$c3_x", TRANSLUCENCY)
 end
 
 local vertexRows = { { 0, CURRENT_X, CURRENT_Y }, { SWAY, FLUTTER, 0 } }
 local function frame()
 	vertexRows[1][1] = CurTime() % 3600
-	foliage.SetVertexConstants(vertexRows)
+	shaderpack.SetVertexConstants(vertexRows)
 end
 
 local layer = foliage.Layer({
 	name = "kelp",
 	pixelShader = PIXEL_SHADER, vertexShader = VERTEX_SHADER, depthShader = DEPTH_SHADER,
-	classify = rockyMode, minNormalZ = 0.7,
+	classify = foliage.SurfaceClassifier(ROCKY), minNormalZ = 0.7,
 	spacing = 80, jitter = 30, quadW = 0, quadH = MAX_HEIGHT,
 	keep = keep, minLight = MIN_LIGHT, timeWrap = 3600,
 	emit = emit, meshBatch = 16,
@@ -236,37 +189,4 @@ local layer = foliage.Layer({
 })
 layer:SetDistance(RADIUS)
 
-local function shadersAvailable()
-	return file.Exists("shaders/fxc/" .. PIXEL_SHADER .. ".vcs", "GAME") and file.Exists("shaders/fxc/" .. VERTEX_SHADER .. ".vcs", "GAME")
-end
-
-local function apply()
-	if not KELP_ENABLED:GetBool() then
-		layer:Stop()
-		return
-	end
-
-	if shadersAvailable() then
-		layer:Start()
-	elseif HAS_SHADER_TO_GMA and not SHADER_MOUNTED then
-		hook.Add("ShaderMounted", "ms_kelp", function()
-			hook.Remove("ShaderMounted", "ms_kelp")
-			if KELP_ENABLED:GetBool() and shadersAvailable() then
-				layer:Start()
-			end
-		end)
-	end
-end
-
-cvars.RemoveChangeCallback("cl_draw_kelp", "ms_kelp")
-cvars.AddChangeCallback("cl_draw_kelp", apply, "ms_kelp")
-hook.Remove("ShaderMounted", "ms_kelp")
-
-if LocalPlayer and IsValid(LocalPlayer()) then
-	apply()
-else
-	hook.Add("InitPostEntity", "ms_kelp", function()
-		hook.Remove("InitPostEntity", "ms_kelp")
-		apply()
-	end)
-end
+shaderpack.AfterWorld("ms_kelp", shaderpack.Toggle("ms_kelp", KELP_ENABLED, { PIXEL_SHADER, VERTEX_SHADER }, function() layer:Start() end, function() layer:Stop() end))

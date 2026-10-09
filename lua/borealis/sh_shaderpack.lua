@@ -1,0 +1,156 @@
+shaderpack = shaderpack or {}
+
+local HAS_SHADER_TO_GMA = file.Exists("includes/modules/shader_to_gma.lua", "LUA")
+if HAS_SHADER_TO_GMA then
+	require("shader_to_gma")
+end
+
+if SERVER then
+	function shaderpack.AddResources(shaders, files)
+		if resource.AddShader then
+			for _, name in ipairs(shaders) do
+				resource.AddShader(name)
+			end
+		end
+
+		for _, path in ipairs(files or {}) do
+			resource.AddFile(path)
+		end
+	end
+
+	return
+end
+
+function shaderpack.Available(shaders)
+	for _, name in ipairs(shaders) do
+		if not file.Exists("shaders/fxc/" .. name .. ".vcs", "GAME") then return false end
+	end
+
+	return true
+end
+
+function shaderpack.WhenMounted(id, shaders, start)
+	hook.Remove("ShaderMounted", id)
+	if shaderpack.Available(shaders) then
+		start()
+		return true
+	end
+
+	if HAS_SHADER_TO_GMA and not SHADER_MOUNTED then
+		hook.Add("ShaderMounted", id, function()
+			hook.Remove("ShaderMounted", id)
+			if shaderpack.Available(shaders) then
+				start()
+			end
+		end)
+	end
+
+	return false
+end
+
+function shaderpack.Toggle(id, convar, shaders, start, stop)
+	local function apply()
+		if not convar:GetBool() then
+			hook.Remove("ShaderMounted", id)
+			stop()
+			return
+		end
+
+		shaderpack.WhenMounted(id, shaders, start)
+	end
+
+	cvars.RemoveChangeCallback(convar:GetName(), id)
+	cvars.AddChangeCallback(convar:GetName(), apply, id)
+
+	return apply
+end
+
+function shaderpack.AfterWorld(id, fn)
+	if LocalPlayer and IsValid(LocalPlayer()) then
+		fn()
+		return
+	end
+
+	hook.Add("InitPostEntity", id, function()
+		hook.Remove("InitPostEntity", id)
+		fn()
+	end)
+end
+
+function shaderpack.UsableRT(t, w, h)
+	if t == nil or t:IsError() then return false end
+	if w then return t:Width() == w and (h == nil or t:Height() == h) end
+
+	return t:Width() > 64
+end
+
+function shaderpack.PackColor(r, g, b)
+	return math.floor(math.Clamp(r, 0, 1) * 255) * 65536 + math.floor(math.Clamp(g, 0, 1) * 255) * 256 + math.floor(math.Clamp(b, 0, 1) * 255)
+end
+
+function shaderpack.ToLinear(c)
+	c = c / 255
+
+	return c <= 0.04045 and c / 12.92 or ((c + 0.055) / 1.055) ^ 2.4
+end
+
+function shaderpack.SunDir()
+	if procsky and procsky.GetLights then
+		return procsky.GetLights()
+	elseif tod and tod.CurrentParams and isangle(tod.CurrentParams.sun_angles) then
+		return -tod.CurrentParams.sun_angles:Forward()
+	end
+
+	return Vector(0, 0, 1)
+end
+
+function shaderpack.Elevation(dir)
+	return math.deg(math.asin(math.Clamp(dir.z, -1, 1)))
+end
+
+function shaderpack.Overcast()
+	return procsky and procsky.GetOvercast and procsky.GetOvercast() or 0
+end
+
+function shaderpack.ViewTan()
+	local vs = render.GetViewSetup()
+	local halfW = math.tan(math.rad(vs.fov) * 0.5)
+
+	return halfW, halfW / vs.aspect, vs
+end
+
+local KEYS = {}
+for i = 0, 3 do
+	local reg = "$c" .. i
+	KEYS[reg] = { reg .. "_x", reg .. "_y", reg .. "_z", reg .. "_w" }
+end
+
+function shaderpack.SetConstant(mat, reg, x, y, z, w)
+	local keys = KEYS[reg]
+	if x then mat:SetFloat(keys[1], x) end
+	if y then mat:SetFloat(keys[2], y) end
+	if z then mat:SetFloat(keys[3], z) end
+	if w then mat:SetFloat(keys[4], w) end
+end
+
+local cubeModel
+function shaderpack.SetVertexConstants(rows)
+	if not IsValid(cubeModel) then
+		cubeModel = ClientsideModel("models/shadertest/vertexlit.mdl")
+		cubeModel:SetNoDraw(true)
+		cubeModel:SetModelScale(0)
+	end
+
+	render.SuppressEngineLighting(true)
+	for i = 0, 5 do
+		local r = rows[i + 1]
+		if r then
+			render.SetModelLighting(i, r[1], r[2], r[3])
+		else
+			render.SetModelLighting(i, 0, 0, 0)
+		end
+	end
+
+	cubeModel:DrawModel()
+	render.SuppressEngineLighting(false)
+end

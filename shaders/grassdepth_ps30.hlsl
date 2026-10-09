@@ -1,2 +1,4 @@
 #define DEPTH_ONLY
-#include "grass_ps30.hlsl"
+#include "include/common.hlsl"
+#include "include/slices.hlsl"
+#include "include/grass.hlsl"

@@ -9,6 +9,7 @@ sampler NormalMap : register(s2);
 sampler3D Noise : register(s3);
 
 #include "include/water_waves.hlsl"
+#include "include/slices.hlsl"
 #include "include/water_optics.hlsl"
 
 #define EYE_POS      Constants0.xyz
@@ -20,7 +21,6 @@ sampler3D Noise : register(s3);
 #define SUN_DIR      Constants3.xyz
 #define SUNLIT       Constants3.w
 
-#define DEPTH_SCALE 4000.0
 #define SKY_DEPTH_TOLERANCE 2.0
 #define FAR 100000.0
 

@@ -1,4 +1,4 @@
-#define DEPTH_SCALE 4000.0
+#include "include/slices.hlsl"
 
 struct PS_IN
 {

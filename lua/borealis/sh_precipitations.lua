@@ -1,17 +1,11 @@
-local HAS_SHADER_TO_GMA = file.Exists("includes/modules/shader_to_gma.lua", "LUA")
-if HAS_SHADER_TO_GMA then
-	require("shader_to_gma")
-end
+local VS = "rain_vs30"
+local SPLASH_PS = "rainsplash_ps30"
+local DROP_PS, DROP_VS = "raindrop_ps30", "raindrop_vs30"
+local SNOW_PS, SNOW_VS = "snow_ps30", "snow_vs30"
+local SHADERS = { VS, SPLASH_PS, DROP_VS, DROP_PS, SNOW_VS, SNOW_PS }
 
 if SERVER then
-	if not resource.AddShader then return end
-
-	resource.AddShader("rain_vs30")
-	resource.AddShader("rainsplash_ps30")
-	resource.AddShader("raindrop_vs30")
-	resource.AddShader("raindrop_ps30")
-	resource.AddShader("snow_vs30")
-	resource.AddShader("snow_ps30")
+	shaderpack.AddResources(SHADERS)
 
 	return
 end
@@ -40,10 +34,6 @@ end
 -- per frame, and each tile's position rides in its model matrix.
 
 local ENABLED = CreateClientConVar("cl_draw_precipitations", "1", true, false, "draw falling rain and snow")
-local VS = "rain_vs30"
-local SPLASH_PS = "rainsplash_ps30"
-local DROP_PS, DROP_VS = "raindrop_ps30", "raindrop_vs30"
-local SNOW_PS, SNOW_VS = "snow_ps30", "snow_vs30"
 
 local TILE = 512 -- world units, the field is the 3 x 3 of these around the eye
 local DROP_TILE = 256
@@ -107,9 +97,7 @@ local SPLASH_NSCALE = 0.75 -- the normal's xy range in the vertex colour, matche
 local SPLASH_C0 = math.floor((SPLASH_STEP - SPLASH_QUAD) * 0.5)
 local SPLASH_C1 = SPLASH_C0 + SPLASH_QUAD
 
-local function packColor(r, g, b)
-	return math.floor(math.Clamp(r, 0, 1) * 255) * 65536 + math.floor(math.Clamp(g, 0, 1) * 255) * 256 + math.floor(math.Clamp(b, 0, 1) * 255)
-end
+local packColor, setConstant = shaderpack.PackColor, shaderpack.SetConstant
 
 local SPLASH_MAT, DROP_MAT, SNOW_MAT, coverRT, splashMesh
 local build -- the cover map and the materials, once the render targets are real
@@ -145,7 +133,7 @@ local function wetLight()
 	end
 
 	local dir, light = procsky.GetCloudLighting()
-	local k = 1 - SPLASH_OVERCAST * (procsky.GetOvercast and procsky.GetOvercast() or 0)
+	local k = 1 - SPLASH_OVERCAST * shaderpack.Overcast()
 	lightCol[1], lightCol[2], lightCol[3] = light[1] * k, light[2] * k, light[3] * k
 
 	return dir, skyCol, lightCol
@@ -201,27 +189,7 @@ local function updateDrops()
 	dropChunks[n + 1] = buildDropChunk(first)
 end
 
-local cubeModel
-local function setVertexConstants(rows)
-	if not IsValid(cubeModel) then
-		cubeModel = ClientsideModel("models/shadertest/vertexlit.mdl")
-		cubeModel:SetNoDraw(true)
-		cubeModel:SetModelScale(0)
-	end
-
-	render.SuppressEngineLighting(true)
-	for i = 0, 5 do
-		local r = rows[i + 1]
-		if r then
-			render.SetModelLighting(i, r[1], r[2], r[3])
-		else
-			render.SetModelLighting(i, 0, 0, 0)
-		end
-	end
-
-	cubeModel:DrawModel()
-	render.SuppressEngineLighting(false)
-end
+local setVertexConstants = shaderpack.SetVertexConstants
 
 --------------------------------------------------------------------------
 -- cover map: owner[texel] = the column key written there, ground[key] = the
@@ -673,11 +641,8 @@ local snowRows = { {}, {}, {} }
 local function drawSnow(eye, amount)
 	local r, g, b = render.GetFogColor()
 	SNOW_MAT:SetTexture("$basetexture", coverRT)
-	SNOW_MAT:SetFloat("$c0_x", eye.x)
-	SNOW_MAT:SetFloat("$c0_y", eye.y)
-	SNOW_MAT:SetFloat("$c0_z", eye.z)
-	SNOW_MAT:SetFloat("$c1_x", SNOW_ALPHA * render.GetToneMappingScaleLinear().x)
-	SNOW_MAT:SetFloat("$c1_w", packColor(
+	setConstant(SNOW_MAT, "$c0", eye.x, eye.y, eye.z)
+	setConstant(SNOW_MAT, "$c1", SNOW_ALPHA * render.GetToneMappingScaleLinear().x, nil, nil, packColor(
 		math.max(r / 255 * SNOW_LIGHT, SNOW_FLOOR),
 		math.max(g / 255 * SNOW_LIGHT, SNOW_FLOOR),
 		math.max(b / 255 * SNOW_LIGHT, SNOW_FLOOR)))
@@ -722,27 +687,17 @@ local function draw(bDepth, _, b3DSky)
 
 	-- bound again every frame: the targets are recreated across a map change
 	DROP_MAT:SetTexture("$basetexture", coverRT)
-	DROP_MAT:SetFloat("$c0_x", eye.x)
-	DROP_MAT:SetFloat("$c0_y", eye.y)
-	DROP_MAT:SetFloat("$c0_z", eye.z)
-	DROP_MAT:SetFloat("$c0_w", CurTime() % WRAP)
+	setConstant(DROP_MAT, "$c0", eye.x, eye.y, eye.z, CurTime() % WRAP)
 	local body, head = streakColor()
-	DROP_MAT:SetFloat("$c1_w", packColor(body[1], body[2], body[3]))
+	setConstant(DROP_MAT, "$c1", ALPHA * k * tonemap, nil, nil, packColor(body[1], body[2], body[3]))
 	DROP_MAT:SetFloat("$c2_x", packColor(head[1], head[2], head[3]))
-	DROP_MAT:SetFloat("$c1_x", ALPHA * k * tonemap)
 	drawDrops(eye, CurTime() % WRAP, densityLevel(k))
 
 	if splashMesh then
 		local dir, sky, light = wetLight()
-		SPLASH_MAT:SetFloat("$c2_x", dir.x)
-		SPLASH_MAT:SetFloat("$c2_y", dir.y)
-		SPLASH_MAT:SetFloat("$c2_z", dir.z)
-		SPLASH_MAT:SetFloat("$c2_w", packColor(sky[1], sky[2], sky[3]))
+		setConstant(SPLASH_MAT, "$c2", dir.x, dir.y, dir.z, packColor(sky[1], sky[2], sky[3]))
 		SPLASH_MAT:SetFloat("$c3_x", packColor(light[1], light[2], light[3]))
-		SPLASH_MAT:SetFloat("$c0_x", eye.x)
-		SPLASH_MAT:SetFloat("$c0_y", eye.y)
-		SPLASH_MAT:SetFloat("$c0_z", eye.z)
-		SPLASH_MAT:SetFloat("$c0_w", CurTime() % SPLASH_WRAP)
+		setConstant(SPLASH_MAT, "$c0", eye.x, eye.y, eye.z, CurTime() % SPLASH_WRAP)
 		SPLASH_MAT:SetFloat("$c1_x", SPLASH_ALPHA * k * tonemap)
 		render.SetMaterial(SPLASH_MAT)
 		splashMesh:Draw()
@@ -758,10 +713,6 @@ local function stop()
 		dropChunks[i] = nil
 	end
 
-	if IsValid(cubeModel) then
-		cubeModel:Remove()
-	end
-
 	dropSnowTiles()
 end
 
@@ -772,20 +723,15 @@ local materialSerial = 0
 local function material(name, pixelShader, vertexShader)
 	materialSerial = materialSerial + 1
 
-	return CreateMaterial(name .. "_" .. os.time() .. "_" .. materialSerial, "screenspace_general", {
+	return CreateShaderMaterial(name .. "_" .. os.time() .. "_" .. materialSerial, {
 		["$pixshader"] = pixelShader,
 		["$vertexshader"] = vertexShader or VS,
-		["$basetexture"] = "",
 		["$linearread_basetexture"] = 1, -- the cover map is data
 		["$ignorez"] = 0,
 		["$depthtest"] = 1,
-		["$vertexcolor"] = 1,
-		["$vertextransform"] = 1,
 		["$additive"] = 0,
-		["$alpha_blend"] = 1,
 		["$linearwrite"] = 0,
 		["$nocull"] = 1,
-		["<dx90"] = { ["$no_draw"] = 1 },
 		["$c0_x"] = 0, ["$c0_y"] = 0, ["$c0_z"] = 0, ["$c0_w"] = 0,
 		["$c1_x"] = 0, ["$c1_y"] = FADE_START, ["$c1_z"] = FADE_END, ["$c1_w"] = 0,
 		["$c2_x"] = 0, ["$c2_y"] = 0, ["$c2_z"] = 1, ["$c2_w"] = 0,
@@ -799,15 +745,11 @@ end
 -- every column reads a cut of Z_MIN and the rain falls through every roof.
 -- The ripples come from Lua and keep obeying the traces, which is what the
 -- symptom looks like: cover works on the ground and nowhere else.
-local function usableRT(t)
-	return t ~= nil and not t:IsError() and t:Width() == COLUMNS
-end
-
 -- on the first frame the targets are real, never at load
 function build()
 	-- point sampled and wrapped: the shader addresses it by world column
 	coverRT = coverRT or GetRenderTargetEx("ms_rain_cover_" .. COLUMNS, COLUMNS, COLUMNS, RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE, 1, 0, IMAGE_FORMAT_RGBA8888)
-	if not usableRT(coverRT) then
+	if not shaderpack.UsableRT(coverRT, COLUMNS) then
 		coverRT = nil
 
 		return false
@@ -823,8 +765,7 @@ function build()
 	DROP_MAT = material("ms_raindrop", DROP_PS, DROP_VS)
 	DROP_MAT:SetTexture("$basetexture", coverRT)
 	SPLASH_MAT = material("ms_rainsplash", SPLASH_PS)
-	SPLASH_MAT:SetFloat("$c1_y", SPLASH_FADE_START)
-	SPLASH_MAT:SetFloat("$c1_z", SPLASH_FADE_END)
+	setConstant(SPLASH_MAT, "$c1", nil, SPLASH_FADE_START, SPLASH_FADE_END)
 	SNOW_MAT = material("ms_snow", SNOW_PS, SNOW_VS)
 	SNOW_MAT:SetTexture("$basetexture", coverRT)
 
@@ -838,33 +779,4 @@ local function start()
 	hook.Add("PostDrawTranslucentRenderables", "ms_precipitations", draw)
 end
 
-local function shadersAvailable()
-	for _, name in ipairs({ VS, SPLASH_PS, DROP_PS, DROP_VS, SNOW_PS, SNOW_VS }) do
-		if not file.Exists("shaders/fxc/" .. name .. ".vcs", "GAME") then return false end
-	end
-
-	return true
-end
-
-local function apply()
-	if not ENABLED:GetBool() then
-		stop()
-		return
-	end
-
-	if shadersAvailable() then
-		start()
-	elseif HAS_SHADER_TO_GMA and not SHADER_MOUNTED then
-		hook.Add("ShaderMounted", "ms_precipitations", function()
-			hook.Remove("ShaderMounted", "ms_precipitations")
-			if ENABLED:GetBool() and shadersAvailable() then
-				start()
-			end
-		end)
-	end
-end
-
-cvars.RemoveChangeCallback("cl_draw_precipitations", "ms_precipitations")
-cvars.AddChangeCallback("cl_draw_precipitations", apply, "ms_precipitations")
-hook.Remove("ShaderMounted", "ms_precipitations")
-apply()
+shaderpack.Toggle("ms_precipitations", ENABLED, SHADERS, start, stop)()
