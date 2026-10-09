@@ -72,6 +72,7 @@ local function parseVis()
 	local nodesL, noLen = lump(5)
 	local leavesL, leLen, leVer = lump(10)
 	local visData = lump(4)
+	local waterL, waLen = lump(36)
 	f:Close()
 
 	-- no node tree, no planes or no leaves means no vis lookup
@@ -95,9 +96,15 @@ local function parseVis()
 	end
 
 	local leafSize = leVer == 0 and 56 or 32 -- version 0 leaves carry ambient lighting
-	local leafCluster = {}
+	local leafCluster, leafWater = {}, {}
 	for i = 0, leLen / leafSize - 1 do
 		leafCluster[i] = i16(leavesL, i * leafSize + 5)
+		leafWater[i] = i16(leavesL, i * leafSize + 29)
+	end
+
+	local waterSurface = {}
+	for i = 0, waLen / 12 - 1 do
+		waterSurface[i] = f32(waterL, i * 12 + 1)
 	end
 
 	bspdata.vis = {
@@ -105,6 +112,8 @@ local function parseVis()
 		planes = bspPlanes,
 		nodes = bspNodes,
 		leafCluster = leafCluster,
+		leafWater = leafWater,
+		waterSurface = waterSurface,
 		visData = visData,
 		numClusters = #visData >= 4 and i32(visData, 1) or 0,
 	}
@@ -152,9 +161,7 @@ function bspdata.LoadVis()
 	end
 end
 
--- vis cluster of a point, -1 in solid
-function bspdata.ClusterAt(x, y, z)
-	local vis = bspdata.vis
+local function leafAt(vis, x, y, z)
 	local bspNodes, bspPlanes = vis.nodes, vis.planes
 	local n = 0
 	while n >= 0 do
@@ -163,7 +170,21 @@ function bspdata.ClusterAt(x, y, z)
 		n = bspNodes[(bspPlanes[p + 1] * x + bspPlanes[p + 2] * y + bspPlanes[p + 3] * z >= bspPlanes[p + 4]) and o + 2 or o + 3]
 	end
 
-	return vis.leafCluster[-n - 1]
+	return -n - 1
+end
+
+-- vis cluster of a point, -1 in solid
+function bspdata.ClusterAt(x, y, z)
+	local vis = bspdata.vis
+
+	return vis.leafCluster[leafAt(vis, x, y, z)]
+end
+
+function bspdata.WaterSurfaceAt(x, y, z)
+	local vis = bspdata.vis
+	local w = vis.leafWater[leafAt(vis, x, y, z)]
+
+	return w >= 0 and vis.waterSurface[w] or nil
 end
 
 -- clusters visible from a cluster, decoded from the run-length zero packed row

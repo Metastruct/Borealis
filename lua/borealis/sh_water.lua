@@ -750,6 +750,15 @@ local function bodyAt(pos, surfaceZ)
 	return best
 end
 
+function surfacewater.CausticSource(pos, surfaceZ)
+	local body = bodyAt(pos, surfaceZ)
+	if not body or body.foreign then return nil end
+
+	local sun = sunDir()
+
+	return body.normalmap, sun, bodySunlit(body, sun)
+end
+
 local function inForeignLiquid(pos)
 	local body = bodyAt(pos, waterSurfaceZ(pos))
 
