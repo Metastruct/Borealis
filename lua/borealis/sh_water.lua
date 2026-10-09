@@ -26,36 +26,7 @@ local MURK_REF_FOG_END, MURK_MIN, MURK_MAX = 1000, 0.25, 4
 local WATER_ENABLED = CreateClientConVar("cl_draw_water", "1", true, false, "draw the custom water surface and underwater effects")
 
 local byte = string.byte
-
-local function u16(b, p)
-	local x, y = byte(b, p, p + 1)
-
-	return y * 256 + x
-end
-
-local function i16(b, p)
-	local v = u16(b, p)
-
-	return v >= 32768 and v - 65536 or v
-end
-
-local function i32(b, p)
-	local w, x, y, z = byte(b, p, p + 3)
-	local v = ((z * 256 + y) * 256 + x) * 256 + w
-
-	return v >= 2147483648 and v - 4294967296 or v
-end
-
-local function f32(b, p)
-	local w, x, y, z = byte(b, p, p + 3)
-	local sign = z >= 128 and -1 or 1
-	local expo = (z % 128) * 2 + math.floor(y / 128)
-	local mant = ((y % 128) * 256 + x) * 256 + w
-	if expo == 0 then return sign * mant * 2 ^ -149 end
-	if expo == 255 then return sign * math.huge end
-
-	return sign * (1 + mant * 2 ^ -23) * 2 ^ (expo - 127)
-end
+local u16, i16, i32, f32 = bspdata.U16, bspdata.I16, bspdata.I32, bspdata.F32
 
 local function bodyKey(name)
 	name = name:lower():gsub("^maps/[^/]+/", "")
@@ -65,13 +36,10 @@ end
 
 local SUN_DEFAULT_MATERIAL = "sprites/light_glow02_add_noz"
 local function readSunMaterials()
-	local f = file.Open("maps/" .. game.GetMap() .. ".bsp", "rb", "GAME")
+	local f, lump = bspdata.OpenLumps()
 	if not f then return {} end
 
-	f:Seek(8)
-	local ofs, len = f:ReadLong(), f:ReadLong()
-	f:Seek(ofs)
-	local entities = f:Read(len) or ""
+	local entities = lump(0)
 	f:Close()
 
 	local names = {}
@@ -98,46 +66,22 @@ local function readSunMaterials()
 end
 
 local function readSurfaceWaterBrushes()
-	local f = file.Open("maps/" .. game.GetMap() .. ".bsp", "rb", "GAME")
+	local f, lump = bspdata.OpenLumps()
 	if not f then return {} end
 
-	local function lump(n)
-		f:Seek(8 + n * 16)
-		local ofs, len, version = f:ReadLong(), f:ReadLong(), f:ReadLong()
-		f:Seek(ofs)
-
-		return f:Read(len) or "", version
-	end
-
 	local PLANES, TEXDATA, VERTS = lump(1), lump(2), lump(3)
-	local VISIBILITY, NODES = lump(4), lump(5)
 	local TEXINFO, FACES = lump(6), lump(7)
-	local LEAFS, leafVersion = lump(10)
+	local LEAFS, _, leafVersion = lump(10)
 	local EDGES, SURFEDGES, MODELS = lump(12), lump(13), lump(14)
 	local LEAFFACES = lump(16)
 	local STRDATA, STRTAB = lump(43), lump(44)
 	f:Close()
 
+	local vis = bspdata.LoadVis()
 	local leafSize = leafVersion == 0 and 56 or 32
-	local function leafAt(pos)
-		local node = 0
-		while node >= 0 do
-			local np = node * 32 + 1
-			local pp = i32(NODES, np) * 20 + 1
-			local side = f32(PLANES, pp) * pos.x + f32(PLANES, pp + 4) * pos.y + f32(PLANES, pp + 8) * pos.z - f32(PLANES, pp + 12)
-			node = i32(NODES, side >= 0 and np + 4 or np + 8)
-		end
-
-		return -node - 1
-	end
-
-	local function leafCluster(leaf)
-		return i16(LEAFS, leaf * leafSize + 5)
-	end
-
 	local faceClusters = {}
 	for leaf = 0, #LEAFS / leafSize - 1 do
-		local cluster = leafCluster(leaf)
+		local cluster = vis and vis.leafCluster[leaf] or -1
 		if cluster >= 0 then
 			local lp = leaf * leafSize + 1
 			local first, count = u16(LEAFS, lp + 20), u16(LEAFS, lp + 22)
@@ -149,36 +93,10 @@ local function readSurfaceWaterBrushes()
 		end
 	end
 
-	local numClusters = #VISIBILITY >= 4 and i32(VISIBILITY, 1) or 0
-	local pvsCache = {}
 	local function visibleClusters(pos)
-		if numClusters <= 0 then return end
+		if not vis then return end
 
-		local cluster = leafCluster(leafAt(pos))
-		if cluster < 0 then return end
-
-		local pvs = pvsCache[cluster]
-		if pvs then return pvs end
-
-		pvs = {}
-		local p = i32(VISIBILITY, 5 + cluster * 8) + 1
-		local c = 0
-		while c < numClusters do
-			local b = byte(VISIBILITY, p)
-			p = p + 1
-			if b == 0 then
-				c = c + byte(VISIBILITY, p) * 8
-				p = p + 1
-			else
-				for n = 0, 7 do
-					if bit.band(b, bit.lshift(1, n)) ~= 0 then pvs[c + n] = true end
-				end
-				c = c + 8
-			end
-		end
-
-		pvsCache[cluster] = pvs
-		return pvs
+		return bspdata.PVS(bspdata.ClusterAt(pos.x, pos.y, pos.z))
 	end
 
 	local function matName(td)
