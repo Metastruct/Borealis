@@ -406,7 +406,7 @@ if string.find(game.GetMap(), "gm_construct_m") then
 			end
 		end
 
-		local enable = CreateClientConVar("tod_pp", "0")
+		local enable = CreateClientConVar("tod_pp", "1")
 		local DrawColorModify = DrawColorModify
 
 		hook.Add("RenderScreenspaceEffects", "tod_pp", function()
