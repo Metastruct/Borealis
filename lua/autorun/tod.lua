@@ -700,6 +700,10 @@ if string.find(game.GetMap(), "gm_construct_m") then
 		end
 	end
 
+	function tod.GetSlotWeather(slot)
+		return slotWeather(slot) or "clear"
+	end
+
 	-- amount of a weather right now, 0..1
 	function tod.GetWeather(name)
 		local force = tod.force_weather
