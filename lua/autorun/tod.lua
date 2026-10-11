@@ -899,6 +899,22 @@ if string.find(game.GetMap(), "gm_construct_m") then
 				cmd(val, string.format("!tod %q by %s", val or "", who(ply)))
 				ply.__lastTimeTOD = CurTime()
 			end, "developers")
+
+			aowl.AddCommand("weather", "shows the current and next weather", function(ply)
+				local current = tod.GetCurrentWeather()
+				local now = os.time()
+				local slot = math.floor(now / tod.WEATHER_SLOT)
+
+				for next_slot = slot + 1, slot + 24 * 7 do
+					local name = tod.GetSlotWeather(next_slot)
+					if name ~= current then
+						ply:ChatPrint(string.format("Weather: %s | Next: %s in %s", current, name, string.NiceTime(next_slot * tod.WEATHER_SLOT - now)))
+						return
+					end
+				end
+
+				ply:ChatPrint("Weather: " .. current .. " | Next: " .. current .. " for at least a week")
+			end, "players")
 		else
 			concommand.Add("settod", function(ply, _, args)
 				if ply and ply:IsValid() and not ply:IsAdmin() then return end
