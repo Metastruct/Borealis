@@ -79,8 +79,17 @@ local function start(PIXEL_SHADER, SKY_SHADER, MAP_SHADER)
 		["$c1_x"] = WIDTH, ["$c1_y"] = MAP_SIZE,
 	})
 
-	local curtainMap = GetRenderTargetEx("ms_aurora_curtains_" .. MAP_SIZE, MAP_SIZE, MAP_SIZE, RT_SIZE_LITERAL, MATERIAL_RT_DEPTH_NONE, 12, 0, IMAGE_FORMAT_RGBA16161616F)
-	MAT:SetTexture("$texture1", curtainMap)
+	local usableRT = shaderpack.UsableRT
+	local curtainMap
+
+	local function curtainTarget()
+		if not usableRT(curtainMap, MAP_SIZE, MAP_SIZE) then
+			curtainMap = GetRenderTargetEx("ms_aurora_curtains_" .. MAP_SIZE, MAP_SIZE, MAP_SIZE, RT_SIZE_LITERAL, MATERIAL_RT_DEPTH_NONE, 12, 0, IMAGE_FORMAT_RGBA16161616F)
+			if not usableRT(curtainMap, MAP_SIZE, MAP_SIZE) then return nil end
+		end
+
+		return curtainMap
+	end
 
 	local NOISE_SPEED = 0.06
 	local TIME_PERIOD = 2 * math.pi / NOISE_SPEED
@@ -198,11 +207,13 @@ local function start(PIXEL_SHADER, SKY_SHADER, MAP_SHADER)
 
 	local function renderCurtainMap()
 		if not AURORA_ENABLED:GetBool() or auroraWindow() <= 0.001 or nightFactor() <= 0.001 then return end
+		local rt = curtainTarget()
+		if not rt then return end
 
 		local drift = CurTime()
 		setConstant(MAP_MAT, "$c0", drift % TIME_PERIOD, nil, (drift * SCROLL_X) % SCROLL_WRAP, (drift * SCROLL_Y) % SCROLL_WRAP)
 
-		render.PushRenderTarget(curtainMap)
+		render.PushRenderTarget(rt)
 		render_SetMaterial(MAP_MAT)
 		render_DrawScreenQuad(true)
 		render.PopRenderTarget()
@@ -211,6 +222,10 @@ local function start(PIXEL_SHADER, SKY_SHADER, MAP_SHADER)
 	local function drawAurora()
 		local window = auroraWindow()
 		if window <= 0.001 then return end
+
+		local rt = curtainTarget()
+		if not rt then return end
+
 		local night, fwd, right, halfW, halfH = viewRays()
 		if not night then return end
 
@@ -226,6 +241,7 @@ local function start(PIXEL_SHADER, SKY_SHADER, MAP_SHADER)
 		setConstant(MAT, "$c2", night * window * INTENSITY, nil, (drift * SCROLL_X) % SCROLL_WRAP, theme().auroraHue or HUE)
 		setConstant(MAT, "$c3", curtainHeight(), nil, nil, (drift * SCROLL_Y) % SCROLL_WRAP)
 
+		MAT:SetTexture("$texture1", rt)
 		render_SetMaterial(MAT)
 		render_DrawScreenQuad(true)
 	end
