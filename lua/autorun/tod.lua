@@ -1091,6 +1091,14 @@ if string.find(game.GetMap(), "gm_construct_m") then
 				AddCSLuaFile("tod/rain.lua")
 			end
 		end
+
+		if month == 10 then
+			if SERVER then
+				AddCSLuaFile("tod/autumn.lua")
+			else
+				include("tod/autumn.lua")
+			end
+		end
 	end
 else
 	print("Not a metastruct map, disabling TOD!")
