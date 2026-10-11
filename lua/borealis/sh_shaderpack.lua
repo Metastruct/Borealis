@@ -95,6 +95,7 @@ function shaderpack.ToLinear(c)
 end
 
 function shaderpack.SunDir()
+	local procsky = shaderpack.procsky
 	if procsky and procsky.GetLights then
 		return procsky.GetLights()
 	elseif tod and tod.CurrentParams and isangle(tod.CurrentParams.sun_angles) then
@@ -109,6 +110,8 @@ function shaderpack.Elevation(dir)
 end
 
 function shaderpack.Overcast()
+	local procsky = shaderpack.procsky
+
 	return procsky and procsky.GetOvercast and procsky.GetOvercast() or 0
 end
 

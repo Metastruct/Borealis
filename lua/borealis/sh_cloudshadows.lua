@@ -30,6 +30,8 @@ end
 -- The 3D skybox's geometry is in the frame with its own main-view depth, which
 -- puts it past the shader's distance fade, so it keeps out of this.
 
+local procsky, vclouds, depthslices = shaderpack.procsky, shaderpack.vclouds, shaderpack.depthslices
+
 -- How far a fully covered pixel goes toward the shader's shadow colour.  Past 1
 -- it overshoots that colour and keeps going darker, which is where the shade
 -- starts to read at the coverage this map runs: 0.85 took only 17 percent off

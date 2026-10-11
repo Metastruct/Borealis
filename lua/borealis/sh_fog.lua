@@ -18,7 +18,8 @@ end
 -- of the total.  The base follows the ground under the player.  Colour is the
 -- horizon colour tod set as the engine fog colour.
 
-local FOG_ENABLED = CreateClientConVar("cl_draw_fog", "1", true, false, "draw volumetric fog in fog and rain weather")
+local cover, depthslices = shaderpack.cover, shaderpack.depthslices
+local FOG_ENABLED =CreateClientConVar("cl_draw_fog", "1", true, false, "draw volumetric fog in fog and rain weather")
 
 local FOG_PROFILE = { density = 0.0007, falloff = 250, noise = 0.8 } -- extinction per unit at the base, height falloff in units, noise strength
 local RAIN_PROFILE = { density = 0.00025, falloff = 600, noise = 0.4 }
@@ -42,6 +43,7 @@ local function build()
 		["$linearread_basetexture"] = 0,
 		["$linearread_texture1"] = 1, -- depth and noise are data
 		["$linearread_texture2"] = 1,
+		["$linearread_texture3"] = 1,
 		["$linearwrite"] = 0,
 		["$additive"] = 0,
 		["$alpha_blend"] = 0,
@@ -95,6 +97,12 @@ local function think()
 	active = weather() > 0
 end
 
+local function prepare()
+	if active then
+		cover.Update(EyePos())
+	end
+end
+
 --------------------------------------------------------------------------
 -- rendering
 --------------------------------------------------------------------------
@@ -105,7 +113,12 @@ local function draw()
 	local density, falloff, noise = weather()
 	if density <= 0 then return end
 
+	local coverRT = cover.Texture()
+	if not coverRT then return end
+
 	if not MAT and not build() then return end
+
+	MAT:SetTexture("$texture3", coverRT)
 
 	local eye = EyePos()
 	local fwd = EyeAngles():Forward()
@@ -128,6 +141,7 @@ end
 --------------------------------------------------------------------------
 local function stop()
 	hook.Remove("Think", "ms_fog")
+	hook.Remove("PreRender", "ms_fog")
 	hook.Remove("PreDrawTranslucentRenderables", "ms_fog")
 	depthslices.RemoveEffect("ms_fog")
 	active = false
@@ -136,6 +150,7 @@ end
 local function start()
 	stop()
 	hook.Add("Think", "ms_fog", think)
+	hook.Add("PreRender", "ms_fog", prepare)
 	depthslices.AddEffect("ms_fog", ORDER, draw, true, function() return active end)
 end
 

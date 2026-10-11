@@ -6,6 +6,10 @@ if SERVER then
 	return
 end
 
+local vclouds = shaderpack.vclouds or {}
+shaderpack.vclouds = vclouds
+local procsky, skylevels, depthslices = shaderpack.procsky, shaderpack.skylevels, shaderpack.depthslices
+
 -- Volumetric clouds: a world-space slab ray marched by vclouds_ps30 and
 -- composited over the frame before the translucent pass, so the clouds live in
 -- the world instead of the skybox: geometry occludes them, they have real
@@ -57,8 +61,6 @@ local COVERAGE_PERIOD_B = 1900
 local NIGHT_GAIN = 0.2
 local NIGHT_ELEV = -6 -- sun elevation, in degrees, where NIGHT_GAIN is reached
 local LOG_RANGE = 12 -- light scales span 2^-12 .. 2^12, matches vclouds_ps30
-
-vclouds = vclouds or {}
 
 local active = false
 

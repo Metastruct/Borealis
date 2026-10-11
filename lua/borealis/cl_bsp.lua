@@ -1,4 +1,5 @@
-bspdata = bspdata or {}
+local bspdata = shaderpack.bspdata or {}
+shaderpack.bspdata = bspdata
 
 local LOAD_BUDGET_MS = 8 -- BSP parse work per frame
 local TRI_CELL = 1024 -- triangle index cell size

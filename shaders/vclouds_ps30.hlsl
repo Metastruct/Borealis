@@ -219,26 +219,24 @@ float4 main(PS_IN i) : COLOR
 		float h = heightFraction(p);
 		float cover = coverAt(p);
 		float dens = cloudDensity(p, h, erode, cover);
-		if (dens <= 0.0)
+		if (dens > 0.0)
 		{
-			continue;
+			dens *= saturate(remap(t, MAX_RANGE, FADE_RANGE, 0.0, 1.0));
+			debugDens = max(debugDens, dens);
+
+			float sigma = dens * DENSITY;
+			float a = 1.0 - exp(-sigma * ds);
+
+			float beer = exp(-lightTau(p, erode, cover));
+			float powder = 1.0 - exp(-sigma * POWDER * 400.0);
+			float3 sun = sunCol * phase * beer * lerp(1.0, powder, 0.7);
+			float3 amb = ambCol * lerp(AMBIENT_BASE, 1.0, h);
+
+			float3 col = lerp(sun + amb, fogCol, saturate((t - fog.x) / fog.y) * fog.z);
+
+			L += col * a * T;
+			T *= 1.0 - a;
 		}
-
-		dens *= saturate(remap(t, MAX_RANGE, FADE_RANGE, 0.0, 1.0));
-		debugDens = max(debugDens, dens);
-
-		float sigma = dens * DENSITY;
-		float a = 1.0 - exp(-sigma * ds);
-
-		float beer = exp(-lightTau(p, erode, cover));
-		float powder = 1.0 - exp(-sigma * POWDER * 400.0);
-		float3 sun = sunCol * phase * beer * lerp(1.0, powder, 0.7);
-		float3 amb = ambCol * lerp(AMBIENT_BASE, 1.0, h);
-
-		float3 col = lerp(sun + amb, fogCol, saturate((t - fog.x) / fog.y) * fog.z);
-
-		L += col * a * T;
-		T *= 1.0 - a;
 	}
 
 	if (i.color.b > 0.25)

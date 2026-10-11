@@ -4,6 +4,10 @@ if SERVER then
 	return
 end
 
+local surfacewater = shaderpack.surfacewater or {}
+shaderpack.surfacewater = surfacewater
+local procsky, bspdata, depthslices = shaderpack.procsky, shaderpack.bspdata, shaderpack.depthslices
+
 require("skyboxer")
 
 local SURF_WARP = 0x8
@@ -164,7 +168,6 @@ local function getWaterBrushEntity(mi)
 	end
 end
 
-surfacewater = surfacewater or {}
 surfacewater.originals = surfacewater.originals or {}
 
 local function rememberOriginal(mat)

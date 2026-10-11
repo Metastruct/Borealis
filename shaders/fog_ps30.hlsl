@@ -8,6 +8,7 @@ const float4 Constants3 : register(c3);
 sampler Frame : register(s0);
 sampler Depth : register(s1);
 sampler3D Noise : register(s2);
+sampler CoverTex : register(s3);
 
 #define EYE      Constants0.xyz
 #define DENSITY  Constants0.w
@@ -29,6 +30,11 @@ sampler3D Noise : register(s2);
 #define SUN_MIN_Z 0.08
 #define HG_G 0.42
 #define THIN 1e-6
+#define COLUMN 24.0
+#define COLUMNS 64.0
+#define COVER_REACH 30.0
+#define Z_MIN -16384.0
+#define Z_RANGE 32768.0
 
 struct PS_IN
 {
@@ -49,6 +55,20 @@ float sunTau(float3 p, float h)
 	float below = DENSITY * max(BASE_Z - p.z, 0.0);
 
 	return (above + below) / sz;
+}
+
+bool sheltered(float3 p, float2 eyeCol)
+{
+	float2 col = floor(p.xy / COLUMN);
+	float2 off = abs(col - eyeCol);
+	bool covered = false;
+	[branch] if (max(off.x, off.y) <= COVER_REACH)
+	{
+		float2 c = tex2Dlod(CoverTex, float4(frac(col / COLUMNS) + 0.5 / COLUMNS, 0.0, 0.0)).rg;
+		covered = p.z < (c.r * 65280.0 + c.g * 255.0) / 65535.0 * Z_RANGE + Z_MIN;
+	}
+
+	return covered;
 }
 
 float4 main(PS_IN i) : COLOR
@@ -96,6 +116,7 @@ float4 main(PS_IN i) : COLOR
 	float3 sunTint = FOG_COL * lerp(float3(1.0, 1.0, 1.0), float3(1.25, 0.8, 0.5), warm);
 	float sunGain = i.color.r * SUN_K * phase * saturate((SUN_DIR.z + 0.05) / 0.1);
 	float3 ambient = FOG_COL * AMBIENT_K;
+	float2 eyeCol = floor(EYE.xy / COLUMN);
 
 	float T = 1.0;
 	float3 L = float3(0.0, 0.0, 0.0);
@@ -110,18 +131,21 @@ float4 main(PS_IN i) : COLOR
 			break;
 		}
 
-		float nStr = i.color.g * saturate(1.0 - t / NOISE_FADE);
-		float m = 1.0;
-		[branch] if (nStr > 0.0)
+		[branch] if (!sheltered(p, eyeCol))
 		{
-			float n = tex3Dlod(Noise, float4(p * NOISE_SCALE + WIND * TIME, 0.0)).r;
-			m = lerp(1.0, saturate((n - 0.25) * 2.2), nStr);
-		}
+			float nStr = i.color.g * saturate(1.0 - t / NOISE_FADE);
+			float m = 1.0;
+			[branch] if (nStr > 0.0)
+			{
+				float n = tex3Dlod(Noise, float4(p * NOISE_SCALE + WIND * TIME, 0.0)).r;
+				m = lerp(1.0, saturate((n - 0.25) * 2.2), nStr);
+			}
 
-		float a = 1.0 - exp(-DENSITY * h * m * ds);
-		float3 li = ambient + sunTint * sunGain * exp(-sunTau(p, h));
-		L += li * a * T;
-		T *= 1.0 - a;
+			float a = 1.0 - exp(-DENSITY * h * m * ds);
+			float3 li = ambient + sunTint * sunGain * exp(-sunTau(p, h));
+			L += li * a * T;
+			T *= 1.0 - a;
+		}
 	}
 
 	return float4(scene * T + L, 1.0);

@@ -6,7 +6,8 @@ if SERVER then
 	return
 end
 
-depthslices = depthslices or {}
+local depthslices = shaderpack.depthslices or {}
+shaderpack.depthslices = depthslices
 
 local SLICES = 32 -- both ends and the ratio are baked into fog_ps30 and vclouds_ps30
 local NEAR = 16

@@ -6,6 +6,7 @@ end
 
 require("skyboxer")
 
+local procsky, skylevels, vclouds = shaderpack.procsky, shaderpack.skylevels, shaderpack.vclouds
 local Tag = "ms_cheap_clouds"
 local ENABLED = CreateClientConVar("cl_draw_clouds", "1", true, false, "Draw cheap clouds in the skybox", 0, 1)
 

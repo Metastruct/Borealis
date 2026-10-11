@@ -1,3 +1,4 @@
+local procsky, foliage = shaderpack.procsky, shaderpack.foliage
 local TAG = "ms_shaderpack_bench"
 local SETTLE, MEASURE = 20, 30
 local VIEWS = { { "horizon", 0 }, { "up", -30 } }

@@ -1,4 +1,6 @@
-foliage = foliage or {}
+local foliage = shaderpack.foliage or {}
+shaderpack.foliage = foliage
+local bspdata, depthslices = shaderpack.bspdata, shaderpack.depthslices
 foliage.layers = foliage.layers or {}
 
 local CHUNK = 512 -- world units per chunk

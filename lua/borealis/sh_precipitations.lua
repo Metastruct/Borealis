@@ -33,6 +33,7 @@ end
 -- constant set per tile lands on the wrong tiles.  The constants are set once
 -- per frame, and each tile's position rides in its model matrix.
 
+local procsky, cover = shaderpack.procsky, shaderpack.cover
 local ENABLED = CreateClientConVar("cl_draw_precipitations", "1", true, false, "draw falling rain and snow")
 
 local TILE = 512 -- world units, the field is the 3 x 3 of these around the eye
@@ -58,18 +59,7 @@ local COLOR_HEAD = 1.5 -- and its head, which is what shows against the world in
 local COLOR_HEAD_FLOOR = 0.22 -- the head never goes under this, or night rain has nothing left
 local WRAP = 20 -- seconds, the streak shader's time period: every speed in it moves a whole number of slot hash periods over this
 
-local COLUMN = 24 -- cover map cell, matches the shader
-local COLUMNS = 64 -- cover map size in cells, covers the fade distance around the eye
-local Z_MIN, Z_RANGE = -16384, 32768 -- the cut height's 16 bit range, matches the shader
-local TRACE_SLOT = 80 -- every column is traced again when the eye moves this far in z
-local TRACE_HALF = 480 -- the traces look this far above and below the eye
-local TRACES_PER_FRAME = 60
-local IDLE_TRACES_PER_FRAME = 24 -- the whole window again while nothing is pending, so props built or moved after the trace count
--- MASK_SOLID: without CONTENTS_MONSTER a trace hits brushes only and every prop is missed; players are filtered per batch
-local SOLID = MASK_SOLID
--- water is not in MASK_SOLID, so a solid trace runs straight through a lake and
--- lands on its bed: the rain stopped under the water and rippled down there
-local WATER = MASK_WATER
+local COLUMN, COLUMNS, Z_MIN = cover.COLUMN, cover.COLUMNS, cover.Z_MIN
 local IN_WATER = CONTENTS_WATER
 
 local SNOW_COUNT = 12
@@ -90,7 +80,6 @@ local SPLASH_SKY = 1.35 -- how much of the horizon's colour the wet ground mirro
 local SPLASH_GREY = 0.45 -- and how far toward its own brightness that colour is pulled: the sky over the horizon is paler than the fog at it
 local SPLASH_OVERCAST = 0.85 -- how far a closed sky drains the glints off the ripples
 local SPLASH_REBUILD = 0.5 -- seconds between ripple mesh rebuilds while columns come in
-local SPLASH_SLOPE = 0.8 -- steepest ground the rain still rings on, as the surface normal's z
 local SPLASH_FLAT = 10 -- how far a corner may sit off the plane through the other three before the quad is dropped
 local SPLASH_NSCALE = 0.75 -- the normal's xy range in the vertex colour, matches the shader
 -- the columns under a quad's first and last corner, from the block it sits on
@@ -99,8 +88,8 @@ local SPLASH_C1 = SPLASH_C0 + SPLASH_QUAD
 
 local packColor, setConstant = shaderpack.PackColor, shaderpack.SetConstant
 
-local SPLASH_MAT, DROP_MAT, SNOW_MAT, coverRT, splashMesh
-local build -- the cover map and the materials, once the render targets are real
+local SPLASH_MAT, DROP_MAT, SNOW_MAT, splashMesh
+local build -- the materials, once the cover map is real
 local dropChunks = {}
 
 local UP = Vector(0, 0, 1)
@@ -191,33 +180,10 @@ end
 
 local setVertexConstants = shaderpack.SetVertexConstants
 
---------------------------------------------------------------------------
--- cover map: owner[texel] = the column key written there, ground[key] = the
--- level ground's z for the ripples, traced a few per frame from a queue
---------------------------------------------------------------------------
-local owner, ground, cuts, queue, queued = {}, {}, {}, {}, {}
 local snowTiles, snowDirty = {}, {}
-local traceZ, winX, winY
-local idle = false -- the queue holds a refresh, not a window change
 local ripplesDirty, nextRipple = false, 0
 local submerged = false -- the eye is under a surface: there is no rain to see from down there
-local upTrace = { mask = SOLID, start = Vector(), endpos = Vector() }
-local downTrace = { mask = SOLID, start = Vector(), endpos = Vector() }
-local waterTrace = { mask = WATER, start = Vector(), endpos = Vector() }
-local probe = Vector()
-
--- both axes offset so negative columns pack and unpack cleanly
-local KEY_OFFSET = 32768
-
-local function columnKey(cx, cy)
-	return (cx + KEY_OFFSET) * 65536 + cy + KEY_OFFSET
-end
-
-local function columnFromKey(key)
-	local cx = math.floor(key / 65536)
-
-	return cx - KEY_OFFSET, key - cx * 65536 - KEY_OFFSET
-end
+local columnKey, columnFromKey = cover.ColumnKey, cover.ColumnFromKey
 
 local function markSnowDirty(cx, cy)
 	local tx0, tx1 = math.floor(cx * COLUMN / DROP_TILE), math.floor(((cx + 1) * COLUMN - 1) / DROP_TILE)
@@ -227,166 +193,6 @@ local function markSnowDirty(cx, cy)
 			snowDirty[columnKey(tx, ty)] = true
 		end
 	end
-end
-
--- where the rain stops in this column: the top of the world when the sky over
--- it is blocked, else the water's surface or the first solid below it, else
--- nowhere.  A solid standing in air is what the rain lands on; one standing in
--- water is a bed the rain never reaches, and the surface over it is, so the
--- second trace only runs where the first came up wet.
-local function traceColumn(cx, cy, top, bottom)
-	local x, y = (cx + 0.5) * COLUMN, (cy + 0.5) * COLUMN
-	upTrace.start:SetUnpacked(x, y, top)
-	upTrace.endpos:SetUnpacked(x, y, top + 8192)
-	local up = util.TraceLine(upTrace)
-	if up.StartSolid or (up.Hit and not up.HitSky) then
-		return Z_MIN + Z_RANGE, false
-	end
-
-	downTrace.start:SetUnpacked(x, y, top)
-	downTrace.endpos:SetUnpacked(x, y, bottom)
-	local down = util.TraceLine(downTrace)
-	if down.Hit then
-		local hit = down.HitPos
-		probe:SetUnpacked(hit.x, hit.y, hit.z + 1)
-		if bit.band(util.PointContents(probe), IN_WATER) == 0 then
-			return hit.z, down.HitNormal.z > SPLASH_SLOPE and hit.z + 0.4
-		end
-	end
-
-	waterTrace.start:SetUnpacked(x, y, top)
-	waterTrace.endpos:SetUnpacked(x, y, bottom)
-	local water = util.TraceLine(waterTrace)
-	-- the trace began under the surface: this whole column is water, and the
-	-- rain landed on it somewhere above
-	if water.StartSolid then
-		return Z_MIN + Z_RANGE, false
-	end
-
-	-- a water surface is always level, so the ripples ride it whatever the bed does
-	if water.Hit then
-		return water.HitPos.z, water.HitPos.z + 0.4
-	end
-
-	return down.Hit and down.HitPos.z or Z_MIN, false
-end
-
--- a clear inside a one texel viewport: the surface library's draws go through
--- the sRGB path and land a few values off, the ripples' seeds do not care
--- but 16 bits of height do
-local function writeTexel(cx, cy, cut)
-	local v = math.floor(math.Clamp((cut - Z_MIN) / Z_RANGE, 0, 1) * 65535 + 0.5)
-	local hi = math.floor(v / 256)
-	render.SetViewPort(cx % COLUMNS, cy % COLUMNS, 1, 1)
-	render.Clear(hi, v - hi * 256, 0, 255)
-end
-
--- pending columns in a queue popped from its end: the window's outer rings
--- first, the ring around the eye last, so it goes first
-local function rebuildQueue()
-	local half = COLUMNS / 2
-	local rings = {}
-	for cy = winY, winY + COLUMNS - 1 do
-		for cx = winX, winX + COLUMNS - 1 do
-			local key = columnKey(cx, cy)
-			if queued[key] then
-				local dx, dy = cx - winX - half, cy - winY - half
-				local r = math.max(dx < 0 and -dx - 1 or dx, dy < 0 and -dy - 1 or dy)
-				rings[r] = rings[r] or {}
-				table.insert(rings[r], key)
-			end
-		end
-	end
-
-	queue = {}
-	for r = half - 1, 0, -1 do
-		for _, key in ipairs(rings[r] or {}) do
-			queue[#queue + 1] = key
-		end
-	end
-end
-
-local function updateColumns(eye)
-	local half = COLUMNS / 2
-	local cx0, cy0 = math.floor(eye.x / COLUMN) - half, math.floor(eye.y / COLUMN) - half
-	-- every column again once the eye has moved a slot up or down, a jump
-	-- never does; the old heights stay in the map meanwhile
-	local retrace = not traceZ or math.abs(eye.z - traceZ) > TRACE_SLOT
-	if retrace or cx0 ~= winX or cy0 ~= winY then
-		winX, winY = cx0, cy0
-		if retrace then
-			traceZ = eye.z
-		end
-
-		queued = {}
-		for cy = cy0, cy0 + COLUMNS - 1 do
-			for cx = cx0, cx0 + COLUMNS - 1 do
-				local key = columnKey(cx, cy)
-				if retrace or owner[cx % COLUMNS * COLUMNS + cy % COLUMNS] ~= key then
-					queued[key] = true
-				end
-			end
-		end
-
-		rebuildQueue()
-		idle = false
-	end
-
-	if #queue == 0 then
-		for cy = winY, winY + COLUMNS - 1 do
-			for cx = winX, winX + COLUMNS - 1 do
-				queued[columnKey(cx, cy)] = true
-			end
-		end
-
-		rebuildQueue()
-		idle = true
-	end
-
-	local top, bottom = traceZ + TRACE_HALF, traceZ - TRACE_HALF
-	local players = player.GetAll()
-	upTrace.filter, downTrace.filter = players, players
-	render.PushRenderTarget(coverRT)
-	for _ = 1, idle and IDLE_TRACES_PER_FRAME or TRACES_PER_FRAME do
-		local key = table.remove(queue)
-		if not key then break end
-		queued[key] = nil
-		local cx, cy = columnFromKey(key)
-		-- only columns still in the window are worth tracing
-		if cx >= winX and cx < winX + COLUMNS and cy >= winY and cy < winY + COLUMNS then
-			local cut, level = traceColumn(cx, cy, top, bottom)
-			local texel = cx % COLUMNS * COLUMNS + cy % COLUMNS
-			local prev = owner[texel]
-			if prev and prev ~= key then
-				ground[prev] = nil
-				cuts[prev] = nil
-			end
-
-			owner[texel] = key
-			if cuts[key] ~= cut then
-				cuts[key] = cut
-				markSnowDirty(cx, cy)
-			end
-
-			if (ground[key] or false) ~= level then
-				ground[key] = level or nil
-				ripplesDirty = true
-			end
-
-			writeTexel(cx, cy, cut)
-		end
-	end
-
-	render.SetViewPort(0, 0, COLUMNS, COLUMNS)
-	render.PopRenderTarget()
-end
-
-local function cutAt(x, y)
-	local cx, cy = math.floor(x / COLUMN), math.floor(y / COLUMN)
-	local key = columnKey(cx, cy)
-	if owner[cx % COLUMNS * COLUMNS + cy % COLUMNS] ~= key then return nil end
-
-	return cuts[key]
 end
 
 local function snowRand(tx, ty, p, k)
@@ -399,7 +205,7 @@ local function buildSnowTile(tx, ty)
 	for p = 0, SNOW_COUNT - 1 do
 		local x = (tx + snowRand(tx, ty, p, 0)) * DROP_TILE
 		local y = (ty + snowRand(tx, ty, p, 1)) * DROP_TILE
-		local cut = cutAt(x, y) or Z_MIN
+		local cut = cover.CutAt(x, y) or Z_MIN
 
 		for rep = 0, SNOW_REPS - 1 do
 			for corner = 0, 3 do
@@ -473,6 +279,10 @@ local function dropSplashes()
 end
 
 local function buildSplashes()
+	local winX, winY = cover.Window()
+	if not winX then return nil end
+
+	local groundAt = cover.Ground
 	local quads, count = {}, 0
 	local q = COLUMN * SPLASH_QUAD
 	-- blocks aligned to the world, not the window, so they keep their seeds as it moves
@@ -480,10 +290,10 @@ local function buildSplashes()
 		for cx = winX + winX % SPLASH_STEP, winX + COLUMNS - 1, SPLASH_STEP do
 			-- the columns under the quad's own corners, which are its corner
 			-- heights; one missing means the quad reaches out past an edge
-			local z00 = ground[columnKey(cx + SPLASH_C0, cy + SPLASH_C0)]
-			local z10 = ground[columnKey(cx + SPLASH_C1, cy + SPLASH_C0)]
-			local z11 = ground[columnKey(cx + SPLASH_C1, cy + SPLASH_C1)]
-			local z01 = ground[columnKey(cx + SPLASH_C0, cy + SPLASH_C1)]
+			local z00 = groundAt(cx + SPLASH_C0, cy + SPLASH_C0)
+			local z10 = groundAt(cx + SPLASH_C1, cy + SPLASH_C0)
+			local z11 = groundAt(cx + SPLASH_C1, cy + SPLASH_C1)
+			local z01 = groundAt(cx + SPLASH_C0, cy + SPLASH_C1)
 			-- and a corner off the plane through the other three is a step, a
 			-- ridge or a hole: nothing one flat quad can lie on
 			if z00 and z10 and z11 and z01 and math.abs(z00 - z10 + z11 - z01) * 0.5 <= SPLASH_FLAT then
@@ -531,11 +341,11 @@ local function prepare()
 		if not snowing then return end
 	end
 
-	if not DROP_MAT and not build() then return end
-
 	local eye = EyePos()
+	if not cover.Update(eye) then return end
+	if not DROP_MAT then build() end
+
 	submerged = bit.band(util.PointContents(eye), IN_WATER) ~= 0
-	updateColumns(eye)
 	if snowing then
 		updateSnowTiles(eye)
 	end
@@ -640,7 +450,7 @@ local snowRows = { {}, {}, {} }
 
 local function drawSnow(eye, amount)
 	local r, g, b = render.GetFogColor()
-	SNOW_MAT:SetTexture("$basetexture", coverRT)
+	SNOW_MAT:SetTexture("$basetexture", cover.Texture())
 	setConstant(SNOW_MAT, "$c0", eye.x, eye.y, eye.z)
 	setConstant(SNOW_MAT, "$c1", SNOW_ALPHA * render.GetToneMappingScaleLinear().x, nil, nil, packColor(
 		math.max(r / 255 * SNOW_LIGHT, SNOW_FLOOR),
@@ -686,7 +496,7 @@ local function draw(bDepth, _, b3DSky)
 	local tonemap = render.GetToneMappingScaleLinear().x
 
 	-- bound again every frame: the targets are recreated across a map change
-	DROP_MAT:SetTexture("$basetexture", coverRT)
+	DROP_MAT:SetTexture("$basetexture", cover.Texture())
 	setConstant(DROP_MAT, "$c0", eye.x, eye.y, eye.z, CurTime() % WRAP)
 	local body, head = streakColor()
 	setConstant(DROP_MAT, "$c1", ALPHA * k * tonemap, nil, nil, packColor(body[1], body[2], body[3]))
@@ -705,6 +515,7 @@ local function draw(bDepth, _, b3DSky)
 end
 
 local function stop()
+	cover.Unlisten("ms_precipitations")
 	hook.Remove("PreRender", "ms_precipitations")
 	hook.Remove("PostDrawTranslucentRenderables", "ms_precipitations")
 	dropSplashes()
@@ -739,42 +550,36 @@ local function material(name, pixelShader, vertexShader)
 	})
 end
 
--- The render targets do not exist yet while the map loads, and asking for one
--- then hands back a texture that answers IsError with false and only becomes
--- the cover map later.  A material bound to it samples black for good, so
--- every column reads a cut of Z_MIN and the rain falls through every roof.
--- The ripples come from Lua and keep obeying the traces, which is what the
--- symptom looks like: cover works on the ground and nowhere else.
--- on the first frame the targets are real, never at load
 function build()
-	-- point sampled and wrapped: the shader addresses it by world column
-	coverRT = coverRT or GetRenderTargetEx("ms_rain_cover_" .. COLUMNS, COLUMNS, COLUMNS, RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE, 1, 0, IMAGE_FORMAT_RGBA8888)
-	if not shaderpack.UsableRT(coverRT, COLUMNS) then
-		coverRT = nil
-
-		return false
-	end
-
-	-- untraced columns rain everywhere
-	render.PushRenderTarget(coverRT)
-	render.Clear(0, 0, 0, 255)
-	render.PopRenderTarget()
-	owner, ground, cuts, queue, queued = {}, {}, {}, {}, {}
-	dropSnowTiles()
-	traceZ, winX, winY, fieldZ = nil, nil, nil, nil
+	fieldZ = nil
 	DROP_MAT = material("ms_raindrop", DROP_PS, DROP_VS)
-	DROP_MAT:SetTexture("$basetexture", coverRT)
+	DROP_MAT:SetTexture("$basetexture", cover.Texture())
 	SPLASH_MAT = material("ms_rainsplash", SPLASH_PS)
 	setConstant(SPLASH_MAT, "$c1", nil, SPLASH_FADE_START, SPLASH_FADE_END)
 	SNOW_MAT = material("ms_snow", SNOW_PS, SNOW_VS)
-	SNOW_MAT:SetTexture("$basetexture", coverRT)
+	SNOW_MAT:SetTexture("$basetexture", cover.Texture())
+end
 
-	return true
+local function onColumn(cx, cy, cutChanged, groundChanged)
+	if cutChanged then
+		markSnowDirty(cx, cy)
+	end
+
+	if groundChanged then
+		ripplesDirty = true
+	end
+end
+
+local function onReset()
+	dropSnowTiles()
+	ripplesDirty = true
 end
 
 local function start()
 	stop()
 	SPLASH_MAT, DROP_MAT, SNOW_MAT = nil, nil, nil
+	ripplesDirty = true
+	cover.Listen("ms_precipitations", onColumn, onReset)
 	hook.Add("PreRender", "ms_precipitations", prepare)
 	hook.Add("PostDrawTranslucentRenderables", "ms_precipitations", draw)
 end

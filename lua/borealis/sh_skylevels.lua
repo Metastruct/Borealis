@@ -1,6 +1,7 @@
 if SERVER then return end
 
-skylevels = skylevels or {}
+local skylevels = shaderpack.skylevels or {}
+shaderpack.skylevels = skylevels
 
 local SEEDS = {
 	{ landmark = "land_build", floor = -13096, ceiling = 511 },

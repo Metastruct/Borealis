@@ -18,7 +18,8 @@ local UPDATE_INTERVAL = 0.2 -- seconds between fog and cloud colour updates
 local HORIZON_ELEV = math.rad(2) -- fog colour is sampled this far above the horizon
 local CLOUD_H = 2 -- km, altitude the cloud light is computed at
 
-procsky = procsky or {}
+local procsky = shaderpack.procsky or {}
+shaderpack.procsky = procsky
 procsky.theme = procsky.theme or {}
 local ONE = { 1, 1, 1 }
 
