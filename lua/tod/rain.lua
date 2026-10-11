@@ -86,6 +86,7 @@ end
 
 -- rain's keys on top of whatever theme the season set (halloween in October)
 local function applyTheme(a, flash)
+	local procsky = shaderpack and shaderpack.procsky
 	if not (procsky and procsky.SetTheme) then return end
 	local t = table.Copy(procsky.theme)
 	if a > 0 then

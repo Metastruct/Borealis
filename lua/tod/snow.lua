@@ -26,6 +26,7 @@ if CLIENT then
 		-- procsky"s grey sky follows the override as it fades in and out
 		local snow = tod.override_configs.snow
 		local overcast = snow and snow.lerp or 0
+		local procsky = shaderpack and shaderpack.procsky
 		if procsky and procsky.SetTheme and overcast ~= lastOvercast then
 			lastOvercast = overcast
 			procsky.SetTheme(overcast > 0 and { overcast = overcast } or nil)
@@ -67,6 +68,7 @@ if CLIENT then
 		tod.RemoveOverrideConfig("snow")
 		tod.SetOverrideConfig()
 		tod.SetConfigCycle(unpack(tod.config_cycle)) -- drops the cached lerps that still hold the override
+		local procsky = shaderpack and shaderpack.procsky
 		if procsky and procsky.SetTheme then procsky.SetTheme() end
 		hook.Run("TOD_WinterRemoved") -- the grass drops its winter palette
 		concommand.Remove("tod_removesnow") -- this really only needs to get ran once so we"ll remove the command
