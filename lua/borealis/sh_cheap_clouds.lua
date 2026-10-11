@@ -1,5 +1,5 @@
 if SERVER then
-	shaderpack.AddResources({ "clouds_ps30" }, { "materials/clouds/noise.vtf" })
+	shaderpack.AddResources({ "clouds_ps30" }, { "materials/shaderpack/clouds/noise.vtf" })
 
 	return
 end
@@ -67,7 +67,7 @@ local function startShader(PIXEL_SHADER)
 	local MAT = CreateShaderMaterial("buildclouds_" .. os.time(), {
 		["$pixshader"] = PIXEL_SHADER,
 		["$vertexshader"] = "aurora_vs30",
-		["$basetexture"] = "clouds/noise",
+		["$basetexture"] = "shaderpack/clouds/noise",
 		["$additive"] = 0,
 		["$c0_x"] = 1, ["$c0_y"] = 0, ["$c0_z"] = 0, ["$c0_w"] = 1,
 		["$c1_x"] = 0, ["$c1_y"] = 1, ["$c1_z"] = 0, ["$c1_w"] = 1,
@@ -119,7 +119,7 @@ local function startShader(PIXEL_SHADER)
 		setConstant(MAT, "$c0", fwd.x, fwd.y, fwd.z, INTENSITY * render.GetToneMappingScaleLinear().x)
 		setConstant(MAT, "$c1", right.x * halfW, right.y * halfW, right.z * halfW, halfH)
 		setConstant(MAT, "$c2", lightDir.x, lightDir.y, deckZ - ep.z, coverage)
-		setConstant(MAT, "$c3", (WIND[1] * t + ep.x * EYE_K) % NOISE_PERIOD, (WIND[2] * t + ep.y * EYE_K) % NOISE_PERIOD, packColor(light[1], light[2], light[3]), packColor(amb[1], amb[2], amb[3]))
+		setConstant(MAT, "$c3", (ep.x * EYE_K - WIND[1] * t) % NOISE_PERIOD, (ep.y * EYE_K - WIND[2] * t) % NOISE_PERIOD, packColor(light[1], light[2], light[3]), packColor(amb[1], amb[2], amb[3]))
 
 		render.SetMaterial(MAT)
 		render.DrawScreenQuad(true)

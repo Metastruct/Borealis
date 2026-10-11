@@ -1,7 +1,7 @@
-local PIXEL_SHADER, DEPTH_SHADER, VERTEX_SHADER = "seagrass_ps30", "seagrassdepth_ps30", "grass_vs30"
+local PIXEL_SHADER, DEPTH_SHADER, VERTEX_SHADER = "seagrass_ps30", "seagrassdepth_ps30", "seagrass_vs30"
 
 if SERVER then
-	shaderpack.AddResources({ PIXEL_SHADER, DEPTH_SHADER })
+	shaderpack.AddResources({ PIXEL_SHADER, DEPTH_SHADER, VERTEX_SHADER })
 
 	return
 end

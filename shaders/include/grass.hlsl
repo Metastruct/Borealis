@@ -50,12 +50,11 @@ float4 main(PS_IN i) : COLOR
 	clip(fade - dither);
 
 	float2 windDir = float2(cos(WIND_ANGLE), sin(WIND_ANGLE));
-	float along = dot(i.wpos.xy, windDir);
-	float gust = sin(TIME * 1.2 - along * 0.006) * 0.55
-	           + sin(TIME * 0.45 - along * 0.0015 + 1.7) * 0.35
-	           + sin(TIME * 3.1 - along * 0.02 + seed1 * 0.7) * 0.15 + 0.35;
+	float gust = GrassGust(i.wpos.xy, windDir, TIME, seed1);
 	float flutter = sin(TIME * 4.0 + seed1 * 0.41) * 0.04;
-	float bend = WIND * gust * (0.6 + 0.4 * heightScale);
+	float2 axis = ddx(i.wpos.xy) * ddx(i.uv.x) + ddy(i.wpos.xy) * ddy(i.uv.x);
+	float facing = dot(axis, windDir) * rsqrt(max(dot(axis, axis), 1e-12));
+	float bend = WIND * gust * facing * (0.6 + 0.4 * heightScale);
 
 	float2 r = test(i.blade0, u, v, bend + flutter);
 	float2 q;

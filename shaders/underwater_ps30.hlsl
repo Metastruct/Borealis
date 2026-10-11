@@ -93,7 +93,7 @@ float4 main(PS_IN i) : COLOR
 		float below = max(SURFACE_Z - p.z, 0.0);
 		float2 entry = SunEntryPoint(p, SURFACE_Z, underwaterSun);
 		float focus = WaveCausticLod(NormalMap, entry, TIME, SHAFT_FOCUS_DEPTH, SHAFT_LOD, SHAFT_EPSILON);
-		float swell = WaveNoise(Noise, float3(entry / SWELL_TILE + TIME * SWELL_DRIFT, TIME * SWELL_EVOLVE));
+		float swell = WaveNoise(Noise, float3(entry / SWELL_TILE - TIME * SWELL_DRIFT, TIME * SWELL_EVOLVE));
 		focus += SHAFT_SWELL * (swell * swell - 0.33);
 		float3 transmission = exp(-WATER_ABSORB * MURK * (below / max(-underwaterSun.z, 0.05) + t));
 		shafts += transmission * max(1.0 + SHAFT_CONTRAST * (focus - 1.0), 0.0);

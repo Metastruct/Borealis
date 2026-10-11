@@ -1,7 +1,7 @@
 local PS, VS = "vclouds_ps30", "fog_vs30"
 
 if SERVER then
-	shaderpack.AddResources({ VS, PS }, { "materials/procsky/cloudshape.vtf", "materials/procsky/clouddetail.vtf" })
+	shaderpack.AddResources({ VS, PS }, { "materials/shaderpack/procsky/cloudshape.vtf", "materials/shaderpack/procsky/clouddetail.vtf" })
 
 	return
 end
@@ -79,8 +79,8 @@ local function build()
 	MAT = CreateShaderMaterial("ms_vclouds_" .. os.time() .. "_" .. materialSerial, {
 		["$pixshader"] = PS,
 		["$vertexshader"] = VS,
-		["$texture2"] = "procsky/cloudshape",
-		["$texture3"] = "procsky/clouddetail",
+		["$texture2"] = "shaderpack/procsky/cloudshape",
+		["$texture3"] = "shaderpack/procsky/clouddetail",
 		["$linearread_basetexture"] = 0,
 		["$linearread_texture1"] = 1, -- depth and both volumes are data
 		["$linearread_texture2"] = 1,

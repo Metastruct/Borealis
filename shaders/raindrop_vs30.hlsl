@@ -16,7 +16,7 @@ const float4 cModel0[3] : register(c58);
 #define HALF_H   560.0
 #define HALF_W   2.6
 #define SPREAD   24.0
-#define WIND     float2(0.16, 0.05)
+#define WIND     cAmbientCube[4].xy
 #define PERIOD   80.0
 #define SLOTS    16.0
 #define SPEED    8.0

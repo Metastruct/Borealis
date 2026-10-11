@@ -3,7 +3,7 @@ AddCSLuaFile()
 local SHADERS = { "aurora_vs30", "aurora_ps30", "aurora_map_ps30", "nightsky_ps30" }
 
 if SERVER then
-	shaderpack.AddResources(SHADERS, { "materials/aurora/noise.vtf", "materials/aurora/milkyway.vtf" })
+	shaderpack.AddResources(SHADERS, { "materials/shaderpack/aurora/noise.vtf", "materials/shaderpack/aurora/milkyway.vtf" })
 
 	return
 end
@@ -48,7 +48,7 @@ local function start(PIXEL_SHADER, SKY_SHADER, MAP_SHADER)
 	end
 
 	local MAT = shaderMaterial("ms_aurora_sky", PIXEL_SHADER, {
-		["$basetexture"] = "aurora/noise",
+		["$basetexture"] = "shaderpack/aurora/noise",
 		["$linearread_texture1"] = 1,
 		["$c0_x"] = 1, ["$c0_y"] = 0,
 		["$c0_z"] = 0, ["$c0_w"] = 0,
@@ -61,7 +61,7 @@ local function start(PIXEL_SHADER, SKY_SHADER, MAP_SHADER)
 	})
 
 	local SKY_MAT = shaderMaterial("ms_aurora_nightsky", SKY_SHADER, {
-		["$basetexture"] = "aurora/milkyway",
+		["$basetexture"] = "shaderpack/aurora/milkyway",
 		["$c0_x"] = 1, ["$c0_y"] = 0,
 		["$c0_z"] = 0, ["$c0_w"] = 0,
 		["$c1_x"] = 0, ["$c1_y"] = 1,
@@ -73,7 +73,7 @@ local function start(PIXEL_SHADER, SKY_SHADER, MAP_SHADER)
 	})
 
 	local MAP_MAT = shaderMaterial("ms_aurora_map", MAP_SHADER, {
-		["$basetexture"] = "aurora/noise",
+		["$basetexture"] = "shaderpack/aurora/noise",
 		["$additive"] = 0,
 		["$c0_x"] = 0, ["$c0_y"] = SCALE,
 		["$c0_z"] = 0, ["$c0_w"] = 0,

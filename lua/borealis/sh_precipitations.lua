@@ -33,7 +33,7 @@ end
 -- constant set per tile lands on the wrong tiles.  The constants are set once
 -- per frame, and each tile's position rides in its model matrix.
 
-local procsky, cover = shaderpack.procsky, shaderpack.cover
+local procsky, cover, wind = shaderpack.procsky, shaderpack.cover, shaderpack.wind
 local ENABLED = CreateClientConVar("cl_draw_precipitations", "1", true, false, "draw falling rain and snow")
 
 local TILE = 512 -- world units, the field is the 3 x 3 of these around the eye
@@ -49,7 +49,7 @@ local PERIOD = 80 -- world units between drop slots, matches the shader
 local FIELD_SLACK = 160 -- the field's height snaps again once the eye is this far above or below it, a jump never does
 local HALF_W = 2.6 -- half width of a strip: the drops scatter across it, so a wide one does not read as a line
 local CROSS_SPREAD = 24 -- how far the second plane of a cross sits from the first, so a pair is two streaks and not one column
-local WIND = { 0.16, 0.05 } -- lean of the streaks, xy per unit of height
+local RAIN_LEAN, RAIN_LEAN_WIND = 0.1, 0.2
 local LEAN_MAX, SWING_MAX = 1.45, 0.25
 local FADE_START, FADE_END = 560, 760
 local Z_FADE_END = 400
@@ -67,6 +67,8 @@ local SNOW_REPS = 8
 local SNOW_REBUILDS = 4
 local SNOW_WRAP = 64
 local SNOW_MARGIN = 130
+local SNOW_DRIFT = 0.25
+local SNOW_SLANT_SPAN = 1000
 local SNOW_ALPHA = 0.9
 local SNOW_LIGHT = 2.5
 local SNOW_FLOOR = 0.12
@@ -230,8 +232,15 @@ local function dropSnowTiles()
 	snowDirty = {}
 end
 
+local function snowDrift()
+	local drift = SNOW_DRIFT * wind.Strength()
+
+	return -wind.X * drift, -wind.Y * drift, SNOW_MARGIN + drift * SNOW_SLANT_SPAN
+end
+
 local function updateSnowTiles(eye)
-	local reach = FADE_END + SNOW_MARGIN
+	local _, _, margin = snowDrift()
+	local reach = FADE_END + margin
 	local tx0, tx1 = math.floor((eye.x - reach) / DROP_TILE), math.floor((eye.x + reach) / DROP_TILE)
 	local ty0, ty1 = math.floor((eye.y - reach) / DROP_TILE), math.floor((eye.y + reach) / DROP_TILE)
 
@@ -362,10 +371,9 @@ local function prepare()
 	end
 end
 
-local dropRows = { {}, {}, {}, {} }
+local dropRows = { {}, {}, {}, {}, {} }
 local dropMatrix = Matrix()
-local DROP_LEAN_X = (WIND[1] * LEAN_MAX + WIND[2] * SWING_MAX) * HALF_H
-local DROP_LEAN_Y = (WIND[2] * LEAN_MAX + WIND[1] * SWING_MAX) * HALF_H
+local dropLeanX, dropLeanY = 0, 0
 local DROP_SPREAD = CROSS_SPREAD * 0.5 + HALF_W
 local planes = { Vector(), Vector(), Vector(), Vector() }
 local corner = Vector()
@@ -405,7 +413,7 @@ end
 
 local function tileVisible(eye, tx, ty, fz)
 	local lean = math.max(math.abs(eye.z + Z_FADE_END - fz), math.abs(eye.z - Z_FADE_END - fz)) / HALF_H
-	local rx, ry = DROP_LEAN_X * lean + DROP_SPREAD, DROP_LEAN_Y * lean + DROP_SPREAD
+	local rx, ry = dropLeanX * lean + DROP_SPREAD, dropLeanY * lean + DROP_SPREAD
 
 	return boxVisible(tx - rx - eye.x, tx + DROP_TILE + rx - eye.x, ty - ry - eye.y, ty + DROP_TILE + ry - eye.y)
 end
@@ -423,6 +431,11 @@ local function drawDrops(eye, time, level)
 	r[2][1], r[2][2], r[2][3] = right.x * pixel, right.y * pixel, right.z * pixel
 	r[3][1], r[3][2], r[3][3] = up.x * pixel, up.y * pixel, up.z * pixel
 	r[4][1], r[4][2], r[4][3] = fwd.x, fwd.y, fwd.z
+	local lean = RAIN_LEAN + RAIN_LEAN_WIND * wind.Strength()
+	local wx, wy = -wind.X * lean, -wind.Y * lean
+	r[5][1], r[5][2], r[5][3] = wx, wy, 0
+	dropLeanX = (math.abs(wx) * LEAN_MAX + math.abs(wy) * SWING_MAX) * HALF_H
+	dropLeanY = (math.abs(wy) * LEAN_MAX + math.abs(wx) * SWING_MAX) * HALF_H
 	setVertexConstants(r)
 	setPlanes(fwd, right, up, vs)
 
@@ -446,7 +459,7 @@ local function drawDrops(eye, time, level)
 	end
 end
 
-local snowRows = { {}, {}, {} }
+local snowRows = { {}, {}, {}, {} }
 
 local function drawSnow(eye, amount)
 	local r, g, b = render.GetFogColor()
@@ -464,6 +477,8 @@ local function drawSnow(eye, amount)
 	rows[1][1], rows[1][2], rows[1][3] = CurTime() % SNOW_WRAP, math.ceil(SNOW_COUNT * amount), 2 * math.tan(math.rad(vs.fov) * 0.5) / vs.width
 	rows[2][1], rows[2][2], rows[2][3] = right.x, right.y, right.z
 	rows[3][1], rows[3][2], rows[3][3] = up.x, up.y, up.z
+	local dx, dy, margin = snowDrift()
+	rows[4][1], rows[4][2], rows[4][3] = dx, dy, 0
 	setVertexConstants(rows)
 	setPlanes(fwd, right, up, vs)
 
@@ -471,7 +486,7 @@ local function drawSnow(eye, amount)
 	for key, m in pairs(snowTiles) do
 		local tx, ty = columnFromKey(key)
 		tx, ty = tx * DROP_TILE, ty * DROP_TILE
-		if boxVisible(tx - SNOW_MARGIN - eye.x, tx + DROP_TILE + SNOW_MARGIN - eye.x, ty - SNOW_MARGIN - eye.y, ty + DROP_TILE + SNOW_MARGIN - eye.y) then
+		if boxVisible(tx - margin - eye.x, tx + DROP_TILE + margin - eye.x, ty - margin - eye.y, ty + DROP_TILE + margin - eye.y) then
 			m:Draw()
 		end
 	end

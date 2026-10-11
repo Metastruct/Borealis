@@ -18,7 +18,7 @@ float WaveNoise(sampler3D noise, float3 uvw) {
 }
 
 float SwellHeight(sampler3D noise, float2 p, float time) {
-    float n = WaveNoise(noise, float3(p / SWELL_TILE + time * SWELL_DRIFT, time * SWELL_EVOLVE));
+    float n = WaveNoise(noise, float3(p / SWELL_TILE - time * SWELL_DRIFT, time * SWELL_EVOLVE));
     return SWELL_HEIGHT * n * n;
 }
 

@@ -24,7 +24,7 @@ sampler CoverTex : register(s3);
 #define SKIP_ALPHA (254.5 / 255.0)
 #define NOISE_SCALE (1.0 / 1100.0)
 #define NOISE_FADE 3500.0
-#define WIND float3(0.012, 0.005, 0.003)
+#define WIND float3(0.012, 0.005, -0.003)
 #define AMBIENT_K 0.6
 #define SUN_K 0.4
 #define SUN_MIN_Z 0.08
@@ -103,7 +103,7 @@ float4 main(PS_IN i) : COLOR
 	if (i.color.b > 0.25)
 	{
 		float3 hit = EYE + ray * tEnd;
-		return float4(tex3Dlod(Noise, float4(hit * NOISE_SCALE + WIND * TIME, 0.0)).rrr, 1.0);
+		return float4(tex3Dlod(Noise, float4(hit * NOISE_SCALE - WIND * TIME, 0.0)).rrr, 1.0);
 	}
 
 	float ds = tEnd / STEPS;
@@ -137,7 +137,7 @@ float4 main(PS_IN i) : COLOR
 			float m = 1.0;
 			[branch] if (nStr > 0.0)
 			{
-				float n = tex3Dlod(Noise, float4(p * NOISE_SCALE + WIND * TIME, 0.0)).r;
+				float n = tex3Dlod(Noise, float4(p * NOISE_SCALE - WIND * TIME, 0.0)).r;
 				m = lerp(1.0, saturate((n - 0.25) * 2.2), nStr);
 			}
 

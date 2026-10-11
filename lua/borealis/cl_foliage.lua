@@ -447,7 +447,7 @@ function Layer:draw(sky3d)
 	setConstant(MAT, "$c0", eye.x, eye.y, eye.z, time)
 	MAT:SetFloat("$c1_y", packColor(amb.x * FILL_K, amb.y * FILL_K, amb.z * FILL_K))
 	MAT:SetFloat("$c2_x", worldLightScale())
-	if self.cfg.frame then self.cfg.frame(MAT, DEPTH_MAT) end
+	if self.cfg.frame then self.cfg.frame(MAT, DEPTH_MAT, time) end
 	MAT:SetFloat("$c2_w", render.GetToneMappingScaleLinear().x)
 	render.SetMaterial(MAT)
 
@@ -461,6 +461,7 @@ function Layer:draw(sky3d)
 
 	local chunks, visible = self.chunks, self.visible
 	local radius = self.radius
+	local sway = self.cfg.sway or 0
 	local n = math.ceil(radius / CHUNK)
 	local ecx, ecy = math.floor(eye.x / CHUNK), math.floor(eye.y / CHUNK)
 	local half = CHUNK * 0.5
@@ -479,7 +480,7 @@ function Layer:draw(sky3d)
 					self.queueDirty = true
 				elseif ch.mesh then
 					-- bounding sphere against the four side planes
-					local ddz, r = ch.cz - eye.z, ch.radius
+					local ddz, r = ch.cz - eye.z, ch.radius + sway
 					local fz = ddx * fwd.x + ddy * fwd.y + ddz * fwd.z
 					if fz > -r then
 						local fx = ddx * right.x + ddy * right.y + ddz * right.z

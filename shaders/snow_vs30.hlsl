@@ -8,6 +8,7 @@ const float3 cAmbientCube[6] : register(c21);
 #define PIXEL    cAmbientCube[0].z
 #define RIGHT    cAmbientCube[1]
 #define UP       cAmbientCube[2]
+#define DRIFT    cAmbientCube[3].xy
 
 #define TILE        256.0
 #define PERIOD      160.0
@@ -63,7 +64,7 @@ VS_OUTPUT main(VS_INPUT i)
 
 	float2 base = i.pos.xy;
 	float cut = i.pos.z;
-	if (length(base - EYE.xy) > FADE_END + SWAY + SLANT * SLANT_SPAN)
+	if (length(base - EYE.xy) > FADE_END + SWAY + (SLANT + length(DRIFT)) * SLANT_SPAN)
 	{
 		return o;
 	}
@@ -96,7 +97,7 @@ VS_OUTPUT main(VS_INPUT i)
 	float sw = 2.0 * PI * (1.0 + floor(hB.y * 3.0)) / WRAP;
 	float2 slant = (hC.xy - 0.5) * 2.0 * SLANT;
 	float2 sway = float2(sin(t * sw + hB.z * 2.0 * PI), cos(t * sw * 2.0 + hC.z * 2.0 * PI)) * SWAY * hC.x;
-	float3 centre = float3(base + sway + slant * min(z - cut, SLANT_SPAN), z);
+	float3 centre = float3(base + sway + (slant + DRIFT) * min(z - cut, SLANT_SPAN), z);
 
 	float dist = length(centre - EYE);
 	if (dist > FADE_END)

@@ -4,7 +4,7 @@ if SERVER then
 	return
 end
 
-local foliage = shaderpack.foliage
+local foliage, wind = shaderpack.foliage, shaderpack.wind
 local GRASS_ENABLED =CreateClientConVar("cl_draw_grass", "0", true, false, "draw grass tufts on grass surfaces")
 local GRASS_DISTANCE = CreateClientConVar("cl_draw_grass_distance", "3072", true, false, "grass draw distance in units", 1024, 16384)
 
@@ -26,8 +26,10 @@ end
 setSeason(WINTER, AUTUMN)
 
 local MAX_SLOPE_Z = 0.7 -- skip faces steeper than this normal z
-local WIND_ANGLE = math.atan2(0.6, 0.8)
-local WIND = 0.45 -- bend at the tip, in quad widths
+local CURL, CURL_MAX = 1.5, 0.45
+local LEAN = 0.5
+local LEAN_MAX = 0.95
+local QUAD_H = 40
 local TRANSLUCENCY = 0.35
 
 local packColor, setConstant = shaderpack.PackColor, shaderpack.SetConstant
@@ -42,17 +44,30 @@ end
 
 local lastWet = 0
 local function palette(mat, depthMat)
-	setConstant(mat, "$c1", WIND_ANGLE, nil, WIND)
+	mat:SetFloat("$c1_x", wind.HEADING)
 	setConstant(mat, "$c2", nil, packColor(unpack(ROOT_COLOR)), packColor(unpack(TIP_COLOR)))
 	setConstant(mat, "$c3", TRANSLUCENCY, DRYNESS, packColor(unpack(DRY_COLOR)))
 	if depthMat then
-		setConstant(depthMat, "$c1", WIND_ANGLE, nil, WIND)
+		depthMat:SetFloat("$c1_x", wind.HEADING)
 	end
 
 	lastWet = -1
 end
 
-local function frame(mat)
+local vertexRows = { {}, {} }
+local function frame(mat, depthMat, time)
+	local strength = wind.Strength()
+	local curl = math.min(CURL * strength, CURL_MAX)
+	mat:SetFloat("$c1_z", curl)
+	if depthMat then
+		depthMat:SetFloat("$c1_z", curl)
+	end
+
+	local r = vertexRows
+	r[1][1], r[1][2], r[1][3] = time, LEAN * strength, QUAD_H * HEIGHT
+	r[2][1], r[2][2], r[2][3] = wind.X, wind.Y, 0
+	shaderpack.SetVertexConstants(r)
+
 	local wet = tod and tod.rain and tod.rain.amount or 0
 	if wet == lastWet then return end
 	lastWet = wet
@@ -65,7 +80,8 @@ local layer = foliage.Layer({
 	name = "grass",
 	pixelShader = "grass_ps30", vertexShader = "grass_vs30", depthShader = "grassdepth_ps30",
 	classify = foliage.SurfaceClassifier({ grass = true }), minNormalZ = MAX_SLOPE_Z,
-	spacing = 18, jitter = 8, quadW = 26, quadH = 40,
+	spacing = 18, jitter = 8, quadW = 26, quadH = QUAD_H,
+	sway = QUAD_H * 1.4 * LEAN_MAX,
 	keep = keep, palette = palette, frame = frame,
 })
 layer.height = HEIGHT
