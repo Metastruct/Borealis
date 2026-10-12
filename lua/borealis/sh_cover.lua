@@ -41,7 +41,7 @@ local SPAN_VTF_FLAGS = 0x1 + 0x4 + 0x8 + 0x100 + 0x200
 local SPAN_VTF_FORMAT = 25
 local SKY_FLAGS = bit.bor(SURF_SKY, SURF_SKY2D)
 local IGNORED_FLAGS = bit.bor(SURF_TRIGGER, SURF_HINT, SURF_SKIP)
-local MSG_KEY, MSG_CHUNK, MSG_HELLO, MSG_WANT = 0, 1, 2, 3
+local MSG_KEY, MSG_CHUNK = 0, 1
 
 cover.COLUMN, cover.COLUMNS, cover.Z_MIN, cover.Z_RANGE = COLUMN, COLUMNS, Z_MIN, Z_RANGE
 cover.GLOSS = GLOSS
@@ -316,6 +316,7 @@ if SERVER then
 		net.WriteString(key)
 		net.WriteUInt(#blob, 32)
 		net.Send(ply)
+		sends[ply] = 1
 	end
 
 	local function ready(compressed)
@@ -358,35 +359,34 @@ if SERVER then
 		end
 	end
 
+	local function connected(ply)
+		if blob then
+			announce(ply)
+		else
+			waiting[ply] = true
+		end
+	end
+
 	local function start()
 		key = spanKey()
+		hook.Add("Think", SPAN_NET, think)
 		local compressed = file.Read(spanPath(key, "dat"), "DATA")
 		if compressed then
 			ready(compressed)
 		else
 			bakeCo = coroutine.create(cover.BakeSpans)
 		end
-
-		hook.Add("Think", SPAN_NET, think)
 	end
 
-	net.Receive(SPAN_NET, function(_, ply)
-		local kind = net.ReadUInt(2)
-		if kind == MSG_HELLO then
-			if blob then
-				announce(ply)
-			else
-				waiting[ply] = true
-			end
-		elseif kind == MSG_WANT and blob and not sends[ply] then
-			sends[ply] = 1
-		end
-	end)
+	hook.Add("PlayerFullyConnected", SPAN_NET, connected)
 
 	if game.GetWorld():IsWorld() then
 		start()
+		for _, ply in ipairs(player.GetHumans()) do
+			connected(ply)
+		end
 	else
-		hook.Add("InitPostEntity", SPAN_NET, start)
+		hook.Add("Initialize", SPAN_NET, start)
 	end
 
 	return
@@ -427,15 +427,13 @@ net.Receive(SPAN_NET, function()
 	if kind == MSG_KEY then
 		local key, size = net.ReadString(), net.ReadUInt(32)
 		if file.Exists(spanPath(key, "vtf"), "DATA") then
+			spanPending = nil
 			loadSpans(key)
 
 			return
 		end
 
 		spanPending = { key = key, size = size, parts = {}, got = 0 }
-		net.Start(SPAN_NET)
-		net.WriteUInt(MSG_WANT, 2)
-		net.SendToServer()
 	elseif kind == MSG_CHUNK and spanPending then
 		local data = net.ReadData(net.ReadUInt(16))
 		spanPending.parts[#spanPending.parts + 1] = data
@@ -452,18 +450,6 @@ net.Receive(SPAN_NET, function()
 		end
 	end
 end)
-
-local function hello()
-	net.Start(SPAN_NET)
-	net.WriteUInt(MSG_HELLO, 2)
-	net.SendToServer()
-end
-
-if IsValid(LocalPlayer()) then
-	hello()
-else
-	hook.Add("InitPostEntity", SPAN_NET, hello)
-end
 
 --------------------------------------------------------------------------
 -- cover map: owner[texel] = the column key written there, ground[key] = the
