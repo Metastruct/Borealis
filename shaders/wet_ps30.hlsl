@@ -1,0 +1,407 @@
+#include "include/common.hlsl"
+#include "include/slices.hlsl"
+
+const float4 Constants0 : register(c0);
+const float4 Constants1 : register(c1);
+const float4 Constants2 : register(c2);
+const float4 Constants3 : register(c3);
+const float4 Constants11 : register(c11);
+const float4 Constants12 : register(c12);
+const float4 Constants13 : register(c13);
+const float4 Constants14 : register(c14);
+
+sampler Frame : register(s0);
+sampler Depth : register(s1);
+sampler CoverTex : register(s2);
+sampler3D Noise : register(s3);
+sampler SkyLut : register(s4);
+sampler FarGloss : register(s5);
+sampler CoverSpans : register(s6);
+
+#define EYE     Constants0.xyz
+#define WET     Constants0.w
+#define FWD     Constants1.xyz
+#define TAN_H   Constants1.w
+#define HORIZON Constants2.xyz
+#define TAN_V   Constants2.w
+#define ZENITH  Constants3.xyz
+#define ZNEAR   Constants3.w
+#define TIME       Constants11.x
+#define RAIN       Constants11.y
+#define LUT_WEIGHT Constants11.z
+#define LUT_SCALE  Constants11.w
+#define RIGHT   Constants12.xyz
+#define PUDDLE_LEVEL Constants12.w
+#define UP      Constants13.xyz
+#define POOL    Constants13.w
+#define FAR_CENTER Constants14.xy
+#define SPANS_ON   Constants14.z
+#define ZFAR       Constants14.w
+
+#define R_EARTH 6371.0
+#define EYE_H 0.2
+#define SKY_EXPOSURE 1.2
+
+#include "include/sky_lut.hlsl"
+#include "include/cover_spans.hlsl"
+
+#define COLUMN 24.0
+#define COLUMNS 64.0
+#define COVER_REACH 30.0
+#define Z_MIN -16384.0
+#define Z_RANGE 32768.0
+#define COVER_SLACK 12.0
+#define SLOPE_SLACK 34.0
+#define SLOPE_SLACK_MAX 64.0
+#define UNTRACED_MIN 3.0
+#define UNTRACED_MAX 8.0
+#define GLOSS_FAR 0.7
+#define FAR_COLUMN 128.0
+#define FAR_COLUMNS 64.0
+#define GLOSS_FADE 4.0
+#define ABSORB_LEVEL 0.3
+#define ABSORB_REFLECT 0.15
+#define SPIKE_MIN 4.0
+#define SPIKE_RATIO 0.01
+
+#define DARKEN 0.35
+#define SHEEN 0.3
+#define F0 0.04
+#define UP_MIN 0.2
+#define UP_FULL 0.6
+#define PATCH_SCALE (1.0 / 900.0)
+#define PATCH_DRY 0.35
+#define FADE_START 3500.0
+#define FADE_END 6000.0
+
+#define PUDDLE_FLAT 0.97
+#define PUDDLE_EDGE 0.03
+#define PUDDLE_DARK 0.4
+#define PUDDLE_F0 0.15
+#define PUDDLE_DETAIL 0.08
+#define PUDDLE_DETAIL_SCALE (1.0 / 140.0)
+#define PUDDLE_FADE_START 2000.0
+#define PUDDLE_FADE_END 2500.0
+
+
+#define FILM_START 0.3
+#define FILM_FULL 0.8
+#define FILM_F0 0.12
+#define FILM_STREAK_MIN 0.4
+#define FLOW_ACROSS_SCALE (1.0 / 300.0)
+#define FLOW_ALONG_SCALE (1.0 / 3000.0)
+#define FLOW_SPEED 60.0
+#define FLOW_TILT 0.15
+
+#define RIPPLE_CELL 20.0
+#define RIPPLE_RATE 1.3
+#define HEAVY_CELL 13.0
+#define HEAVY_RATE 2.1
+#define HEAVY_START 0.5
+#define HEAVY_FAR_BLUR 0.6
+#define RIPPLE_RADIUS 6.0
+#define RIPPLE_FREQ 3.0
+#define RIPPLE_SHARP 0.4
+#define RIPPLE_STRENGTH 0.4
+#define RIPPLE_FADE_START 600.0
+#define RIPPLE_FADE_END 1200.0
+
+#define SSR_STEPS 32
+#define SSR_REFINE 5
+#define SSR_START 8.0
+#define SSR_MAX 6000.0
+#define SSR_MIN_THICKNESS 16.0
+#define SSR_THICKNESS_RATIO 0.03
+
+#define DEPTH_BIAS 0.002
+#define EDGE_SLOPE 0.08
+
+struct PS_IN
+{
+	float4 color : TEXCOORD0;
+	float3 wpos  : TEXCOORD1;
+	float4 spos  : TEXCOORD2;
+};
+
+struct PS_OUT
+{
+	float4 color : COLOR0;
+	float depth  : DEPTH0;
+};
+
+PS_OUT output(float3 color, float depth)
+{
+	PS_OUT o;
+	o.color = float4(color, 1.0);
+	o.depth = depth;
+
+	return o;
+}
+
+float2 coverAt(float2 col)
+{
+	float3 c = tex2Dlod(CoverTex, float4(frac(col / COLUMNS) + 0.5 / COLUMNS, 0.0, 0.0)).rgb;
+
+	return float2((c.r * 65280.0 + c.g * 255.0) / 65535.0 * Z_RANGE + Z_MIN, c.b);
+}
+
+float2 exposure(float3 p, float3 n, float2 eyeCol)
+{
+	float2 g = p.xy / COLUMN - 0.5;
+	float2 col = floor(g);
+	float2 f = g - col;
+	float open = 1.0;
+	float reach = COVER_REACH - 1.0 - max(abs(col.x - eyeCol.x), abs(col.y - eyeCol.y));
+	float far = 0.0;
+	[branch] if (reach < GLOSS_FADE)
+	{
+		float2 off = abs(p.xy - FAR_CENTER) / FAR_COLUMN;
+		far = lerp(GLOSS_FAR, tex2Dlod(FarGloss, float4(p.xy / (FAR_COLUMN * FAR_COLUMNS), 0.0, 0.0)).b, saturate(FAR_COLUMNS * 0.5 - 1.0 - max(off.x, off.y)));
+	}
+
+	float gloss = far;
+	[branch] if (reach > 0.0)
+	{
+		float z = p.z + COVER_SLACK + min(SLOPE_SLACK * length(n.xy) / max(n.z, 0.01), SLOPE_SLACK_MAX);
+		float2 c00 = coverAt(col);
+		float2 c10 = coverAt(col + float2(1.0, 0.0));
+		float2 c01 = coverAt(col + float2(0.0, 1.0));
+		float2 c11 = coverAt(col + float2(1.0, 1.0));
+		open = lerp(lerp(step(c00.x, z), step(c10.x, z), f.x), lerp(step(c01.x, z), step(c11.x, z), f.x), f.y);
+		open *= 1.0 - smoothstep(UNTRACED_MIN, UNTRACED_MAX, p.z - max(max(c00.x, c10.x), max(c01.x, c11.x)));
+		gloss = lerp(far, lerp(lerp(c00.y, c10.y, f.x), lerp(c01.y, c11.y, f.x), f.y), saturate(reach / GLOSS_FADE));
+	}
+	else if (SPANS_ON > 0.5)
+	{
+		open = CoverSpansOpen(CoverSpans, p, COVER_SLACK + min(SLOPE_SLACK * length(n.xy) / max(n.z, 0.01), SLOPE_SLACK_MAX));
+	}
+
+	return float2(open, gloss);
+}
+
+float3 viewRay(float2 uv)
+{
+	float2 ndc = (uv - 0.5) * float2(2.0, -2.0);
+
+	return FWD + RIGHT * (ndc.x * TAN_H) + UP * (ndc.y * TAN_V);
+}
+
+float3 neighbour(float2 uv)
+{
+	float raw = tex2Dlod(Depth, float4(uv, 0.0, 0.0)).r;
+	float d = IsSkyDepth(raw) ? FADE_END * 4.0 : raw * DEPTH_SCALE;
+
+	return viewRay(uv) * d;
+}
+
+float3 nearer(float3 p, float3 a, float3 b)
+{
+	return abs(dot(a - p, FWD)) < abs(dot(p - b, FWD)) ? a - p : p - b;
+}
+
+float3 project(float3 p)
+{
+	float3 v = p - EYE;
+	float z = dot(v, FWD);
+	float2 ndc = float2(dot(v, RIGHT) / (z * TAN_H), dot(v, UP) / (z * TAN_V));
+
+	return float3(ndc * float2(0.5, -0.5) + 0.5, z);
+}
+
+bool onScreen(float2 uv)
+{
+	return uv.x >= 0.0 && uv.y >= 0.0 && uv.x <= 1.0 && uv.y <= 1.0;
+}
+
+float3 skyColor(float3 dir)
+{
+	float3 gradient = lerp(HORIZON, ZENITH, saturate(dir.z));
+	float3 above = normalize(float3(dir.xy, max(dir.z, 1e-3)));
+	float3 sky = 1.0 - exp(-max(tex2Dlod(SkyLut, float4(lutUV(above), 0.0, 0.0)).rgb, 0.0) * SKY_EXPOSURE);
+
+	return lerp(gradient, sky * LUT_SCALE, LUT_WEIGHT);
+}
+
+float2 hash22(float2 p)
+{
+	float3 p3 = frac(p.xyx * float3(0.1031, 0.1030, 0.0973));
+	p3 += dot(p3, p3.yzx + 33.33);
+
+	return frac((p3.xx + p3.yz) * p3.zy);
+}
+
+float2 ripple(float2 q, float seed, float size, float rate, float density)
+{
+	float2 cell = floor(q / size);
+	float cycle = TIME * rate + hash22(cell + seed).x;
+	float phase = frac(cycle);
+	float2 drop = hash22(cell + seed + floor(cycle) * 17.31);
+	float2 v = q - (cell + 0.25 + 0.5 * drop) * size;
+	float d = length(v);
+	float x = d - phase * RIPPLE_RADIUS * size / RIPPLE_CELL;
+	float fade = (1.0 - phase) * (1.0 - phase) * step(frac((drop.x + drop.y) * 31.7), density);
+
+	return v / max(d, 1e-3) * cos(x * RIPPLE_FREQ) * exp(-x * x * RIPPLE_SHARP) * fade;
+}
+
+float3 puddleReflection(float3 p, float3 dir, float3 fallback, float2 halfTexel, float samples)
+{
+	float stepFactor = pow(SSR_MAX / SSR_START, 1.0 / (SSR_STEPS - 1));
+	float t = SSR_START;
+	float tPrev = 0.0;
+
+	[loop]
+	for (int s = 0; s < SSR_STEPS; s++)
+	{
+		float3 q = project(p + dir * t);
+		if (q.z <= 0.0 || !onScreen(q.xy))
+		{
+			break;
+		}
+
+		float raw = tex2Dlod(Depth, float4(q.xy + halfTexel, 0.0, 0.0)).r;
+		float sceneZ = raw * DEPTH_SCALE;
+		if (!IsSkyDepth(raw) && sceneZ < q.z && q.z - sceneZ < t - tPrev)
+		{
+			float tNear = tPrev;
+			float tFar = t;
+			float farBehind = q.z - sceneZ;
+			float farZ = sceneZ;
+			for (int r = 0; r < SSR_REFINE; r++)
+			{
+				float tMid = (tNear + tFar) * 0.5;
+				float3 m = project(p + dir * tMid);
+				float mRaw = tex2Dlod(Depth, float4(m.xy + halfTexel, 0.0, 0.0)).r;
+				float mZ = mRaw * DEPTH_SCALE;
+				if (!IsSkyDepth(mRaw) && mZ < m.z)
+				{
+					tFar = tMid;
+					farBehind = m.z - mZ;
+					farZ = mZ;
+				}
+				else
+				{
+					tNear = tMid;
+				}
+			}
+
+			if (farBehind < max(SSR_MIN_THICKNESS, farZ * SSR_THICKNESS_RATIO))
+			{
+				float2 hitUV = project(p + dir * tFar).xy;
+				float4 hitFrame = tex2Dlod(Frame, float4(hitUV + halfTexel, 0.0, 0.0));
+				if (abs(SliceDepth(farZ, hitFrame.a * 255.0, samples) - farZ) <= farZ * SSR_THICKNESS_RATIO)
+				{
+					float edge = saturate(min(hitUV.x, 1.0 - hitUV.x) / 0.1) * saturate(min(hitUV.y, 1.0 - hitUV.y) / 0.1);
+
+					return lerp(fallback, hitFrame.rgb, edge);
+				}
+			}
+		}
+
+		tPrev = t;
+		t *= stepFactor;
+	}
+
+	return fallback;
+}
+
+PS_OUT main(PS_IN i)
+{
+	float2 uv = i.spos.xy / i.spos.w * float2(0.5, -0.5) + 0.5;
+	float2 sx = float2(ddx(uv).x, 0.0);
+	float2 sy = float2(0.0, ddy(uv).y);
+	float2 halfTexel = float2(abs(sx.x), abs(sy.y)) * 0.5;
+	uv += halfTexel;
+
+	float4 frame = tex2D(Frame, uv);
+	float raw = tex2D(Depth, uv).r;
+	float d = IsSkyDepth(raw) ? FADE_END * 4.0 : raw * DEPTH_SCALE;
+	float slope = (abs(ddx(raw)) + abs(ddy(raw))) / max(raw, 1e-4);
+	float bias = DEPTH_BIAS + (slope < EDGE_SLOPE ? slope : 0.0);
+	float depth = IsSkyDepth(raw) ? 1.0 : saturate(ZFAR / (ZFAR - ZNEAR) * (1.0 - ZNEAR / (d * (1.0 - bias))));
+	float samples = max(floor(i.color.b * 255.0 + 0.5), 1.0);
+	d = SliceDepth(d, frame.a * 255.0, samples);
+
+	float3 view = viewRay(uv);
+	float3 ray = normalize(view);
+	float t = d * length(view);
+	float3 rel = view * d;
+	float3 p = EYE + rel;
+	float3 ax = neighbour(uv + sx);
+	float3 bx = neighbour(uv - sx);
+	float3 ay = neighbour(uv + sy);
+	float3 by = neighbour(uv - sy);
+	float spike = max(SPIKE_MIN, d * SPIKE_RATIO);
+	[branch] if (min(dot(ax - rel, FWD), dot(bx - rel, FWD)) > spike || min(dot(ay - rel, FWD), dot(by - rel, FWD)) > spike)
+	{
+		return output(frame.rgb, depth);
+	}
+
+	float3 n = normalize(cross(nearer(rel, ax, bx), nearer(rel, ay, by)));
+	n = dot(n, ray) > 0.0 ? -n : n;
+
+	float upward = smoothstep(UP_MIN, UP_FULL, n.z) * saturate(remap(t, FADE_END, FADE_START, 0.0, 1.0));
+	[branch] if (max(WET, POOL) * upward <= 0.001)
+	{
+		return output(frame.rgb, depth);
+	}
+
+	float2 cover = exposure(p, n, floor(EYE.xy / COLUMN));
+	float wet = WET * upward * cover.x;
+	float gloss = cover.y;
+	float patch = tex3Dlod(Noise, float4(p.xy * PATCH_SCALE, 0.5, 0.0)).r;
+	float damp = wet * lerp(1.0 - PATCH_DRY, 1.0, smoothstep(0.3, 0.7, patch));
+
+	float film = damp * gloss * smoothstep(FILM_START, FILM_FULL, WET) * saturate(remap(t, PUDDLE_FADE_END, PUDDLE_FADE_START, 0.0, 1.0));
+
+	float3 r = reflect(ray, n);
+	float3 sky = lerp(HORIZON, ZENITH, saturate(r.z));
+	float fresnel = F0 + (1.0 - F0) * pow(1.0 - saturate(dot(-ray, n)), 5.0);
+	float3 color = lerp(frame.rgb * lerp(1.0, DARKEN, damp), sky, fresnel * SHEEN * damp * gloss * (1.0 - film));
+
+	float threshold = PUDDLE_LEVEL + (1.0 - gloss) * ABSORB_LEVEL;
+	float level = patch;
+	[branch] if (abs(patch - threshold) < PUDDLE_DETAIL)
+	{
+		level += (tex3Dlod(Noise, float4(p.xy * PUDDLE_DETAIL_SCALE, 0.25, 0.0)).r - 0.5) * PUDDLE_DETAIL;
+	}
+
+	float puddle = smoothstep(threshold, threshold + PUDDLE_EDGE, level)
+		* smoothstep(PUDDLE_FLAT, 1.0, n.z)
+		* upward * cover.x
+		* saturate(remap(t, PUDDLE_FADE_END, PUDDLE_FADE_START, 0.0, 1.0));
+
+	[branch] if (puddle > 0.01 || film > 0.01)
+	{
+		float near = saturate(remap(t, RIPPLE_FADE_END, RIPPLE_FADE_START, 0.0, 1.0));
+		float heavy = saturate((RAIN - HEAVY_START) / (1.0 - HEAVY_START));
+		float2 slope = float2(0.0, 0.0);
+		[branch] if (puddle > 0.01)
+		{
+			slope = ripple(p.xy, 0.0, RIPPLE_CELL, RIPPLE_RATE, RAIN) + ripple(p.xy + RIPPLE_CELL * 0.5, 37.0, RIPPLE_CELL, RIPPLE_RATE, RAIN);
+			[branch] if (heavy > 0.0)
+			{
+				slope += ripple(p.xy, 71.0, HEAVY_CELL, HEAVY_RATE, heavy) + ripple(p.xy + HEAVY_CELL * 0.5, 113.0, HEAVY_CELL, HEAVY_RATE, heavy);
+			}
+			slope *= RIPPLE_STRENGTH * near * puddle;
+		}
+
+		float flat = smoothstep(PUDDLE_FLAT, 1.0, n.z);
+		float2 downhill = -n.xy / max(length(n.xy), 1e-3);
+		float2 across = float2(-downhill.y, downhill.x);
+		float streak = tex3Dlod(Noise, float4(dot(p.xy, across) * FLOW_ACROSS_SCALE, (p.z + TIME * FLOW_SPEED) * FLOW_ALONG_SCALE, 0.75, 0.0)).r;
+		float3 base = normalize(lerp(n, float3(0.0, 0.0, 1.0), flat));
+		float3 surface = normalize(base + float3(-slope + across * (streak - 0.5) * FLOW_TILT * (1.0 - flat), 0.0));
+		float3 dir = reflect(ray, surface);
+		dir.z = lerp(dir.z, abs(dir.z), flat);
+		float3 fallback = skyColor(dir);
+		float3 mirror = lerp(puddleReflection(p + base, dir, fallback, halfTexel, samples), fallback, heavy * (1.0 - near) * HEAVY_FAR_BLUR);
+		float facing = pow(1.0 - saturate(dot(-ray, surface)), 5.0);
+		float sheet = film * (1.0 - puddle) * lerp(1.0, lerp(FILM_STREAK_MIN, 1.0, streak), 1.0 - flat);
+		color = lerp(color, mirror, (FILM_F0 + (1.0 - FILM_F0) * facing) * sheet);
+		float3 pool = lerp(frame.rgb * PUDDLE_DARK, mirror, (PUDDLE_F0 + (1.0 - PUDDLE_F0) * facing) * lerp(ABSORB_REFLECT, 1.0, gloss));
+		color = lerp(color, pool, puddle);
+	}
+
+	return output(color, depth);
+}

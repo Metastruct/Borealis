@@ -51,7 +51,7 @@ end
 
 bspdata.U16, bspdata.I16, bspdata.I32, bspdata.F32, bspdata.OpenLumps = u16, i16, i32, f32, openLumps
 
-local function breather()
+local function frameBudget()
 	local sliceStart = SysTime()
 
 	return function()
@@ -61,6 +61,8 @@ local function breather()
 		end
 	end
 end
+
+bspdata.FrameBudget = frameBudget
 
 -- BSP visibility: the node tree for point -> leaf, each leaf's cluster and the
 -- compressed PVS rows.  The engine hides world geometry beyond sky brushes by
@@ -81,19 +83,19 @@ local function parseVis()
 		return false, string.format("empty bsp lumps (planes %d, nodes %d, leaves %d)", plLen, noLen, leLen)
 	end
 
-	local breathe = breather()
+	local yieldIfOverBudget = frameBudget()
 	local bspPlanes = {}
 	for i = 0, plLen / 20 - 1 do
 		local p, o = i * 20 + 1, i * 4
 		bspPlanes[o + 1], bspPlanes[o + 2], bspPlanes[o + 3], bspPlanes[o + 4] = f32(planes, p), f32(planes, p + 4), f32(planes, p + 8), f32(planes, p + 12)
-		if i % 2048 == 0 then breathe() end
+		if i % 2048 == 0 then yieldIfOverBudget() end
 	end
 
 	local bspNodes = {}
 	for i = 0, noLen / 32 - 1 do
 		local p, o = i * 32 + 1, i * 3
 		bspNodes[o + 1], bspNodes[o + 2], bspNodes[o + 3] = i32(nodesL, p), i32(nodesL, p + 4), i32(nodesL, p + 8)
-		if i % 2048 == 0 then breathe() end
+		if i % 2048 == 0 then yieldIfOverBudget() end
 	end
 
 	local leafSize = leVer == 0 and 56 or 32 -- version 0 leaves carry ambient lighting
@@ -245,7 +247,7 @@ end
 
 -- displacement grid: the face is a quad, corner order starts at startPosition,
 -- disp verts run column-major relative to that order (verified against traces)
-local function addDisplacement(triGrid, px, py, pz, dispinfo, dispverts, di, alphaFor)
+local function addDisplacement(emit, px, py, pz, dispinfo, dispverts, di, alphaFor)
 	local dp = di * 176 + 1
 	local sx, sy, sz = f32(dispinfo, dp), f32(dispinfo, dp + 4), f32(dispinfo, dp + 8)
 	local vertStart = i32(dispinfo, dp + 12)
@@ -285,15 +287,17 @@ local function addDisplacement(triGrid, px, py, pz, dispinfo, dispverts, di, alp
 		for c = 0, n - 2 do
 			local i00, i01, i10, i11 = r * n + c, r * n + c + 1, (r + 1) * n + c, (r + 1) * n + c + 1
 			if (r + c) % 2 == 0 then
-				addTri(triGrid, gx[i00], gy[i00], gz[i00], gx[i10], gy[i10], gz[i10], gx[i11], gy[i11], gz[i11], ga[i00], ga[i10], ga[i11])
-				addTri(triGrid, gx[i00], gy[i00], gz[i00], gx[i11], gy[i11], gz[i11], gx[i01], gy[i01], gz[i01], ga[i00], ga[i11], ga[i01])
+				emit(gx[i00], gy[i00], gz[i00], gx[i10], gy[i10], gz[i10], gx[i11], gy[i11], gz[i11], ga[i00], ga[i10], ga[i11])
+				emit(gx[i00], gy[i00], gz[i00], gx[i11], gy[i11], gz[i11], gx[i01], gy[i01], gz[i01], ga[i00], ga[i11], ga[i01])
 			else
-				addTri(triGrid, gx[i00], gy[i00], gz[i00], gx[i10], gy[i10], gz[i10], gx[i01], gy[i01], gz[i01], ga[i00], ga[i10], ga[i01])
-				addTri(triGrid, gx[i10], gy[i10], gz[i10], gx[i11], gy[i11], gz[i11], gx[i01], gy[i01], gz[i01], ga[i10], ga[i11], ga[i01])
+				emit(gx[i00], gy[i00], gz[i00], gx[i10], gy[i10], gz[i10], gx[i01], gy[i01], gz[i01], ga[i00], ga[i10], ga[i01])
+				emit(gx[i10], gy[i10], gz[i10], gx[i11], gy[i11], gz[i11], gx[i01], gy[i01], gz[i01], ga[i10], ga[i11], ga[i01])
 			end
 		end
 	end
 end
+
+bspdata.Displacement = addDisplacement
 
 -- triangles with per-vertex blend alpha (0 = picked, 255 = other), indexed by
 -- TRI_CELL grid cell.  Parsed in a coroutine over several frames
@@ -314,7 +318,7 @@ function bspdata.Triangles(classify, minNormalZ)
 	local planes = lump(1)
 	f:Close()
 
-	local breathe = breather()
+	local yieldIfOverBudget = frameBudget()
 	local names = {}
 	for i = 0, stLen / 4 - 1 do
 		names[i] = string.match(strData, "^[^%z]*", i32(strTable, i * 4 + 1) + 1)
@@ -329,7 +333,7 @@ function bspdata.Triangles(classify, minNormalZ)
 	local modes = {}
 	for i = 0, tdLen / 32 - 1 do
 		modes[i] = classify(names[i32(texdataL, i * 32 + 13)])
-		if i % 50 == 49 then breathe() end
+		if i % 50 == 49 then yieldIfOverBudget() end
 	end
 
 	local function vertex(idx)
@@ -339,8 +343,12 @@ function bspdata.Triangles(classify, minNormalZ)
 	end
 
 	local triGrid = {}
+	local function emit(...)
+		addTri(triGrid, ...)
+	end
+
 	for i = 0, faLen / 56 - 1 do
-		if i % 512 == 0 then breathe() end
+		if i % 512 == 0 then yieldIfOverBudget() end
 		local fp = i * 56 + 1
 		local ti = i16(faces, fp + 10)
 		local mode = texinfo[ti] and modes[texinfo[ti]]
@@ -358,10 +366,10 @@ function bspdata.Triangles(classify, minNormalZ)
 					addTri(triGrid, px[1], py[1], pz[1], px[e], py[e], pz[e], px[e + 1], py[e + 1], pz[e + 1], 0, 0, 0)
 				end
 			elseif numedges == 4 then
-				addDisplacement(triGrid, px, py, pz, dispinfo, dispverts, di, function(a)
+				addDisplacement(emit, px, py, pz, dispinfo, dispverts, di, function(a)
 					return mode == 1 and 0 or (mode == 2 and a or 255 - a)
 				end)
-				breathe()
+				yieldIfOverBudget()
 			end
 		end
 	end

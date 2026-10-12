@@ -19,11 +19,15 @@ end
 -- horizon colour tod set as the engine fog colour.
 
 local cover, depthslices = shaderpack.cover, shaderpack.depthslices
-local FOG_ENABLED =CreateClientConVar("cl_draw_fog", "1", true, false, "draw volumetric fog in fog and rain weather")
+local FOG_ENABLED = CreateClientConVar("cl_draw_fog", "1", true, false, "draw volumetric fog in fog, rain and snow weather")
 
-local FOG_PROFILE = { density = 0.0007, falloff = 250, noise = 0.8 } -- extinction per unit at the base, height falloff in units, noise strength
-local RAIN_PROFILE = { density = 0.00025, falloff = 600, noise = 0.4 }
+local PROFILES = { -- extinction per unit at the base, height falloff in units, noise strength
+	fog = { density = 0.0007, falloff = 250, noise = 0.8 },
+	rain = { density = 0.00025, falloff = 600, noise = 0.4 },
+	snow = { density = 0.0002, falloff = 700, noise = 0.5 },
+}
 local SUN_GAIN = 1 -- sun in-scatter share, 0..1
+local VOLUMETRIC_WEATHERS = { rain = true, fog = true, snow = true }
 local BASE_LIFT = 40 -- fog base above the ground under the player
 local BASE_RATE = 0.5 -- share of the remaining gap closed per second when the ground changes
 local BASE_TRACE_INTERVAL = 0.25
@@ -44,6 +48,7 @@ local function build()
 		["$linearread_texture1"] = 1, -- depth and noise are data
 		["$linearread_texture2"] = 1,
 		["$linearread_texture3"] = 1,
+		["$linearread_texture4"] = 1,
 		["$linearwrite"] = 0,
 		["$additive"] = 0,
 		["$alpha_blend"] = 0,
@@ -52,7 +57,7 @@ local function build()
 		["$c1_x"] = 0, ["$c1_y"] = 0, ["$c1_z"] = 0, ["$c1_w"] = 0,
 		["$c2_x"] = 0, ["$c2_y"] = 0, ["$c2_z"] = 1, ["$c2_w"] = 0,
 		["$c3_x"] = 1, ["$c3_y"] = 1, ["$c3_z"] = 1, ["$c3_w"] = 1,
-	})
+	}, "screenspace_general_8tex")
 	return true
 end
 
@@ -63,14 +68,20 @@ local toLinear, setConstant = shaderpack.ToLinear, shaderpack.SetConstant
 
 -- total density and the density-weighted falloff and noise strength, or 0
 local function weather()
-	local f = tod and tod.fog and tod.fog.amount or 0
-	local r = tod and tod.rain and tod.rain.amount or 0
-	local df, dr = FOG_PROFILE.density * f, RAIN_PROFILE.density * r
-	local d = df + dr
-	if d <= 0 then return 0 end
-	local wf, wr = df / d, dr / d
+	if not tod then return 0 end
 
-	return d, FOG_PROFILE.falloff * wf + RAIN_PROFILE.falloff * wr, FOG_PROFILE.noise * wf + RAIN_PROFILE.noise * wr
+	local density, falloff, noise = 0, 0, 0
+	for name, profile in pairs(PROFILES) do
+		local w = tod[name]
+		local d = profile.density * (w and w.amount or 0)
+		density = density + d
+		falloff = falloff + profile.falloff * d
+		noise = noise + profile.noise * d
+	end
+
+	if density <= 0 then return 0 end
+
+	return density, falloff / density, noise / density
 end
 
 local base, targetBase, nextTrace = nil, nil, 0
@@ -107,6 +118,7 @@ end
 -- rendering
 --------------------------------------------------------------------------
 local quadColor = Color(SUN_GAIN * 255, 0, 0, 255)
+local extra = Matrix()
 local ORDER = 20 -- the near volume: this composites over the clouds
 
 local function draw()
@@ -119,6 +131,10 @@ local function draw()
 	if not MAT and not build() then return end
 
 	MAT:SetTexture("$texture3", coverRT)
+	local spans = cover.Spans()
+	MAT:SetTexture("$texture4", spans or coverRT)
+	extra:SetField(1, 1, spans and 1 or 0)
+	MAT:SetMatrix("$viewprojmat", extra)
 
 	local eye = EyePos()
 	local fwd = EyeAngles():Forward()
@@ -145,6 +161,9 @@ local function stop()
 	hook.Remove("PreDrawTranslucentRenderables", "ms_fog")
 	depthslices.RemoveEffect("ms_fog")
 	active = false
+	if tod and tod.SetVolumetricFog then
+		tod.SetVolumetricFog(nil)
+	end
 end
 
 local function start()
@@ -152,6 +171,9 @@ local function start()
 	hook.Add("Think", "ms_fog", think)
 	hook.Add("PreRender", "ms_fog", prepare)
 	depthslices.AddEffect("ms_fog", ORDER, draw, true, function() return active end)
+	if tod and tod.SetVolumetricFog then
+		tod.SetVolumetricFog(VOLUMETRIC_WEATHERS)
+	end
 end
 
 shaderpack.Toggle("ms_fog", FOG_ENABLED, { PS, VS }, start, stop)()

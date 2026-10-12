@@ -1,4 +1,5 @@
 #include "include/slices.hlsl"
+#include "include/cover_spans.hlsl"
 
 const float4 Constants0 : register(c0);
 const float4 Constants1 : register(c1);
@@ -9,6 +10,9 @@ sampler Frame : register(s0);
 sampler Depth : register(s1);
 sampler3D Noise : register(s2);
 sampler CoverTex : register(s3);
+sampler CoverSpans : register(s4);
+
+const float4 Constants11 : register(c11);
 
 #define EYE      Constants0.xyz
 #define DENSITY  Constants0.w
@@ -18,6 +22,7 @@ sampler CoverTex : register(s3);
 #define BASE_Z   Constants2.w
 #define FOG_COL  Constants3.xyz
 #define FALLOFF  Constants3.w
+#define SPANS_ON Constants11.x
 
 #define STEPS 24
 #define MAX_RANGE 5000.0
@@ -66,6 +71,10 @@ bool sheltered(float3 p, float2 eyeCol)
 	{
 		float2 c = tex2Dlod(CoverTex, float4(frac(col / COLUMNS) + 0.5 / COLUMNS, 0.0, 0.0)).rg;
 		covered = p.z < (c.r * 65280.0 + c.g * 255.0) / 65535.0 * Z_RANGE + Z_MIN;
+	}
+	else if (SPANS_ON > 0.5)
+	{
+		covered = CoverSpansOpen(CoverSpans, p, 0.0) < 0.5;
 	}
 
 	return covered;

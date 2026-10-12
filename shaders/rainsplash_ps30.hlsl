@@ -45,7 +45,7 @@ float hash1(float2 p)
 
 float2 spot(float seed, float id, float k)
 {
-	return 0.04 + 0.92 * float2(hash1(float2(seed, id + k * 3.1)), hash1(float2(id + k * 5.7, seed)));
+	return 0.12 + 0.76 * float2(hash1(float2(seed, id + k * 3.1)), hash1(float2(id + k * 5.7, seed)));
 }
 
 float3 ripple(float2 uv, float seed, float k, float px)
@@ -59,11 +59,19 @@ float3 ripple(float2 uv, float seed, float k, float px)
 		return float3(0.0, 0.0, 0.0);
 	}
 
-	float radius = RADIUS * (0.4 + 1.1 * hash1(float2(seed + id, k)));
-	float2 d = uv - spot(seed, id, k);
+	float2 s = spot(seed, id, k);
+	float ring = RING * (0.75 + 0.5 * hash1(float2(k + 1.7, seed + id)));
+	float room = min(min(s.x, 1.0 - s.x), min(s.y, 1.0 - s.y)) - 5.2 * px;
+	float radius = min(RADIUS * (0.4 + 1.1 * hash1(float2(seed + id, k))), room / (1.0 + 4.0 * ring));
+	if (radius <= px)
+	{
+		return float3(0.0, 0.0, 0.0);
+	}
+
+	float2 d = uv - s;
 	float len = length(d);
 	float r = len / radius;
-	float w = max(RING * (0.75 + 0.5 * hash1(float2(k + 1.7, seed + id))), px / radius * 1.3);
+	float w = max(ring, px / radius * 1.3);
 	if (r > t + 4.0 * w)
 	{
 		return float3(0.0, 0.0, 0.0);
