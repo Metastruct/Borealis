@@ -422,11 +422,12 @@ local function initialize()
 		["$linearread_texture2"] = 1,
 		["$texture3"] = "shaderpack/procsky/fognoise",
 		["$linearread_texture3"] = 1,
+		["$linearread_texture4"] = 1,
 		["$c0_x"] = 0, ["$c0_y"] = 0, ["$c0_z"] = 0, ["$c0_w"] = 0,
 		["$c1_x"] = 0, ["$c1_y"] = 0, ["$c1_z"] = 0, ["$c1_w"] = 0,
 		["$c2_x"] = 0, ["$c2_y"] = 0, ["$c2_z"] = 0, ["$c2_w"] = 0,
 		["$c3_x"] = 0, ["$c3_y"] = 0, ["$c3_z"] = 0, ["$c3_w"] = 0,
-	})
+	}, "screenspace_general_8tex")
 
 	DEPTH_MAT = file.Exists("shaders/fxc/waterdepth_ps30.vcs", "GAME") and CreateShaderMaterial("water_depth_" .. suffix, {
 		["$pixshader"] = "waterdepth_ps30",
@@ -575,7 +576,13 @@ local function drawSurface(eyePos, eyeUnderwater, writeDepth)
 	setConstant(SURF_MAT, "$c1", eyePos.x, eyePos.y, eyePos.z)
 
 	local sun = sunDir()
-	setConstant(SURF_MAT, "$c3", sun.x, sun.y, sun.z)
+	local lut = procsky and procsky.GetLut and procsky.GetLut()
+	local lutWeight = 0
+	if lut then
+		SURF_MAT:SetTexture("$texture4", lut)
+		lutWeight = 1 - shaderpack.Overcast()
+	end
+	setConstant(SURF_MAT, "$c3", sun.x, sun.y, sun.z, lut and procsky.GetSkyScale() * render.GetToneMappingScaleLinear().x or 0)
 
 	render.OverrideDepthEnable(true, writeDepth)
 	cam.PushModelMatrix(IDENTITY_MATRIX, false)
@@ -586,6 +593,7 @@ local function drawSurface(eyePos, eyeUnderwater, writeDepth)
 		local hr, hg, hb, zr, zg, zb = bodySkyColors(g)
 		setConstant(SURF_MAT, "$c2", hr, hg, hb, bodySunlit(g, sun))
 		setConstant(SURF_MAT, "$c0", nil, zr, zg, zb)
+		SURF_MAT:SetFloat("$c1_w", lutWeight * g.openness)
 		render.SetMaterial(SURF_MAT)
 		g.mesh:Draw()
 	end

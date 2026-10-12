@@ -292,6 +292,10 @@ function procsky.GetOvercast()
 	return state.overcast
 end
 
+function procsky.GetSkyScale()
+	return INTENSITY * (1 - 0.3 * state.overcast)
+end
+
 --------------------------------------------------------------------------
 -- theme: the season's look (halloween/tod.lua).  Every key is optional.
 --   moonVisible  false hides the moon: its glow here and tod's moon model
@@ -375,6 +379,10 @@ local function renderLut()
 	render.SetMaterial(LUT_MAT)
 	render.DrawScreenQuad(true)
 	render.PopRenderTarget()
+end
+
+function procsky.GetLut()
+	return active and lut or nil
 end
 
 -- basis from EyeAngles, which is right inside a RenderView too, and the fan

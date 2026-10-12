@@ -7,6 +7,13 @@ sampler Frame : register(s0);
 sampler Depth : register(s1);
 sampler NormalMap : register(s2);
 sampler3D Noise : register(s3);
+sampler SkyLut : register(s4);
+
+#define R_EARTH 6371.0
+#define EYE_H   0.2
+#define SKY_EXPOSURE 1.2
+#define LUT_WEIGHT Constants1.w
+#define LUT_SCALE  Constants3.w
 
 struct PS_IN
 {
@@ -31,6 +38,15 @@ float2 ClipToUV(float4 pixel) {
 #include "include/water_waves.hlsl"
 #include "include/slices.hlsl"
 #include "include/water_optics.hlsl"
+#include "include/sky_lut.hlsl"
+
+float3 SkyColor(float3 dir, float3 horizon, float3 zenith) {
+    float3 gradient = lerp(horizon, zenith, saturate(dir.z));
+    float3 above = normalize(float3(dir.xy, max(dir.z, 1e-3)));
+    float3 sky = 1.0 - exp(-max(tex2Dlod(SkyLut, float4(lutUV(above), 0.0, 0.0)).rgb, 0.0) * SKY_EXPOSURE);
+
+    return lerp(gradient, sky * LUT_SCALE, LUT_WEIGHT);
+}
 
 float3 WorldAbove(float2 lookupUV, float3 sky) {
     float edge = saturate(min(lookupUV.x, 1 - lookupUV.x) / 0.1) * saturate(min(lookupUV.y, 1 - lookupUV.y) / 0.1);
@@ -111,11 +127,11 @@ float4 main(PS_IN i) : COLOR
         float cosTheta = saturate(dot(-viewDir, normal));
         f = F0 + (1 - F0) * pow(1 - cosTheta, 5);
         reflectDir = reflect(viewDir, normal);
-        fallbackColor = lerp(HORIZON_COLOR, ZENITH_COLOR, saturate(reflectDir.z));
+        fallbackColor = SkyColor(reflectDir, HORIZON_COLOR, ZENITH_COLOR);
     } else {
         float2 wobble = -slope / i.spos.w * BELOW_REFRACTION;
         float3 bentDir = normalize(viewDir + float3(-slope * BELOW_SKY_BEND, 0.0));
-        float3 sky = lerp(HORIZON_COLOR, ZENITH_COLOR, saturate(bentDir.z));
+        float3 sky = SkyColor(bentDir, HORIZON_COLOR, ZENITH_COLOR);
         transmitted = WorldAbove(uv + wobble, sky);
 
         float eyeDepth = max(i.wpos.z - EYE_POS.z, 0.0);
