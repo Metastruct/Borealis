@@ -59,6 +59,7 @@ local FLASH = {
 }
 
 local VOLUME = CreateClientConVar("cl_rain_volume", "0.4", true, false, "rain volume: the rumble, the drips under cover and the thunder, 0 to 1")
+local MUTE_LOSEFOCUS = CreateClientConVar("cl_rain_mute_losefocus", "1", true, false, "mute the rain while the game is unfocused")
 tod.rain = tod.rain or {
 	amount = 0, -- read by sh_precipitations for the streaks
 	covered = false
@@ -232,9 +233,9 @@ hook.Add("Think", "tod_rain", function()
 		end
 	end
 
-	-- nothing is heard while another window has the focus
+	-- nothing is heard while another window has the focus, unless asked otherwise
 	local vol = math.Clamp(VOLUME:GetFloat(), 0, 1)
-	if vol <= 0 or not system.HasFocus() then
+	if vol <= 0 or (MUTE_LOSEFOCUS:GetBool() and not system.HasFocus()) then
 		stopRumble()
 		return
 	end
@@ -258,7 +259,7 @@ hook.Add("Think", "tod_rain", function()
 		timer.Simple(math.Rand(0.8, 3), function()
 			-- read again: the volume can have moved in the seconds since the flash
 			local v = math.Clamp(VOLUME:GetFloat(), 0, 1)
-			if amount > 0 and v > 0 and IsValid(ply) and system.HasFocus() then ply:EmitSound("ambient/weather/thunder" .. math.random(6) .. ".wav", 0, math.random(90, 110), 0.7 * v * exposure, CHAN_STATIC) end
+			if amount > 0 and v > 0 and IsValid(ply) and (not MUTE_LOSEFOCUS:GetBool() or system.HasFocus()) then ply:EmitSound("ambient/weather/thunder" .. math.random(6) .. ".wav", 0, math.random(90, 110), 0.7 * v * exposure, CHAN_STATIC) end
 		end)
 	end
 end)
