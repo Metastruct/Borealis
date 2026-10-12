@@ -973,6 +973,25 @@ if string.find(game.GetMap(), "gm_construct_m") then
 	local last_time
 	local last_lerp
 
+	function tod.SetVolumetricFog(weathers)
+		tod.volumetric_fog = weathers
+		cache = {}
+		last_time = nil
+	end
+
+	local function volumetricOverride()
+		local weathers = tod.volumetric_fog
+		if not weathers then return false end
+
+		for name, data in pairs(tod.override_configs) do
+			if data.config == tod.override_config then
+				return weathers[name] == true
+			end
+		end
+
+		return false
+	end
+
 	hook.Add("Think", "tod", function()
 		hook.Add("Think", "tod", function()
 			-- initialize tod
@@ -1035,7 +1054,7 @@ if string.find(game.GetMap(), "gm_construct_m") then
 					-- density, or a weather that adds no fog would still
 					-- repaint it.
 					if isnumber(clear_fog.fog_max_density) and isnumber(cfg.fog_max_density)
-						and clear_fog.fog_max_density >= cfg.fog_max_density then
+						and (clear_fog.fog_max_density >= cfg.fog_max_density or volumetricOverride()) then
 						for key, val in pairs(clear_fog) do
 							cfg[key] = val
 						end
