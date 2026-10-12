@@ -72,6 +72,7 @@ float4 main(PS_IN i) : COLOR
     const float3 SUN_COLOR = float3(8.0, 7.0, 6.0);
     const float SUN_SHINYNESS = 500.0;
     const float F0 = 0.02;
+    const float SHORE_FADE = 16.0;
 
     float2 p = i.wpos.xy;
 
@@ -125,7 +126,7 @@ float4 main(PS_IN i) : COLOR
         transmitted = WaterAttenuate(frame.rgb, thickness * MURK, skyScatter);
 
         float cosTheta = saturate(dot(-viewDir, normal));
-        f = F0 + (1 - F0) * pow(1 - cosTheta, 5);
+        f = (F0 + (1 - F0) * pow(1 - cosTheta, 5)) * saturate((i.wpos.z - seabedPos.z) / SHORE_FADE);
         reflectDir = reflect(viewDir, normal);
         fallbackColor = SkyColor(reflectDir, HORIZON_COLOR, ZENITH_COLOR);
     } else {
