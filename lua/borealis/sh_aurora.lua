@@ -9,7 +9,7 @@ if SERVER then
 end
 
 local procsky, skylevels = shaderpack.procsky, shaderpack.skylevels
-local AURORA_ENABLED =CreateClientConVar("cl_draw_auroras", 1, true, false, "should we draw auroras")
+local AURORA_ENABLED = CreateClientConVar("cl_draw_auroras", 1, true, false, "should we draw auroras")
 local INTENSITY = 0.35 -- brightness
 local SCALE = 2 -- pattern scale
 local HUE = 0.5 -- hue shift in radians
@@ -268,6 +268,15 @@ local function start(PIXEL_SHADER, SKY_SHADER, MAP_SHADER)
 	end
 end
 
-shaderpack.WhenMounted("ms_aurora_sky", SHADERS, function()
+local function stop()
+	hook.Remove("PreRender", "ms_aurora_curtains")
+	hook.Remove("PostDraw2DSkyBox", "ms_aurora_sky")
+	if skyboxer then
+		skyboxer.RemoveHook("b_aurora_nightsky")
+		skyboxer.RemoveHook("d_aurora_curtains")
+	end
+end
+
+shaderpack.Toggle("ms_aurora_sky", nil, SHADERS, function()
 	start("aurora_ps30", "nightsky_ps30", "aurora_map_ps30")
-end)
+end, stop)()

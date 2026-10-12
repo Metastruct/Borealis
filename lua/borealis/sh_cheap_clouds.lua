@@ -228,6 +228,15 @@ local function startMesh()
 	skyboxer.AddHook("d_" .. Tag, drawMesh)
 end
 
-if not shaderpack.WhenMounted(Tag, { "clouds_ps30", "aurora_vs30" }, function() startShader("clouds_ps30") end) then
-	startMesh()
+local function start()
+	if not shaderpack.WhenMounted(Tag, { "clouds_ps30", "aurora_vs30" }, function() startShader("clouds_ps30") end) then
+		startMesh()
+	end
 end
+
+local function stop()
+	skyboxer.RemoveHook("d_" .. Tag)
+	skyboxer.RemoveHook("e_buildclouds")
+end
+
+shaderpack.Toggle(Tag, nil, {}, start, stop)()

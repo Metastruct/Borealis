@@ -161,4 +161,4 @@ local function start()
 	depthslices.AddEffect("ms_cloudshadows", ORDER, draw, false, function() return active end)
 end
 
-shaderpack.WhenMounted("ms_cloudshadows", { PS, VS }, start)
+shaderpack.Toggle("ms_cloudshadows", nil, { PS, VS }, start, stop)()

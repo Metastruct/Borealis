@@ -470,7 +470,7 @@ local apply = shaderpack.Toggle("ms_procsky", SKY_ENABLED, SHADERS, start, stop)
 -- the sun shafts, the clouds and the night sky read them
 hook.Add("Think", "ms_procsky", think)
 hook.Add("RenderScreenspaceEffects", "ms_procsky_tint", function()
-	local tint = procsky.theme.tint
+	local tint = shaderpack.Enabled() and procsky.theme.tint
 	if tint then
 		DrawColorModify(tint)
 	end

@@ -48,9 +48,24 @@ function shaderpack.WhenMounted(id, shaders, start)
 	return false
 end
 
+local MASTER = CreateClientConVar("cl_shaderpack", "1", true, false, "draw the shaderpack effects, overrides every cl_draw_* convar when off")
+
+shaderpack.toggles = shaderpack.toggles or { order = {}, apply = {} }
+
+function shaderpack.Enabled()
+	return MASTER:GetBool()
+end
+
 function shaderpack.Toggle(id, convar, shaders, start, stop)
+	local toggles = shaderpack.toggles
+
 	local function apply()
-		if not convar:GetBool() then
+		if not toggles.apply[id] then
+			toggles.order[#toggles.order + 1] = id
+		end
+		toggles.apply[id] = apply
+
+		if not MASTER:GetBool() or (convar and not convar:GetBool()) then
 			hook.Remove("ShaderMounted", id)
 			stop()
 			return
@@ -59,11 +74,24 @@ function shaderpack.Toggle(id, convar, shaders, start, stop)
 		shaderpack.WhenMounted(id, shaders, start)
 	end
 
-	cvars.RemoveChangeCallback(convar:GetName(), id)
-	cvars.AddChangeCallback(convar:GetName(), apply, id)
+	if convar then
+		cvars.RemoveChangeCallback(convar:GetName(), id)
+		cvars.AddChangeCallback(convar:GetName(), apply, id)
+	end
 
 	return apply
 end
+
+cvars.RemoveChangeCallback("cl_shaderpack", "shaderpack")
+cvars.AddChangeCallback("cl_shaderpack", function()
+	local toggles = shaderpack.toggles
+	for _, id in ipairs(toggles.order) do
+		local ok, err = pcall(toggles.apply[id])
+		if not ok then
+			ErrorNoHalt("shaderpack: " .. id .. ": " .. tostring(err) .. "\n")
+		end
+	end
+end, "shaderpack")
 
 function shaderpack.AfterWorld(id, fn)
 	if LocalPlayer and IsValid(LocalPlayer()) then
