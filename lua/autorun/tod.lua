@@ -165,7 +165,7 @@ if string.find(game.GetMap(), "gm_construct_m") then
 			if ent:IsValid() then
 				ent:Fire("SetPattern", string.char(tod.MultToLightEnv(val)))
 			else
-				engine.LightStyle(tod.MultToLightEnv(val), 0)
+				engine.LightStyle(0, string.char(tod.MultToLightEnv(val)))
 			end
 		end
 	end
