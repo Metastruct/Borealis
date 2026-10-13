@@ -8,7 +8,7 @@ end
 
 local vclouds = shaderpack.vclouds or {}
 shaderpack.vclouds = vclouds
-local procsky, skylevels, depthslices = shaderpack.procsky, shaderpack.skylevels, shaderpack.depthslices
+local procsky, cover, depthslices = shaderpack.procsky, shaderpack.cover, shaderpack.depthslices
 
 -- Volumetric clouds: a world-space slab ray marched by vclouds_ps30 and
 -- composited over the frame before the translucent pass, so the clouds live in
@@ -39,12 +39,11 @@ local procsky, skylevels, depthslices = shaderpack.procsky, shaderpack.skylevels
 local ENABLED = CreateClientConVar("cl_draw_vclouds", "0", true, false, "draw volumetric clouds instead of the skybox deck")
 
 -- The slab stands this far over the floor of whichever outdoor level the camera
--- is in (sh_skylevels), which puts it inside the build area's own air, the one
--- place where flying into the layer makes sense, and over the sky of the
+-- is in (sh_cover's SkyLevel), which puts it inside the build area's own air,
+-- the one place where flying into the layer makes sense, and over the sky of the
 -- fishing level, which has barely 3000 units of air beneath it.  Sitting above
 -- a sky costs nothing, since sky pixels never clip the march.
-local BASE_OVER_FLOOR = 5000 -- unless the level hangs its layer by the top
-local THICK = 3500 -- the slab's own thickness, which lives in vclouds_ps30
+local BASE_OVER_FLOOR = 5000
 local SKY_BASE = 3000 -- slab base outside every level
 -- Coverage drifts instead of sitting still, and sits low most of the time: two
 -- slow sines with periods that do not divide into each other, so the pattern
@@ -113,11 +112,11 @@ local function coverage()
 end
 
 local function baseZ()
-	local lvl = skylevels and skylevels.Get()
+	local lvl = cover and cover.SkyLevel()
 
 	if not lvl then return SKY_BASE end
 
-	return lvl.clouds and lvl.clouds - THICK or lvl.floor + BASE_OVER_FLOOR
+	return lvl.floor + BASE_OVER_FLOOR
 end
 
 -- The slab's base and the coverage it is marching, or nil while it is off.

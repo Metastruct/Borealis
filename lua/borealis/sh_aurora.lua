@@ -8,7 +8,7 @@ if SERVER then
 	return
 end
 
-local procsky, skylevels = shaderpack.procsky, shaderpack.skylevels
+local procsky, cover = shaderpack.procsky, shaderpack.cover
 local AURORA_ENABLED = CreateClientConVar("cl_draw_auroras", 1, true, false, "should we draw auroras")
 local INTENSITY = 0.35 -- brightness
 local SCALE = 2 -- pattern scale
@@ -200,8 +200,8 @@ local function start(PIXEL_SHADER, SKY_SHADER, MAP_SHADER)
 	end
 
 	local function curtainHeight()
-		local eye = EyePos().z
-		local lvl = skylevels and skylevels.Get()
+		local eye = render.GetViewSetup().origin.z
+		local lvl = cover and cover.SkyLevel()
 
 		return math.max(HEIGHT - (eye - (lvl and lvl.floor or eye)) / AURORA_SCALE, AURORA_MIN)
 	end

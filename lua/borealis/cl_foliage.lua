@@ -41,7 +41,17 @@ function foliage.Smoothstep(e0, e1, v)
 	return t * t * (3 - 2 * t)
 end
 
-function foliage.SurfaceClassifier(kinds)
+function foliage.SurfaceClassifier(kinds, names)
+	local function named(texture)
+		if not texture then return false end
+		texture = texture:lower()
+		for _, n in ipairs(names) do
+			if texture:find(n, 1, true) then return true end
+		end
+
+		return false
+	end
+
 	return function(name)
 		local mat = Material(name)
 		local sp = (mat:GetString("$surfaceprop") or ""):lower()
@@ -51,6 +61,19 @@ function foliage.SurfaceClassifier(kinds)
 		elseif kinds[sp] then
 			return 2
 		elseif kinds[sp2] then
+			return 3
+		end
+
+		if not names then return end
+
+		local base2 = mat:GetString("$basetexture2")
+		local first = named(mat:GetString("$basetexture")) or (not base2 and named(name))
+		local second = named(base2)
+		if first and (not base2 or second) then
+			return 1
+		elseif first then
+			return 2
+		elseif second then
 			return 3
 		end
 	end

@@ -6,7 +6,7 @@ end
 
 require("skyboxer")
 
-local procsky, skylevels, vclouds = shaderpack.procsky, shaderpack.skylevels, shaderpack.vclouds
+local procsky, cover, vclouds = shaderpack.procsky, shaderpack.cover, shaderpack.vclouds
 local Tag = "ms_cheap_clouds"
 local ENABLED = CreateClientConVar("cl_draw_clouds", "1", true, false, "Draw cheap clouds in the skybox", 0, 1)
 
@@ -14,7 +14,7 @@ local function level()
 	if procsky and procsky.theme and procsky.theme.clouds == false then return end
 	if not ENABLED:GetBool() then return end
 
-	return skylevels and skylevels.Get()
+	return cover and cover.SkyLevel()
 end
 
 local COVERAGE = 0.5
@@ -112,7 +112,7 @@ local function startShader(PIXEL_SHADER)
 			light, amb = deckLight, deckAmb
 		end
 
-		local ep = EyePos()
+		local ep = render.GetViewSetup().origin
 		local t = CurTime()
 		local deckZ = lvl and deckHeight(lvl, overcast) or SKY_DECK_Z
 

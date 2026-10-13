@@ -79,7 +79,7 @@ end
 local layer = foliage.Layer({
 	name = "grass",
 	pixelShader = "grass_ps30", vertexShader = "grass_vs30", depthShader = "grassdepth_ps30",
-	classify = foliage.SurfaceClassifier({ grass = true }), minNormalZ = MAX_SLOPE_Z,
+	classify = foliage.SurfaceClassifier({ grass = true }, { "grass" }), minNormalZ = MAX_SLOPE_Z,
 	spacing = 18, jitter = 8, quadW = 26, quadH = QUAD_H,
 	sway = QUAD_H * 1.4 * LEAN_MAX,
 	keep = keep, palette = palette, frame = frame,

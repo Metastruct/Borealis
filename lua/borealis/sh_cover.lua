@@ -404,12 +404,14 @@ if SERVER then
 end
 
 local spanTexture, spanData, spanPending
+local levels, levelFrame, levelResult = {}, -1, nil
 
 local function loadSpans(key)
 	local mat = CreateMaterial("ms_cover_spans_" .. key, "UnlitGeneric", { ["$basetexture"] = "../data/" .. SPAN_DIR .. "/" .. key })
 	local tex = mat:GetTexture("$basetexture")
 	spanTexture = tex and not tex:IsError() and tex or nil
 	spanData = spanTexture and file.Read(spanPath(key, "vtf"), "DATA") or nil
+	levels, levelFrame = {}, -1
 end
 
 local function spanHeight(pos)
@@ -418,19 +420,72 @@ local function spanHeight(pos)
 	return (hi * 256 + lo) / 65535 * SPAN_SIZE + SPAN_MIN
 end
 
-local function spanCut(x, y, top)
+local function spanBase(x, y)
 	local cx = math.Clamp(math.floor((x - SPAN_MIN) / SPAN_COLUMN), 0, SPAN_COLUMNS - 1)
 	local cy = math.Clamp(math.floor((y - SPAN_MIN) / SPAN_COLUMN), 0, SPAN_COLUMNS - 1)
-	local base = 81 + (cy * SPAN_COLUMNS * 2 + cx) * 8
+
+	return 81 + (cy * SPAN_COLUMNS * 2 + cx) * 8
+end
+
+local function spanSlot(base, s)
+	local pos = s < 2 and base + s * 4 or base + SPAN_COLUMNS * 8 + (s - 2) * 4
+
+	return spanHeight(pos), spanHeight(pos + 2)
+end
+
+local function spanCut(x, y, top)
+	local base = spanBase(x, y)
 	for s = 0, SPAN_SLOTS - 1 do
-		local pos = s < 2 and base + s * 4 or base + SPAN_COLUMNS * 8 + (s - 2) * 4
-		local spanTop, spanBottom = spanHeight(pos), spanHeight(pos + 2)
+		local spanTop, spanBottom = spanSlot(base, s)
 		if spanBottom <= top and top <= spanTop then
 			return spanBottom
 		end
 	end
 
 	return Z_MIN + Z_RANGE
+end
+
+local LEVEL_SLACK_BELOW, LEVEL_SLACK_ABOVE = 1000, 64
+local LEVEL_TOLERANCE = 64
+
+local function skyAbove(x, y, z)
+	local base = spanBase(x, y)
+	local best
+	for s = 0, SPAN_SLOTS - 1 do
+		local top, bottom = spanSlot(base, s)
+		if bottom <= top and top >= z and (not best or top < best) then
+			best = top
+		end
+	end
+
+	return best
+end
+
+local function resolveLevel(eye)
+	local top = skyAbove(eye.x, eye.y, eye.z - LEVEL_SLACK_ABOVE)
+	if not top then return end
+
+	local key = math.floor(top / LEVEL_TOLERANCE + 0.5)
+	if not levels[key] then
+		local down = util.TraceLine({ start = eye, endpos = eye - Vector(0, 0, Z_RANGE), mask = MASK_SOLID_BRUSHONLY })
+		levels[key] = { floor = down.Hit and down.HitPos.z or eye.z, ceiling = top }
+	end
+
+	return levels[key]
+end
+
+function cover.SkyLevel()
+	if not spanData then return end
+
+	local frame = FrameNumber()
+	if frame == levelFrame then return levelResult end
+	levelFrame = frame
+
+	local eye = render.GetViewSetup().origin
+	local lvl = resolveLevel(eye)
+	levelResult = lvl and eye.z >= lvl.floor - LEVEL_SLACK_BELOW and lvl or nil
+
+	return levelResult
 end
 
 net.Receive(SPAN_NET, function()
