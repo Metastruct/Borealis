@@ -28,7 +28,7 @@ local GLOSS = {
 	[MAT_GRATE] = 0.6,
 }
 
-local SPAN_VERSION = 2
+local SPAN_VERSION = 3
 local SPAN_MIN, SPAN_SIZE = Z_MIN, Z_RANGE
 local SPAN_COLUMNS = 1024
 local SPAN_COLUMN = SPAN_SIZE / SPAN_COLUMNS
@@ -96,7 +96,12 @@ local function columnBytes(list, count, bytes, x)
 		for k = 1, count do
 			local v = list[k]
 			if v ~= prev and v % 2 == 1 and slot < SPAN_SLOTS then
-				local below = list[k + 1]
+				local m = k + 1
+				while list[m] == v do
+					m = m + 1
+				end
+
+				local below = list[m]
 				writeSpan(bytes, x, slot, heightValue((v - 1) / 8), below and heightValue((below - below % 2) / 8) or 0)
 				slot = slot + 1
 			end
