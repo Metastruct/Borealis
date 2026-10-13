@@ -146,9 +146,10 @@ local function drawMask(bDepth, bSkybox, b3DSky)
 	render.OverrideBlend(true, BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD, BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD)
 	render.SetColorMaterial()
 
-	-- OverrideDepthEnable(true, false) turns the depth test off entirely
 	render.OverrideDepthEnable(true, false)
+	cam.IgnoreZ(true)
 	render.DrawQuadEasy(eye + fwd * near, -fwd, halfW * near * 4, halfH * near * 4, ALPHA0, 0)
+	cam.IgnoreZ(false)
 	render.OverrideDepthEnable(true, true)
 	render.DrawQuadEasy(eye + fwd * far, -fwd, halfW * far * 4, halfH * far * 4, ALPHA1, 0)
 	render.CopyRenderTargetToTexture(maskRT)
@@ -156,7 +157,9 @@ local function drawMask(bDepth, bSkybox, b3DSky)
 	-- alpha back to 1 everywhere: whoever snapshots the frame later reads it,
 	-- and the corrupted area's restore blit turned the world black on alpha 0
 	render.OverrideDepthEnable(true, false)
+	cam.IgnoreZ(true)
 	render.DrawQuadEasy(eye + fwd * near, -fwd, halfW * near * 4, halfH * near * 4, ALPHA1, 0)
+	cam.IgnoreZ(false)
 	render.OverrideDepthEnable(false, false)
 
 	render.OverrideBlend(false)

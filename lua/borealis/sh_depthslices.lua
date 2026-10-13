@@ -66,7 +66,9 @@ local function fillAlpha(col)
 	render.OverrideBlend(true, BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD, BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD)
 	render.SetColorMaterial()
 	render.OverrideDepthEnable(true, false)
+	cam.IgnoreZ(true)
 	quad(eye, fwd, halfW, halfH, quadNear(vs), col)
+	cam.IgnoreZ(false)
 	render.OverrideDepthEnable(false, false)
 	render.OverrideBlend(false)
 	render.OverrideAlphaWriteEnable(false, false)
@@ -91,7 +93,9 @@ function depthslices.Capture()
 	render.SetColorMaterial()
 	render.OverrideDepthEnable(true, false)
 	sliceColor.a = first
+	cam.IgnoreZ(true)
 	quad(eye, fwd, halfW, halfH, quadNear(vs), sliceColor)
+	cam.IgnoreZ(false)
 	render.OverrideDepthEnable(false, false)
 	for k = first, SLICES - 1 do
 		sliceColor.a = k + 1
@@ -275,6 +279,7 @@ end)
 
 hook.Add("PreDrawTranslucentRenderables", "ms_depthslices_effects", function(bDepth, bSkybox, b3DSky)
 	if bDepth or bSkybox or b3DSky or render.GetRenderTarget() then return end
+	depthslices.Invalidate()
 	local t = depthslices.effects
 	local wantsRefog = false
 	for i = 1, #t do
