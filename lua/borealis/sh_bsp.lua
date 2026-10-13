@@ -36,6 +36,19 @@ local function f32(s, pos)
 	return sign * (1 + mant / 8388608) * 2 ^ (exp - 127)
 end
 
+local function decompress(raw)
+	if raw:sub(1, 4) ~= "LZMA" then return raw end
+
+	local actual, packed = i32(raw, 5), i32(raw, 9)
+	local size, n = {}, actual
+	for i = 1, 8 do
+		size[i] = string.char(n % 256)
+		n = math.floor(n / 256)
+	end
+
+	return util.Decompress(raw:sub(13, 17) .. table.concat(size) .. raw:sub(18, 17 + packed)) or ""
+end
+
 local function openLumps()
 	local f = file.Open("maps/" .. game.GetMap() .. ".bsp", "rb", "GAME")
 	if not f then return nil end
@@ -44,8 +57,9 @@ local function openLumps()
 		f:Seek(8 + i * 16)
 		local ofs, len, ver = f:ReadLong(), f:ReadLong(), f:ReadLong()
 		f:Seek(ofs)
+		local data = decompress(f:Read(len) or "")
 
-		return f:Read(len) or "", len, ver
+		return data, #data, ver
 	end
 end
 

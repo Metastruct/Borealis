@@ -82,13 +82,26 @@ end
 -- tod rescales the lightmaps at runtime through the named light_environment's
 -- light style; ComputeLighting returns the unscaled lightmap, so the current
 -- style scale is applied per frame (engine: (letter - 'a') * 22 / 256)
+local lightEnvironment
+local function hasLightEnvironment()
+	if lightEnvironment == nil then
+		local f, lump = bspdata.OpenLumps()
+		lightEnvironment = f and lump(0):find("\"light_environment\"", 1, true) ~= nil or false
+		if f then f:Close() end
+	end
+
+	return lightEnvironment
+end
+
 local function worldLightScale()
-	if not (tod and tod.MultToLightEnv and tod.CurrentParams) then return 1 end
+	if not (tod and tod.MultToLightEnv and tod.CurrentParams) or not hasLightEnvironment() then return 1 end
 	local code = tod.MultToLightEnv(tod.CurrentParams.world_light_multiplier or 1)
 	if not isnumber(code) then return 1 end
 
 	return (code - 97) * 22 / 256
 end
+
+foliage.WorldLightScale = worldLightScale
 
 local function chunkKey(cx, cy)
 	return cx * 65536 + cy

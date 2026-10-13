@@ -82,8 +82,7 @@ local function leafLook(p, rand)
 end
 
 local function lightAt(pos, normal)
-	local code = tod and tod.MultToLightEnv and tod.MultToLightEnv(tod.CurrentParams.world_light_multiplier or 1) or 119
-	local scale = (code - 97) * 22 / 256
+	local scale = shaderpack.foliage.WorldLightScale()
 	local l = render.ComputeLighting(pos + normal * 4, normal)
 	local amb = render.GetAmbientLightColor()
 
