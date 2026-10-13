@@ -8,6 +8,7 @@ local BUILD_BUDGET_MS = 3 -- generation work per frame
 local MESH_BATCH = 240 -- tufts per IMesh, about 1 ms to build
 local STRIDE = 7 -- numbers per tuft in a chunk's flat tuft array: x, y, z, seed, height scale, packed light, vis cluster
 local SIGHT_TESTS_PER_FRAME = 40 -- line of sight tests per draw
+local MESH_CACHE_TUFTS = jit.arch == "x64" and math.huge or 200000
 local FILL_K = 0.5 -- ambient cube share added as fill light, not scaled by tod's light style
 
 local Layer = {}
@@ -299,10 +300,6 @@ local function destroyMeshes(ch)
 	end
 end
 
-local function byPrio(a, b)
-	return a.prio < b.prio
-end
-
 -- bounding sphere of a chunk's tufts, for the frustum test in draw
 function Layer:chunkBounds(ch, tufts)
 	local zmin, zmax = math.huge, -math.huge
@@ -319,26 +316,40 @@ function Layer:chunkBounds(ch, tufts)
 end
 
 -- picks the next queued chunk: nearest first, chunks in front of the camera
--- before the rest.  The queue is re-sorted only when chunks were added or the
+-- before the rest.  Priorities are recomputed only when chunks were added or the
 -- eye moved a chunk, a large radius queues thousands of mostly empty chunks
 function Layer:nextChunk()
 	local eye, fwd = EyePos(), EyeVector()
-	local buildQueue = self.buildQueue
+	local buildQueue, chunks = self.buildQueue, self.chunks
 	if self.queueDirty or eye:DistToSqr(self.queueEye) > CHUNK * CHUNK then
 		self.queueDirty, self.queueEye = false, eye
-		for _, ch in ipairs(buildQueue) do
-			local dx, dy = ch.cx * CHUNK + CHUNK * 0.5 - eye.x, ch.cy * CHUNK + CHUNK * 0.5 - eye.y
-			local dist = math.sqrt(dx * dx + dy * dy)
-			local behind = dist > CHUNK and (dx * fwd.x + dy * fwd.y) / dist < -0.35
-			ch.prio = dist + (behind and self.radius or 0)
+		local n = 0
+		for i = 1, #buildQueue do
+			local ch = buildQueue[i]
+			buildQueue[i] = nil
+			if ch.mesh == nil and chunks[chunkKey(ch.cx, ch.cy)] == ch then
+				local dx, dy = ch.cx * CHUNK + CHUNK * 0.5 - eye.x, ch.cy * CHUNK + CHUNK * 0.5 - eye.y
+				local dist = math.sqrt(dx * dx + dy * dy)
+				local behind = dist > CHUNK and (dx * fwd.x + dy * fwd.y) / dist < -0.35
+				ch.prio = dist + (behind and self.radius or 0)
+				n = n + 1
+				buildQueue[n] = ch
+			end
 		end
-
-		table.sort(buildQueue, byPrio)
 	end
 
-	local ch = table.remove(buildQueue, 1)
+	local count = #buildQueue
+	if count == 0 then return end
+	local best = 1
+	for i = 2, count do
+		if buildQueue[i].prio < buildQueue[best].prio then best = i end
+	end
+
+	local ch = buildQueue[best]
+	buildQueue[best] = buildQueue[count]
+	buildQueue[count] = nil
 	local key = chunkKey(ch.cx, ch.cy)
-	if ch.mesh ~= nil or self.chunks[key] ~= ch then return end
+	if ch.mesh ~= nil or chunks[key] ~= ch then return end
 
 	local cached = self.tuftCache[key]
 	if cached == false then
@@ -604,11 +615,28 @@ function Layer:draw(sky3d)
 	if RealTime() > self.evictNext then
 		self.evictNext = RealTime() + 2
 		local limit = (radius + CHUNK * 2) ^ 2
+		local far, meshed = {}, 0
 		for key, ch in pairs(chunks) do
 			local ddx, ddy = ch.cx * CHUNK + half - eye.x, ch.cy * CHUNK + half - eye.y
-			if ddx * ddx + ddy * ddy > limit and ch ~= self.current then
+			local d = ddx * ddx + ddy * ddy
+			if d > limit and ch ~= self.current then
+				if ch.mesh then
+					ch.evictDist = d
+					far[#far + 1] = ch
+					meshed = meshed + ch.tufts
+				else
+					chunks[key] = nil
+				end
+			end
+		end
+
+		if meshed > MESH_CACHE_TUFTS then
+			table.sort(far, function(a, b) return a.evictDist > b.evictDist end)
+			for _, ch in ipairs(far) do
+				if meshed <= MESH_CACHE_TUFTS then break end
+				meshed = meshed - ch.tufts
 				destroyMeshes(ch)
-				chunks[key] = nil
+				chunks[chunkKey(ch.cx, ch.cy)] = nil
 			end
 		end
 	end

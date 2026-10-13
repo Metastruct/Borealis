@@ -5,7 +5,7 @@ if SERVER then
 end
 
 local foliage, wind = shaderpack.foliage, shaderpack.wind
-local GRASS_ENABLED =CreateClientConVar("cl_draw_grass", "0", true, false, "draw grass tufts on grass surfaces")
+local GRASS_ENABLED = CreateClientConVar("cl_draw_grass", "0", true, false, "draw grass tufts on grass surfaces")
 local GRASS_DISTANCE = CreateClientConVar("cl_draw_grass_distance", "3072", true, false, "grass draw distance in units", 1024, 16384)
 
 local month = tonumber(os.date("%m")) or 0
