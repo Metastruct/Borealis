@@ -36,7 +36,8 @@ local SPAN_SLOTS = 4
 local SPAN_TILE = 64
 local SPAN_DIR = "shaderpack/cover"
 local SPAN_NET = "ms_cover_spans"
-local SPAN_CHUNK = 60000
+local SPAN_CHUNK = 32000
+local SPAN_RATE = 131072
 local SPAN_VTF_FLAGS = 0x1 + 0x4 + 0x8 + 0x100 + 0x200
 local SPAN_VTF_FORMAT = 25
 local SKY_FLAGS = bit.bor(SURF_SKY, SURF_SKY2D)
@@ -321,7 +322,7 @@ if SERVER then
 		net.WriteString(key)
 		net.WriteUInt(#blob, 32)
 		net.Send(ply)
-		sends[ply] = 1
+		sends[ply] = { offset = 0, at = 0 }
 	end
 
 	local function ready(compressed)
@@ -349,17 +350,22 @@ if SERVER then
 			end
 		end
 
-		for ply, i in pairs(sends) do
+		local now = RealTime()
+		for ply, send in pairs(sends) do
 			if not IsValid(ply) then
 				sends[ply] = nil
-			else
-				local data = string.sub(blob, (i - 1) * SPAN_CHUNK + 1, i * SPAN_CHUNK)
+			elseif now >= send.at then
+				local data = string.sub(blob, send.offset + 1, send.offset + SPAN_CHUNK)
 				net.Start(SPAN_NET)
 				net.WriteUInt(MSG_CHUNK, 2)
 				net.WriteUInt(#data, 16)
 				net.WriteData(data, #data)
 				net.Send(ply)
-				sends[ply] = i * SPAN_CHUNK < #blob and i + 1 or nil
+				send.offset = send.offset + #data
+				send.at = now + #data / SPAN_RATE
+				if send.offset >= #blob then
+					sends[ply] = nil
+				end
 			end
 		end
 	end
