@@ -3,6 +3,7 @@ const float4 Constants1 : register(c1);
 const float4 Constants2 : register(c2);
 const float4 Constants3 : register(c3);
 const float4 Constants11 : register(c11);
+const float4 Constants12 : register(c12);
 
 sampler Frame : register(s0);
 sampler Depth : register(s1);
@@ -18,6 +19,11 @@ sampler CoverTex : register(s5);
 #define LUT_SCALE  Constants3.w
 #define RAIN       Constants11.x
 #define OPENNESS   Constants11.y
+#define FOG_DENSITY Constants11.z
+#define FOG_FALLOFF Constants11.w
+#define FOG_BASE    Constants12.x
+#define FOG_RANGE   5000.0
+#define FOG_AMBIENT 0.6
 
 #define COVER_COLUMN 24.0
 #define COVER_COLUMNS 64.0
@@ -51,6 +57,7 @@ float2 ClipToUV(float4 pixel) {
 #include "include/water_optics.hlsl"
 #include "include/sky_lut.hlsl"
 #include "include/rain_ripples.hlsl"
+#include "include/fog_layer.hlsl"
 
 float RainExposure(float3 pos, float3 eye) {
     float2 col = floor(pos.xy / COVER_COLUMN);
@@ -140,6 +147,7 @@ float4 main(PS_IN i) : COLOR
     float f;
     float3 reflectDir;
     float3 fallbackColor;
+    float skyClear = 1.0;
 
     if (!FROM_BELOW) {
         float2 wobble = (normal.xy / i.spos.w) * ABOVE_REFRACTION;
@@ -163,7 +171,8 @@ float4 main(PS_IN i) : COLOR
         float cosTheta = saturate(dot(-viewDir, normal));
         f = (F0 + (1 - F0) * pow(1 - cosTheta, 5)) * saturate((i.wpos.z - seabedPos.z) / SHORE_FADE);
         reflectDir = reflect(viewDir, normal);
-        fallbackColor = SkyColor(reflectDir, HORIZON_COLOR, ZENITH_COLOR);
+        skyClear = exp(-FogLayerDepth(FOG_DENSITY, FOG_BASE, FOG_FALLOFF, i.wpos.z, i.wpos.z + reflectDir.z * FOG_RANGE, FOG_RANGE));
+        fallbackColor = lerp(HORIZON_COLOR * FOG_AMBIENT, SkyColor(reflectDir, HORIZON_COLOR, ZENITH_COLOR), skyClear);
     } else {
         float2 wobble = -slope / i.spos.w * BELOW_REFRACTION;
         float3 bentDir = normalize(viewDir + float3(-slope * BELOW_SKY_BEND, 0.0));
@@ -233,7 +242,7 @@ float4 main(PS_IN i) : COLOR
                 float fadeY = saturate(min(projectedUV.y, 1 - projectedUV.y) / 0.1);
                 float weight = fadeX * fadeY * (FROM_BELOW ? saturate(-reflectDir.z / BELOW_SSR_GRAZING) : 1.0);
                 hit = true;
-                float3 reflected = FROM_BELOW ? WaterAttenuate(projectedFrame.rgb, tFar * MURK, fallbackColor) : projectedFrame.rgb;
+                float3 reflected = FROM_BELOW ? WaterAttenuate(projectedFrame.rgb, tFar * MURK, fallbackColor) : lerp(HORIZON_COLOR * FOG_AMBIENT, projectedFrame.rgb, exp(-FogLayerDepth(FOG_DENSITY, FOG_BASE, FOG_FALLOFF, i.wpos.z, i.wpos.z + reflectDir.z * tFar, tFar)));
                 hitColor = lerp(fallbackColor, reflected, weight);
                 break;
             }
@@ -243,12 +252,12 @@ float4 main(PS_IN i) : COLOR
         t = t * stepFactor;
     }
 
-    if (!FROM_BELOW)
-        hitColor = lerp(hitColor, fallbackColor, RainHeavy(rain) * (1.0 - rainNear) * RAIN_HEAVY_FAR_BLUR);
+    if (!FROM_BELOW && hit)
+        f *= 1.0 - RainHeavy(rain) * (1.0 - rainNear) * RAIN_HEAVY_FAR_BLUR;
 
     float3 color = lerp(transmitted, hitColor, f);
     if (!FROM_BELOW)
-        color += SUN_COLOR * spec * f * sunUp * SUNLIT * (hit ? 0.0 : 1.0);
+        color += SUN_COLOR * spec * f * sunUp * SUNLIT * skyClear * (hit ? 0.0 : 1.0);
 
     return float4(color, ExactDepthAlpha(i.spos.w));
 }

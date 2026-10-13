@@ -18,6 +18,9 @@ end
 -- of the total.  The base follows the ground under the player.  Colour is the
 -- horizon colour tod set as the engine fog colour.
 
+local fog = shaderpack.fog or {}
+shaderpack.fog = fog
+
 local cover, depthslices = shaderpack.cover, shaderpack.depthslices
 local FOG_ENABLED = CreateClientConVar("cl_draw_fog", "1", true, false, "draw volumetric fog in fog, rain and snow weather")
 
@@ -106,6 +109,15 @@ local active = false
 
 local function think()
 	active = weather() > 0
+end
+
+function fog.Layer()
+	if not active or not base then return 0, 1, 0 end
+
+	local density, falloff = weather()
+	if density <= 0 then return 0, 1, 0 end
+
+	return density, falloff, base
 end
 
 local function prepare()

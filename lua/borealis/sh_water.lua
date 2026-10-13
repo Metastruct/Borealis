@@ -590,13 +590,16 @@ local function drawSurface(eyePos, eyeUnderwater, writeDepth)
 	local coverRT = cover.Texture()
 	local rain = coverRT and tod and tod.rain and tod.rain.amount or 0
 	if coverRT then SURF_MAT:SetTexture("$texture5", coverRT) end
+	local fog = shaderpack.fog
+	local fogDensity, fogFalloff, fogBase = 0, 1, 0
+	if fog and fog.Layer then fogDensity, fogFalloff, fogBase = fog.Layer() end
 
 	render.OverrideDepthEnable(true, writeDepth)
 	cam.PushModelMatrix(IDENTITY_MATRIX, false)
 	for _, g in pairs(meshes) do
 		if not bodyDrawable(g, pvs) then continue end
 
-		rainConstants:SetUnpacked(rain, g.openness, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+		rainConstants:SetUnpacked(rain, g.openness, fogDensity, fogFalloff, fogBase, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
 		SURF_MAT:SetMatrix("$viewprojmat", rainConstants)
 		SURF_MAT:SetTexture("$texture2", g.normalmap)
 		local hr, hg, hb, zr, zg, zb = bodySkyColors(g)

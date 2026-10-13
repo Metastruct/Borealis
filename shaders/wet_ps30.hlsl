@@ -35,8 +35,9 @@ sampler CoverSpans : register(s6);
 #define UP      Constants13.xyz
 #define POOL    Constants13.w
 #define FAR_CENTER Constants14.xy
-#define SPANS_ON   Constants14.z
-#define ZFAR       Constants14.w
+#define FOG_BASE   Constants14.z
+#define SPANS_ON   (Constants14.w > 0.0 ? 1.0 : 0.0)
+#define ZFAR       abs(Constants14.w)
 
 #define R_EARTH 6371.0
 #define EYE_H 0.2
@@ -44,6 +45,7 @@ sampler CoverSpans : register(s6);
 
 #include "include/sky_lut.hlsl"
 #include "include/cover_spans.hlsl"
+#include "include/fog_layer.hlsl"
 
 #define COLUMN 24.0
 #define COLUMNS 64.0
@@ -107,6 +109,10 @@ sampler CoverSpans : register(s6);
 #define SSR_MAX 6000.0
 #define SSR_MIN_THICKNESS 16.0
 #define SSR_THICKNESS_RATIO 0.03
+#define FOG_DENSITY_MAX 0.001
+#define FOG_FALLOFF_MAX 1000.0
+#define FOG_RANGE 5000.0
+#define FOG_AMBIENT 0.6
 
 #define DEPTH_BIAS 0.002
 #define EDGE_SLOPE 0.08
@@ -243,7 +249,7 @@ float3 skyColor(float3 dir)
 	return lerp(gradient, sky * LUT_SCALE, LUT_WEIGHT);
 }
 
-float3 puddleReflection(float3 p, float3 dir, float3 fallback, float2 halfTexel, float samples)
+float4 puddleReflection(float3 p, float3 dir, float3 fallback, float2 halfTexel, float samples, float3 fog, float3 fogLight)
 {
 	float stepFactor = pow(SSR_MAX / SSR_START, 1.0 / (SSR_STEPS - 1));
 	float t = SSR_START;
@@ -291,8 +297,9 @@ float3 puddleReflection(float3 p, float3 dir, float3 fallback, float2 halfTexel,
 				if (abs(SliceDepth(farZ, hitFrame.a * 255.0, samples) - farZ) <= farZ * SSR_THICKNESS_RATIO)
 				{
 					float edge = saturate(min(hitUV.x, 1.0 - hitUV.x) / 0.1) * saturate(min(hitUV.y, 1.0 - hitUV.y) / 0.1);
+					float3 seen = lerp(fogLight, hitFrame.rgb, exp(-FogLayerDepth(fog.x, fog.y, fog.z, p.z, p.z + dir.z * tFar, tFar)));
 
-					return lerp(fallback, hitFrame.rgb, edge);
+					return float4(lerp(fallback, seen, edge), edge);
 				}
 			}
 		}
@@ -301,7 +308,7 @@ float3 puddleReflection(float3 p, float3 dir, float3 fallback, float2 halfTexel,
 		t *= stepFactor;
 	}
 
-	return fallback;
+	return float4(fallback, 0.0);
 }
 
 PS_OUT main(PS_IN i)
@@ -391,12 +398,16 @@ PS_OUT main(PS_IN i)
 		float3 surface = normalize(base + float3(-slope + across * (streak - 0.5) * FLOW_TILT * (1.0 - flat), 0.0));
 		float3 dir = reflect(ray, surface);
 		dir.z = lerp(dir.z, abs(dir.z), flat);
-		float3 fallback = skyColor(dir);
-		float3 mirror = lerp(puddleReflection(p + base, dir, fallback, halfTexel, samples), fallback, heavy * (1.0 - near) * RAIN_HEAVY_FAR_BLUR);
+		float3 fog = float3(i.color.r * FOG_DENSITY_MAX, FOG_BASE, i.color.g * FOG_FALLOFF_MAX);
+		float3 fogLight = HORIZON * FOG_AMBIENT;
+		float3 fallback = lerp(fogLight, skyColor(dir), exp(-FogLayerDepth(fog.x, fog.y, fog.z, p.z, p.z + dir.z * FOG_RANGE, FOG_RANGE)));
+		float4 reflection = puddleReflection(p + base, dir, fallback, halfTexel, samples, fog, fogLight);
+		float3 mirror = reflection.rgb;
+		float troubled = 1.0 - heavy * (1.0 - near) * RAIN_HEAVY_FAR_BLUR * reflection.a;
 		float facing = pow(1.0 - saturate(dot(-ray, surface)), 5.0);
 		float sheet = film * (1.0 - puddle) * lerp(1.0, lerp(FILM_STREAK_MIN, 1.0, streak), 1.0 - flat);
-		color = lerp(color, mirror, (FILM_F0 + (1.0 - FILM_F0) * facing) * sheet);
-		float3 pool = lerp(frame.rgb * PUDDLE_DARK, mirror, (PUDDLE_F0 + (1.0 - PUDDLE_F0) * facing) * lerp(ABSORB_REFLECT, 1.0, gloss));
+		color = lerp(color, mirror, (FILM_F0 + (1.0 - FILM_F0) * facing) * sheet * troubled);
+		float3 pool = lerp(frame.rgb * PUDDLE_DARK, mirror, (PUDDLE_F0 + (1.0 - PUDDLE_F0) * facing) * lerp(ABSORB_REFLECT, 1.0, gloss) * troubled);
 		color = lerp(color, pool, puddle);
 	}
 

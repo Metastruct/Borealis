@@ -6,7 +6,7 @@ if SERVER then
 	return
 end
 
-local cover, depthslices, procsky = shaderpack.cover, shaderpack.depthslices, shaderpack.procsky
+local cover, depthslices, procsky, fog = shaderpack.cover, shaderpack.depthslices, shaderpack.procsky, shaderpack.fog
 local ENABLED = CreateClientConVar("cl_draw_wetness", "1", true, false, "darken and gloss the surfaces the rain reaches")
 
 local WET_RATE, DRY_RATE = 1 / 20, 1 / 60
@@ -198,6 +198,7 @@ local function skyColors()
 	return r, g, b, r, g, b
 end
 
+local FOG_DENSITY_MAX, FOG_FALLOFF_MAX = 0.001, 1000
 local quadColor = Color(0, 0, 0, 255)
 local extra = Matrix()
 
@@ -231,13 +232,16 @@ local function draw()
 	end
 
 	local rain = tod and tod.rain and tod.rain.amount or 0
+	local fogDensity, fogFalloff, fogBase = fog.Layer()
 	extra:SetUnpacked(
 		CurTime() % 3600, rain, lutWeight, lutScale,
 		right.x, right.y, right.z, puddleLevel(pool),
 		up.x, up.y, up.z, pool,
-		(farX + FAR_COLUMNS / 2) * FAR_COLUMN, (farY + FAR_COLUMNS / 2) * FAR_COLUMN, spans and 1 or 0, vs.zfar
+		(farX + FAR_COLUMNS / 2) * FAR_COLUMN, (farY + FAR_COLUMNS / 2) * FAR_COLUMN, fogBase, spans and vs.zfar or -vs.zfar
 	)
 	MAT:SetMatrix("$viewprojmat", extra)
+	quadColor.r = math.floor(math.min(fogDensity / FOG_DENSITY_MAX, 1) * 255 + 0.5)
+	quadColor.g = math.floor(math.Clamp(fogFalloff / FOG_FALLOFF_MAX, 1 / 255, 1) * 255 + 0.5)
 	quadColor.b = depthslices.Samples()
 
 	return depthslices.Composite(MAT, quadColor)
