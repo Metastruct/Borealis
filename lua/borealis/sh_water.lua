@@ -6,7 +6,8 @@ end
 
 local surfacewater = shaderpack.surfacewater or {}
 shaderpack.surfacewater = surfacewater
-local procsky, bspdata, depthslices = shaderpack.procsky, shaderpack.bspdata, shaderpack.depthslices
+surfacewater.above = surfacewater.above or {}
+local procsky, bspdata, depthslices, cover = shaderpack.procsky, shaderpack.bspdata, shaderpack.depthslices, shaderpack.cover
 
 require("skyboxer")
 
@@ -423,6 +424,7 @@ local function initialize()
 		["$texture3"] = "shaderpack/procsky/fognoise",
 		["$linearread_texture3"] = 1,
 		["$linearread_texture4"] = 1,
+		["$linearread_texture5"] = 1,
 		["$c0_x"] = 0, ["$c0_y"] = 0, ["$c0_z"] = 0, ["$c0_w"] = 0,
 		["$c1_x"] = 0, ["$c1_y"] = 0, ["$c1_z"] = 0, ["$c1_w"] = 0,
 		["$c2_x"] = 0, ["$c2_y"] = 0, ["$c2_z"] = 0, ["$c2_w"] = 0,
@@ -556,6 +558,7 @@ local function bodySkyColors(g)
 end
 
 local depthWanted = true
+local rainConstants = Matrix()
 
 local function drawSurface(eyePos, eyeUnderwater, writeDepth)
 	local pvs = visibleClusters(eyePos)
@@ -584,11 +587,17 @@ local function drawSurface(eyePos, eyeUnderwater, writeDepth)
 	end
 	setConstant(SURF_MAT, "$c3", sun.x, sun.y, sun.z, lut and procsky.GetSkyScale() * render.GetToneMappingScaleLinear().x or 0)
 
+	local coverRT = cover.Texture()
+	local rain = coverRT and tod and tod.rain and tod.rain.amount or 0
+	if coverRT then SURF_MAT:SetTexture("$texture5", coverRT) end
+
 	render.OverrideDepthEnable(true, writeDepth)
 	cam.PushModelMatrix(IDENTITY_MATRIX, false)
 	for _, g in pairs(meshes) do
 		if not bodyDrawable(g, pvs) then continue end
 
+		rainConstants:SetUnpacked(rain, g.openness, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+		SURF_MAT:SetMatrix("$viewprojmat", rainConstants)
 		SURF_MAT:SetTexture("$texture2", g.normalmap)
 		local hr, hg, hb, zr, zg, zb = bodySkyColors(g)
 		setConstant(SURF_MAT, "$c2", hr, hg, hb, bodySunlit(g, sun))
@@ -756,6 +765,10 @@ local function drawTranslucent(bDepth, bSkybox, bSkybox3D)
 	depthslices.SkipRefog()
 
 	if eyeUnderwater then
+		for _, drawAbove in pairs(surfacewater.above) do
+			ProtectedCall(drawAbove)
+		end
+
 		drawSurface(eyePos, true, false)
 	end
 

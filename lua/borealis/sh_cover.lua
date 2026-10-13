@@ -18,6 +18,7 @@ local SOLID = MASK_SOLID
 -- lands on its bed: the rain stopped under the water and rippled down there
 local WATER = MASK_WATER
 local IN_WATER = CONTENTS_WATER
+local SHORE_PROBE = 8
 local GLOSS = {
 	[MAT_GRASS] = 0.05,
 	[MAT_FOLIAGE] = 0.05,
@@ -565,7 +566,7 @@ local function traceColumn(cx, cy, top, bottom)
 	upTrace.endpos:SetUnpacked(x, y, top + 8192)
 	local up = util.TraceLine(upTrace)
 	if up.StartSolid or (up.Hit and not up.HitSky) then
-		return Z_MIN + Z_RANGE, false, 1
+		return Z_MIN + Z_RANGE, false, 1, false
 	end
 
 	downTrace.start:SetUnpacked(x, y, top)
@@ -575,7 +576,16 @@ local function traceColumn(cx, cy, top, bottom)
 		local hit = down.HitPos
 		probe:SetUnpacked(hit.x, hit.y, hit.z + 1)
 		if bit.band(util.PointContents(probe), IN_WATER) == 0 then
-			return hit.z, down.HitNormal.z > SPLASH_SLOPE and hit.z + 0.4, GLOSS[down.MatType] or 1
+			local level = false
+			probe.z = hit.z - SHORE_PROBE
+			if bit.band(util.PointContents(probe), IN_WATER) ~= 0 then
+				waterTrace.start:SetUnpacked(x, y, hit.z + 1)
+				waterTrace.endpos:Set(probe)
+				local shore = util.TraceLine(waterTrace)
+				level = shore.Hit and not shore.StartSolid and shore.HitPos.z
+			end
+
+			return hit.z, down.HitNormal.z > SPLASH_SLOPE and hit.z + 0.4, GLOSS[down.MatType] or 1, level
 		end
 	end
 
@@ -585,29 +595,29 @@ local function traceColumn(cx, cy, top, bottom)
 	-- the trace began under the surface: this whole column is water, and the
 	-- rain landed on it somewhere above
 	if water.StartSolid then
-		return Z_MIN + Z_RANGE, false, 1
+		return Z_MIN + Z_RANGE, false, 1, false
 	end
 
 	-- a water surface is always level, so the ripples ride it whatever the bed does
 	if water.Hit then
-		return water.HitPos.z, water.HitPos.z + 0.4, 1
+		return water.HitPos.z, water.HitPos.z + 0.4, down.Hit and GLOSS[down.MatType] or 1, water.HitPos.z
 	end
 
 	if down.Hit then
-		return down.HitPos.z, false, GLOSS[down.MatType] or 1
+		return down.HitPos.z, false, GLOSS[down.MatType] or 1, false
 	end
 
-	return spanData and spanCut(x, y, top) or Z_MIN, false, SEED_GLOSS
+	return spanData and spanCut(x, y, top) or Z_MIN, false, SEED_GLOSS, false
 end
 
 -- a clear inside a one texel viewport: the surface library's draws go through
 -- the sRGB path and land a few values off, the ripples' seeds do not care
 -- but 16 bits of height do
-local function writeTexel(cx, cy, cut, gloss)
+local function writeTexel(cx, cy, cut, gloss, level)
 	local v = math.floor(math.Clamp((cut - Z_MIN) / Z_RANGE, 0, 1) * 65535 + 0.5)
 	local hi = math.floor(v / 256)
 	render.SetViewPort(cx % COLUMNS, cy % COLUMNS, 1, 1)
-	render.Clear(hi, v - hi * 256, math.floor(gloss * 255 + 0.5), 255)
+	render.Clear(hi, v - hi * 256, math.floor(gloss * 255 + 0.5), level and math.floor(math.Clamp((cut - level) / SHORE_PROBE, 0, 1) * 254 + 0.5) or 255)
 end
 
 local sweepX, sweepY = {}, {}
@@ -704,7 +714,7 @@ end
 
 local function traceOne(cx, cy, top, bottom)
 	local key = columnKey(cx, cy)
-	local cut, level, gloss = traceColumn(cx, cy, top, bottom)
+	local cut, level, gloss, waterLevel = traceColumn(cx, cy, top, bottom)
 	claim(cx, cy, key)
 	local cutChanged = cuts[key] ~= cut
 	cuts[key] = cut
@@ -716,7 +726,7 @@ local function traceOne(cx, cy, top, bottom)
 		notify(cx, cy, cutChanged, groundChanged)
 	end
 
-	writeTexel(cx, cy, cut, gloss)
+	writeTexel(cx, cy, cut, gloss, waterLevel)
 end
 
 local function moveWindow(eye)

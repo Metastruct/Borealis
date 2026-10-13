@@ -33,7 +33,7 @@ end
 -- constant set per tile lands on the wrong tiles.  The constants are set once
 -- per frame, and each tile's position rides in its model matrix.
 
-local procsky, cover, wind = shaderpack.procsky, shaderpack.cover, shaderpack.wind
+local procsky, cover, wind, surfacewater = shaderpack.procsky, shaderpack.cover, shaderpack.wind, shaderpack.surfacewater
 local ENABLED = CreateClientConVar("cl_draw_precipitations", "1", true, false, "draw falling rain and snow")
 
 local TILE = 512 -- world units, the field is the 3 x 3 of these around the eye
@@ -492,8 +492,7 @@ local function drawSnow(eye, amount)
 	end
 end
 
-local function draw(bDepth, _, b3DSky)
-	if bDepth or b3DSky or submerged or render.GetRenderTarget() then return end
+local function drawWeather()
 	local snow = tod and tod.snow
 	if snow and snow.amount > 0.001 and SNOW_MAT then
 		drawSnow(EyePos(), snow.amount)
@@ -529,8 +528,14 @@ local function draw(bDepth, _, b3DSky)
 	end
 end
 
+local function draw(bDepth, _, b3DSky)
+	if bDepth or b3DSky or submerged or render.GetRenderTarget() then return end
+	drawWeather()
+end
+
 local function stop()
 	cover.Unlisten("ms_precipitations")
+	surfacewater.above.ms_precipitations = nil
 	hook.Remove("PreRender", "ms_precipitations")
 	hook.Remove("PostDrawTranslucentRenderables", "ms_precipitations")
 	dropSplashes()
@@ -595,6 +600,7 @@ local function start()
 	SPLASH_MAT, DROP_MAT, SNOW_MAT = nil, nil, nil
 	ripplesDirty = true
 	cover.Listen("ms_precipitations", onColumn, onReset)
+	surfacewater.above.ms_precipitations = drawWeather
 	hook.Add("PreRender", "ms_precipitations", prepare)
 	hook.Add("PostDrawTranslucentRenderables", "ms_precipitations", draw)
 end

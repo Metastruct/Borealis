@@ -2,18 +2,29 @@ const float4 Constants0 : register(c0);
 const float4 Constants1 : register(c1);
 const float4 Constants2 : register(c2);
 const float4 Constants3 : register(c3);
+const float4 Constants11 : register(c11);
 
 sampler Frame : register(s0);
 sampler Depth : register(s1);
 sampler NormalMap : register(s2);
 sampler3D Noise : register(s3);
 sampler SkyLut : register(s4);
+sampler CoverTex : register(s5);
 
 #define R_EARTH 6371.0
 #define EYE_H   0.2
 #define SKY_EXPOSURE 1.2
 #define LUT_WEIGHT Constants1.w
 #define LUT_SCALE  Constants3.w
+#define RAIN       Constants11.x
+#define OPENNESS   Constants11.y
+
+#define COVER_COLUMN 24.0
+#define COVER_COLUMNS 64.0
+#define COVER_REACH 30.0
+#define COVER_Z_MIN -16384.0
+#define COVER_Z_RANGE 32768.0
+#define COVER_SLACK 2.0
 
 struct PS_IN
 {
@@ -39,6 +50,19 @@ float2 ClipToUV(float4 pixel) {
 #include "include/slices.hlsl"
 #include "include/water_optics.hlsl"
 #include "include/sky_lut.hlsl"
+#include "include/rain_ripples.hlsl"
+
+float RainExposure(float3 pos, float3 eye) {
+    float2 col = floor(pos.xy / COVER_COLUMN);
+    float2 eyeCol = floor(eye.xy / COVER_COLUMN);
+    if (max(abs(col.x - eyeCol.x), abs(col.y - eyeCol.y)) > COVER_REACH - 1.0)
+        return OPENNESS;
+
+    float2 c = tex2Dlod(CoverTex, float4(frac(col / COVER_COLUMNS) + 0.5 / COVER_COLUMNS, 0.0, 0.0)).rg;
+    float cut = (c.r * 65280.0 + c.g * 255.0) / 65535.0 * COVER_Z_RANGE + COVER_Z_MIN;
+
+    return cut <= pos.z + COVER_SLACK ? 1.0 : 0.0;
+}
 
 float3 SkyColor(float3 dir, float3 horizon, float3 zenith) {
     float3 gradient = lerp(horizon, zenith, saturate(dir.z));
@@ -93,6 +117,17 @@ float4 main(PS_IN i) : COLOR
 
     float3 viewDir = normalize(i.wpos - EYE_POS);
     float2 slope = WaveSlope(NormalMap, Noise, p, TIME);
+
+    float rainNear = RainNear(length(i.wpos - EYE_POS));
+    float rain = 0.0;
+    [branch] if (RAIN > 0.0)
+    {
+        rain = RAIN * RainExposure(i.wpos, EYE_POS);
+        [branch] if (rain * rainNear > 0.0)
+        {
+            slope += RainRipples(p, rain, TIME) * rainNear;
+        }
+    }
 
     float flatFresnel = F0 + (1 - F0) * pow(1 - saturate(abs(viewDir.z)), 5);
     slope *= 1 - pow(flatFresnel, 8);
@@ -207,6 +242,9 @@ float4 main(PS_IN i) : COLOR
         tPrev = t;
         t = t * stepFactor;
     }
+
+    if (!FROM_BELOW)
+        hitColor = lerp(hitColor, fallbackColor, RainHeavy(rain) * (1.0 - rainNear) * RAIN_HEAVY_FAR_BLUR);
 
     float3 color = lerp(transmitted, hitColor, f);
     if (!FROM_BELOW)

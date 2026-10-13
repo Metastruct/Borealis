@@ -80,12 +80,16 @@ local FAR_COLUMN, FAR_COLUMNS = 128, 64
 local FAR_TRACES_PER_FRAME = 32
 local FAR_DEFAULT = 0.7
 local FAR_LIFT, FAR_LIFT_LOW, FAR_DROP = 1024, 128, 4096
+local FAR_RETRACE_Z = 1024
+local SHORE_PROBE = 8
+local Z_MIN, Z_RANGE = cover.Z_MIN, cover.Z_RANGE
 
-local farRT, farX, farY
+local farRT, farX, farY, farZ
 local farQueue, farOwner = {}, {}
 local farTrace = { mask = MASK_SOLID_BRUSHONLY, start = Vector(), endpos = Vector() }
+local farWater = { mask = MASK_WATER, start = Vector(), endpos = Vector() }
 
-local function farGloss(cx, cy, z)
+local function farColumn(cx, cy, z)
 	local x, y = (cx + 0.5) * FAR_COLUMN, (cy + 0.5) * FAR_COLUMN
 	farTrace.start:SetUnpacked(x, y, z + FAR_LIFT)
 	farTrace.endpos:SetUnpacked(x, y, z - FAR_DROP)
@@ -98,15 +102,19 @@ local function farGloss(cx, cy, z)
 
 	if not tr.Hit or tr.HitSky then return FAR_DEFAULT end
 
-	return cover.GLOSS[tr.MatType] or 1
+	farWater.start:Set(farTrace.start)
+	farWater.endpos:SetUnpacked(x, y, tr.HitPos.z - SHORE_PROBE)
+	local water = util.TraceLine(farWater)
+
+	return cover.GLOSS[tr.MatType] or 1, water.Hit and not water.StartSolid and water.HitPos.z or nil
 end
 
-local function clearFar()
+local function clearFar(z)
 	render.PushRenderTarget(farRT)
 	render.Clear(0, 0, math.floor(FAR_DEFAULT * 255 + 0.5), 255)
 	render.PopRenderTarget()
 	farQueue, farOwner = {}, {}
-	farX, farY = nil, nil
+	farX, farY, farZ = nil, nil, z
 end
 
 local function updateFar(eye)
@@ -118,12 +126,16 @@ local function updateFar(eye)
 			return
 		end
 
-		clearFar()
+		clearFar(eye.z)
 	end
 
 	local half = FAR_COLUMNS / 2
 	local ex, ey = math.floor(eye.x / FAR_COLUMN), math.floor(eye.y / FAR_COLUMN)
 	local x0, y0 = ex - half, ey - half
+	if math.abs(eye.z - farZ) > FAR_RETRACE_Z or (farX and (math.abs(x0 - farX) >= FAR_COLUMNS or math.abs(y0 - farY) >= FAR_COLUMNS)) then
+		clearFar(eye.z)
+	end
+
 	if x0 ~= farX or y0 ~= farY then
 		farX, farY = x0, y0
 		local pending = {}
@@ -152,9 +164,11 @@ local function updateFar(eye)
 
 		local cx, cy = cover.ColumnFromKey(key)
 		if cx >= farX and cx < farX + FAR_COLUMNS and cy >= farY and cy < farY + FAR_COLUMNS then
-			local gloss = farGloss(cx, cy, eye.z)
+			local gloss, level = farColumn(cx, cy, eye.z)
+			local v = level and math.floor(math.Clamp((level - Z_MIN) / Z_RANGE, 0, 1) * 65535 + 0.5) or 0
+			local hi = math.floor(v / 256)
 			render.SetViewPort(cx % FAR_COLUMNS, cy % FAR_COLUMNS, 1, 1)
-			render.Clear(0, 0, math.floor(gloss * 255 + 0.5), 255)
+			render.Clear(hi, v - hi * 256, math.floor(gloss * 255 + 0.5), level and 0 or 255)
 			farOwner[cx % FAR_COLUMNS * FAR_COLUMNS + cy % FAR_COLUMNS] = key
 		end
 	end
