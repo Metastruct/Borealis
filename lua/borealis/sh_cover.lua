@@ -316,6 +316,7 @@ if SERVER then
 	local key, blob
 	local waiting, sends = {}, {}
 	local bakeCo
+	local downloadUrl = GetConVar("sv_downloadurl")
 
 	local function announce(ply)
 		net.Start(SPAN_NET)
@@ -323,7 +324,11 @@ if SERVER then
 		net.WriteString(key)
 		net.WriteUInt(#blob, 32)
 		net.Send(ply)
-		sends[ply] = { offset = 0, at = 0 }
+		if fatdl and downloadUrl:GetString() ~= "" then
+			fatdl.Send(SPAN_NET, ply, blob)
+		else
+			sends[ply] = { offset = 0, at = 0 }
+		end
 	end
 
 	local function ready(compressed)
@@ -489,6 +494,31 @@ function cover.SkyLevel()
 	return levelResult
 end
 
+local function spanReceived(compressed)
+	local vtf = util.Decompress(compressed)
+	local key = spanPending.key
+	spanPending = nil
+	if not vtf then return end
+
+	file.CreateDir(SPAN_DIR)
+	file.Write(spanPath(key, "vtf"), vtf)
+	loadSpans(key)
+end
+
+local function receiveFatdl()
+	fatdl.Receive(SPAN_NET, function(compressed)
+		if spanPending then spanReceived(compressed) end
+	end)
+end
+
+if fatdl then
+	receiveFatdl()
+else
+	hook.Add("Initialize", SPAN_NET, function()
+		if fatdl then receiveFatdl() end
+	end)
+end
+
 net.Receive(SPAN_NET, function()
 	local kind = net.ReadUInt(2)
 	if kind == MSG_KEY then
@@ -506,14 +536,7 @@ net.Receive(SPAN_NET, function()
 		spanPending.parts[#spanPending.parts + 1] = data
 		spanPending.got = spanPending.got + #data
 		if spanPending.got >= spanPending.size then
-			local vtf = util.Decompress(table.concat(spanPending.parts))
-			local key = spanPending.key
-			spanPending = nil
-			if not vtf then return end
-
-			file.CreateDir(SPAN_DIR)
-			file.Write(spanPath(key, "vtf"), vtf)
-			loadSpans(key)
+			spanReceived(table.concat(spanPending.parts))
 		end
 	end
 end)
