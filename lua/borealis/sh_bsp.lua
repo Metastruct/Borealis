@@ -261,7 +261,7 @@ end
 
 -- displacement grid: the face is a quad, corner order starts at startPosition,
 -- disp verts run column-major relative to that order (verified against traces)
-local function addDisplacement(emit, px, py, pz, dispinfo, dispverts, di, alphaFor)
+local function displacementGrid(px, py, pz, dispinfo, dispverts, di)
 	local dp = di * 176 + 1
 	local sx, sy, sz = f32(dispinfo, dp), f32(dispinfo, dp + 4), f32(dispinfo, dp + 8)
 	local vertStart = i32(dispinfo, dp + 12)
@@ -280,7 +280,7 @@ local function addDisplacement(emit, px, py, pz, dispinfo, dispverts, di, alphaF
 		cx[c], cy[c], cz[c] = px[corner], py[corner], pz[corner]
 	end
 
-	local gx, gy, gz, ga = {}, {}, {}, {}
+	local gx, gy, gz, ga, fx, fy, fz = {}, {}, {}, {}, {}, {}, {}
 	for r = 0, n - 1 do
 		local tr = r / (n - 1)
 		local ax, ay, az = cx[0] + (cx[3] - cx[0]) * tr, cy[0] + (cy[3] - cy[0]) * tr, cz[0] + (cz[3] - cz[0]) * tr
@@ -289,12 +289,25 @@ local function addDisplacement(emit, px, py, pz, dispinfo, dispverts, di, alphaF
 			local tc = c / (n - 1)
 			local idx = r * n + c
 			local vp = (vertStart + c * n + r) * 20 + 1
-			local dx, dy, dz, dist, alpha = f32(dispverts, vp), f32(dispverts, vp + 4), f32(dispverts, vp + 8), f32(dispverts, vp + 12), f32(dispverts, vp + 16)
-			gx[idx] = ax + (bx - ax) * tc + dx * dist
-			gy[idx] = ay + (by - ay) * tc + dy * dist
-			gz[idx] = az + (bz - az) * tc + dz * dist
-			ga[idx] = alphaFor(alpha)
+			local dx, dy, dz, dist = f32(dispverts, vp), f32(dispverts, vp + 4), f32(dispverts, vp + 8), f32(dispverts, vp + 12)
+			local flx, fly, flz = ax + (bx - ax) * tc, ay + (by - ay) * tc, az + (bz - az) * tc
+			fx[idx], fy[idx], fz[idx] = flx, fly, flz
+			gx[idx] = flx + dx * dist
+			gy[idx] = fly + dy * dist
+			gz[idx] = flz + dz * dist
+			ga[idx] = f32(dispverts, vp + 16)
 		end
+	end
+
+	return n, gx, gy, gz, ga, fx, fy, fz
+end
+
+bspdata.DisplacementGrid = displacementGrid
+
+local function addDisplacement(emit, px, py, pz, dispinfo, dispverts, di, alphaFor)
+	local n, gx, gy, gz, ga = displacementGrid(px, py, pz, dispinfo, dispverts, di)
+	for idx = 0, n * n - 1 do
+		ga[idx] = alphaFor(ga[idx])
 	end
 
 	for r = 0, n - 2 do
