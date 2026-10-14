@@ -217,6 +217,11 @@ hook.Add("Think", "tod_rain", function()
 
 	local ply = LocalPlayer()
 	if not IsValid(ply) then return end
+	if ply.IsDreaming and ply:IsDreaming() then
+		stopRumble()
+		return
+	end
+
 	if now >= nextCover then
 		nextCover = now + 0.25
 		local target, sky = skyReach()
