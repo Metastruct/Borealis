@@ -32,7 +32,8 @@ sampler CoverSpans : register(s6);
 #define LUT_SCALE  Constants11.w
 #define RIGHT   Constants12.xyz
 #define PUDDLE_LEVEL Constants12.w
-#define UP      Constants13.xyz
+#define UP      cross(RIGHT, FWD)
+#define SUN     Constants13.xyz
 #define POOL    Constants13.w
 #define FAR_CENTER Constants14.xy
 #define FOG_BASE   Constants14.z
@@ -249,10 +250,10 @@ float3 skyColor(float3 dir)
 	return lerp(gradient, sky * LUT_SCALE, LUT_WEIGHT);
 }
 
-float4 puddleReflection(float3 p, float3 dir, float3 fallback, float2 halfTexel, float samples, float3 fog, float3 fogLight)
+float4 puddleReflection(float3 p, float3 dir, float3 fallback, float2 halfTexel, float samples, float3 fog, float3 fogLight, float jitter)
 {
 	float stepFactor = pow(SSR_MAX / SSR_START, 1.0 / (SSR_STEPS - 1));
-	float t = SSR_START;
+	float t = SSR_START * pow(stepFactor, jitter);
 	float tPrev = 0.0;
 
 	[loop]
@@ -363,10 +364,16 @@ PS_OUT main(PS_IN i)
 
 	float film = shore * gloss * smoothstep(FILM_START, FILM_FULL, WET) * saturate(remap(t, PUDDLE_FADE_END, PUDDLE_FADE_START, 0.0, 1.0));
 
+	float share = length(SUN);
+	float3 sunDir = SUN / max(share, 1e-4);
+	float flatLight = share * sunDir.z + (1.0 - share);
+	float slopeLight = share * saturate(dot(n, sunDir)) + (1.0 - share) * (1.0 + n.z) * 0.5;
+	float3 lit = frame.rgb * lerp(1.0, saturate(flatLight / max(slopeLight, 1e-3)), soaked);
+
 	float3 r = reflect(ray, n);
 	float3 sky = lerp(HORIZON, ZENITH, saturate(r.z));
 	float fresnel = F0 + (1.0 - F0) * pow(1.0 - saturate(dot(-ray, n)), 5.0);
-	float3 color = lerp(frame.rgb * lerp(1.0, DARKEN, soaked), sky, fresnel * SHEEN * shore * gloss * (1.0 - film));
+	float3 color = lerp(lit * lerp(1.0, DARKEN, soaked), sky, fresnel * SHEEN * shore * gloss * (1.0 - film));
 
 	float threshold = PUDDLE_LEVEL + (1.0 - gloss) * ABSORB_LEVEL;
 	float level = patch;
@@ -376,7 +383,6 @@ PS_OUT main(PS_IN i)
 	}
 
 	float puddle = smoothstep(threshold, threshold + PUDDLE_EDGE, level)
-		* smoothstep(PUDDLE_FLAT, 1.0, n.z)
 		* upward * cover.x
 		* saturate(remap(t, PUDDLE_FADE_END, PUDDLE_FADE_START, 0.0, 1.0));
 
@@ -394,20 +400,24 @@ PS_OUT main(PS_IN i)
 		float2 downhill = -n.xy / max(length(n.xy), 1e-3);
 		float2 across = float2(-downhill.y, downhill.x);
 		float streak = tex3Dlod(Noise, float4(dot(p.xy, across) * FLOW_ACROSS_SCALE, (p.z + TIME * FLOW_SPEED) * FLOW_ALONG_SCALE, 0.75, 0.0)).r;
-		float3 base = normalize(lerp(n, float3(0.0, 0.0, 1.0), flat));
-		float3 surface = normalize(base + float3(-slope + across * (streak - 0.5) * FLOW_TILT * (1.0 - flat), 0.0));
+		float3 sheetBase = normalize(lerp(n, float3(0.0, 0.0, 1.0), flat));
+		float3 flow = normalize(sheetBase + float3(across * (streak - 0.5) * FLOW_TILT * (1.0 - flat), 0.0));
+		float3 still = normalize(float3(-slope, 1.0));
+		float3 base = normalize(lerp(sheetBase, float3(0.0, 0.0, 1.0), puddle));
+		float3 surface = normalize(lerp(flow, still, puddle));
 		float3 dir = reflect(ray, surface);
-		dir.z = lerp(dir.z, abs(dir.z), flat);
+		dir.z = lerp(dir.z, abs(dir.z), max(flat, puddle));
 		float3 fog = float3(i.color.r * FOG_DENSITY_MAX, FOG_BASE, i.color.g * FOG_FALLOFF_MAX);
 		float3 fogLight = HORIZON * FOG_AMBIENT;
 		float3 fallback = lerp(fogLight, skyColor(dir), exp(-FogLayerDepth(fog.x, fog.y, fog.z, p.z, p.z + dir.z * FOG_RANGE, FOG_RANGE)));
-		float4 reflection = puddleReflection(p + base, dir, fallback, halfTexel, samples, fog, fogLight);
+		float jitter = frac(52.9829189 * frac(dot(floor(uv / (2.0 * halfTexel)), float2(0.06711056, 0.00583715))));
+		float4 reflection = puddleReflection(p + base, dir, fallback, halfTexel, samples, fog, fogLight, jitter);
 		float3 mirror = reflection.rgb;
 		float troubled = 1.0 - heavy * (1.0 - near) * RAIN_HEAVY_FAR_BLUR * reflection.a;
 		float facing = pow(1.0 - saturate(dot(-ray, surface)), 5.0);
 		float sheet = film * (1.0 - puddle) * lerp(1.0, lerp(FILM_STREAK_MIN, 1.0, streak), 1.0 - flat);
 		color = lerp(color, mirror, (FILM_F0 + (1.0 - FILM_F0) * facing) * sheet * troubled);
-		float3 pool = lerp(frame.rgb * PUDDLE_DARK, mirror, (PUDDLE_F0 + (1.0 - PUDDLE_F0) * facing) * lerp(ABSORB_REFLECT, 1.0, gloss) * troubled);
+		float3 pool = lerp(lit * PUDDLE_DARK, mirror, (PUDDLE_F0 + (1.0 - PUDDLE_F0) * facing) * lerp(ABSORB_REFLECT, 1.0, gloss) * troubled);
 		color = lerp(color, pool, puddle);
 	}
 
