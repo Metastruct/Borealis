@@ -421,6 +421,11 @@ local function loadSpans(key)
 	spanData = spanTexture and file.Read(spanPath(key, "vtf"), "DATA") or nil
 	levels, levelFrame = {}, -1
 	searchCell, searchTop = nil, nil
+	cover.spanKey = spanData and key or nil
+end
+
+if cover.spanKey then
+	loadSpans(cover.spanKey)
 end
 
 local function spanHeight(pos)
