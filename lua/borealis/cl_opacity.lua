@@ -26,6 +26,7 @@ local STATE_RESET = CreateMaterial("ms_opacity_alphatestreset", "UnlitGeneric", 
 opacity.fixed = opacity.fixed or setmetatable({}, { __mode = "k" })
 opacity.depth = opacity.depth or setmetatable({}, { __mode = "k" })
 opacity.brushes = opacity.brushes or setmetatable({}, { __mode = "k" })
+opacity.sents = opacity.sents or setmetatable({}, { __mode = "k" })
 opacity.world = opacity.world or {}
 opacity.cutouts = opacity.cutouts or {}
 local fixed, depth, brushes = opacity.fixed, opacity.depth, opacity.brushes
@@ -216,6 +217,88 @@ local function updateHolder()
 	holder.RenderOverride = drawBrushes
 end
 
+local NO_DRAW = CreateMaterial("ms_opacity_nodraw", "UnlitGeneric", {
+	["$basetexture"] = "color/white",
+	["$no_draw"] = 1,
+})
+
+local function baseTranslucent()
+	local base = scripted_ents.GetStored("base_anim")
+
+	return base and base.t.DrawTranslucent
+end
+
+local function opaqueIndices(ent, model)
+	local list = {}
+	local mats = materialsOf(ent, model)
+	for i = 1, #mats do
+		local sub = ent:GetSubMaterial(i - 1)
+		local name = sub ~= "" and sub or ent:GetMaterial() ~= "" and ent:GetMaterial() or mats[i]
+		if classify(name) ~= SEE then
+			list[#list + 1] = i - 1
+		end
+	end
+
+	return list
+end
+
+local function translucentRedraw(self, flags)
+	local state = opacity.sents[self]
+	if not state then return end
+
+	for _, i in ipairs(state.opaque) do
+		render.MaterialOverrideByIndex(i, NO_DRAW)
+	end
+
+	local ok, err = pcall(state.orig, self, flags)
+	render.MaterialOverrideByIndex()
+	if not ok then
+		ErrorNoHalt(err, "\n")
+	end
+end
+
+for ent, state in pairs(opacity.sents) do
+	if IsValid(ent) and ent.DrawTranslucent ~= state.orig then
+		ent.DrawTranslucent = translucentRedraw
+	end
+end
+
+local function setSent(ent, wanted)
+	local state = opacity.sents[ent]
+	if not wanted then
+		if state then
+			if ent.DrawTranslucent == translucentRedraw then
+				ent.DrawTranslucent = state.orig
+			end
+
+			opacity.sents[ent] = nil
+		end
+
+		return
+	end
+
+	local model = ent:GetModel()
+	if not state then
+		state = { orig = ent.DrawTranslucent }
+		opacity.sents[ent] = state
+	end
+
+	state.opaque = opaqueIndices(ent, model)
+	ent.DrawTranslucent = translucentRedraw
+end
+
+local function updateSent(ent)
+	local model = ent:GetModel()
+	local state = opacity.sents[ent]
+	local current = state and state.orig or ent.DrawTranslucent
+	local base = baseTranslucent()
+	local wanted = model ~= nil and model:find("%.mdl$") ~= nil and base ~= nil and current == base
+		and ent:GetRenderGroup() == RENDERGROUP_BOTH and (ent.DrawTranslucent == base or ent.DrawTranslucent == translucentRedraw)
+		and ent:GetRenderMode() == RENDERMODE_NORMAL and ent:GetColor().a == 255
+
+	setSent(ent, wanted)
+end
+
 local function isBrush(ent)
 	local model = ent:GetModel()
 
@@ -273,6 +356,10 @@ local function update(ent)
 	end
 
 	setDepthPlan(ent, plan)
+
+	if ent.Draw ~= nil then
+		updateSent(ent)
+	end
 end
 
 local SKIP_PREFIXES = { "tools/", "decals/", "overlays/", "signs/" }
@@ -517,6 +604,14 @@ local function stop()
 		end
 
 		brushes[ent] = nil
+	end
+
+	for ent in pairs(opacity.sents) do
+		if IsValid(ent) then
+			setSent(ent, false)
+		end
+
+		opacity.sents[ent] = nil
 	end
 
 	updateHolder()
