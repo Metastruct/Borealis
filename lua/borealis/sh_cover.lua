@@ -30,12 +30,13 @@ local GLOSS = {
 	[MAT_GRATE] = 0.6,
 }
 
-local SPAN_VERSION = 3
+local SPAN_VERSION = 4
 local SPAN_MIN, SPAN_SIZE = Z_MIN, Z_RANGE
 local SPAN_COLUMNS = 1024
 local SPAN_COLUMN = SPAN_SIZE / SPAN_COLUMNS
 local SPAN_SLOTS = 4
 local SPAN_TILE = 64
+local SPAN_TRACE_INSET = 2
 local SPAN_DIR = "shaderpack/cover"
 local SPAN_NET = "ms_cover_spans"
 local SPAN_CHUNK = 32000
@@ -91,7 +92,29 @@ local function descending(a, b)
 	return a > b
 end
 
-local function columnBytes(list, count, bytes, x)
+local spanTrace = { mask = MASK_SOLID_BRUSHONLY, start = Vector(), endpos = Vector() }
+
+local function openBottom(wx, wy, top, bottom)
+	local from = top - SPAN_TRACE_INSET
+	if from <= bottom then return bottom end
+
+	spanTrace.start:SetUnpacked(wx, wy, from)
+	spanTrace.endpos:SetUnpacked(wx, wy, bottom)
+	local tr = util.TraceLine(spanTrace)
+	if tr.StartSolid then
+		local exit = from - tr.FractionLeftSolid * (from - bottom) - 1
+		spanTrace.start:SetUnpacked(wx, wy, exit)
+		spanTrace.endpos:SetUnpacked(wx, wy, from)
+		if not util.TraceLine(spanTrace).HitSky then return end
+
+		spanTrace.endpos:SetUnpacked(wx, wy, bottom)
+		tr = util.TraceLine(spanTrace)
+	end
+
+	return tr.Hit and math.max(tr.HitPos.z, bottom) or bottom
+end
+
+local function columnBytes(list, count, bytes, x, wx, wy)
 	local slot = 0
 	if count > 0 then
 		table.sort(list, descending)
@@ -105,8 +128,12 @@ local function columnBytes(list, count, bytes, x)
 				end
 
 				local below = list[m]
-				writeSpan(bytes, x, slot, heightValue((v - 1) / 8), below and heightValue((below - below % 2) / 8) or 0)
-				slot = slot + 1
+				local top = (v - 1) / 8
+				local bottom = openBottom(wx, wy, top, below and (below - below % 2) / 8 or SPAN_MIN)
+				if bottom then
+					writeSpan(bytes, x, slot, heightValue(top), heightValue(bottom))
+					slot = slot + 1
+				end
 			end
 
 			prev = v
@@ -285,11 +312,15 @@ function cover.BakeSpans()
 			rasterTile(tileX, tileY)
 			for j = 0, SPAN_TILE - 1 do
 				local bytes = rowBytes[j + 1]
+				local wy = SPAN_MIN + (tileY * SPAN_TILE + j + 0.5) * SPAN_COLUMN
 				for i = 0, SPAN_TILE - 1 do
 					local idx = j * SPAN_TILE + i
-					columnBytes(hits[idx], counts[idx], bytes, tileX * SPAN_TILE + i)
+					local column = tileX * SPAN_TILE + i
+					columnBytes(hits[idx], counts[idx], bytes, column, SPAN_MIN + (column + 0.5) * SPAN_COLUMN, wy)
 					counts[idx] = 0
 				end
+
+				yieldIfOverBudget()
 			end
 		end
 
