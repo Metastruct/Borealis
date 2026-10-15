@@ -19,6 +19,7 @@ local SOLID = MASK_SOLID
 local WATER = MASK_WATER
 local IN_WATER = CONTENTS_WATER
 local SHORE_PROBE = 8
+local SPAN_OPEN_SLACK, SPAN_COLUMN_OFFSET, SPAN_MIN_NORMAL = 16, 24, 0.1
 local GLOSS = {
 	[MAT_GRASS] = 0.05,
 	[MAT_FOLIAGE] = 0.05,
@@ -411,6 +412,7 @@ end
 
 local spanTexture, spanData, spanPending
 local levels, levelFrame, levelResult = {}, -1, nil
+local searchCell, searchTop
 
 local function loadSpans(key)
 	local mat = CreateMaterial("ms_cover_spans_" .. key, "UnlitGeneric", { ["$basetexture"] = "../data/" .. SPAN_DIR .. "/" .. key })
@@ -418,6 +420,7 @@ local function loadSpans(key)
 	spanTexture = tex and not tex:IsError() and tex or nil
 	spanData = spanTexture and file.Read(spanPath(key, "vtf"), "DATA") or nil
 	levels, levelFrame = {}, -1
+	searchCell, searchTop = nil, nil
 end
 
 local function spanHeight(pos)
@@ -451,33 +454,87 @@ local function spanCut(x, y, top)
 	return Z_MIN + Z_RANGE
 end
 
-local LEVEL_SLACK_BELOW, LEVEL_SLACK_ABOVE = 1000, 64
-local LEVEL_TOLERANCE = 64
-
-local function skyAbove(x, y, z)
+local function spanOpen(x, y, z)
 	local base = spanBase(x, y)
-	local best
 	for s = 0, SPAN_SLOTS - 1 do
-		local top, bottom = spanSlot(base, s)
-		if bottom <= top and top >= z and (not best or top < best) then
-			best = top
+		local spanTop, spanBottom = spanSlot(base, s)
+		if spanBottom <= z and z <= spanTop then
+			return true
 		end
 	end
 
-	return best
+	return false
+end
+
+local LEVEL_SLACK_BELOW, LEVEL_SLACK_ABOVE = 1000, 64
+local LEVEL_TOLERANCE = 64
+local LEVEL_SEARCH_STEP, LEVEL_SEARCH_RINGS, LEVEL_SEARCH_CELL = 64, 16, 256
+local LEVEL_GROUND_TOLERANCE = 32
+local unsettledLevel = {}
+
+local function skyAbove(x, y, z)
+	local base = spanBase(x, y)
+	local best, bestBottom
+	for s = 0, SPAN_SLOTS - 1 do
+		local top, bottom = spanSlot(base, s)
+		if bottom <= top and top >= z and (not best or top < best) then
+			best, bestBottom = top, bottom
+		end
+	end
+
+	return best, bestBottom
+end
+
+local function skyReachable(x, y, eye)
+	local top, bottom = skyAbove(x, y, eye.z - LEVEL_SLACK_ABOVE)
+	if top and eye.z >= bottom - LEVEL_SLACK_BELOW then return top end
+end
+
+local function skyNear(eye)
+	local top = skyReachable(eye.x, eye.y, eye)
+	if top then return top end
+
+	local cell = math.floor(eye.x / LEVEL_SEARCH_CELL) .. " " .. math.floor(eye.y / LEVEL_SEARCH_CELL) .. " " .. math.floor(eye.z / LEVEL_SEARCH_STEP)
+	if cell == searchCell then return searchTop end
+	searchCell, searchTop = cell, nil
+
+	for r = 1, LEVEL_SEARCH_RINGS do
+		local bestDist
+		for i = -r, r do
+			for j = -r, r, (i == -r or i == r) and 1 or 2 * r do
+				local found = skyReachable(eye.x + i * LEVEL_SEARCH_STEP, eye.y + j * LEVEL_SEARCH_STEP, eye)
+				local dist = i * i + j * j
+				if found and (not bestDist or dist < bestDist) then
+					searchTop, bestDist = found, dist
+				end
+			end
+		end
+
+		if searchTop then break end
+	end
+
+	return searchTop
 end
 
 local function resolveLevel(eye)
-	local top = skyAbove(eye.x, eye.y, eye.z - LEVEL_SLACK_ABOVE)
+	local top = skyNear(eye)
 	if not top then return end
 
 	local key = math.floor(top / LEVEL_TOLERANCE + 0.5)
-	if not levels[key] then
-		local down = util.TraceLine({ start = eye, endpos = eye - Vector(0, 0, Z_RANGE), mask = MASK_SOLID_BRUSHONLY })
-		levels[key] = { floor = down.Hit and down.HitPos.z or eye.z, ceiling = top }
+	if levels[key] then return levels[key] end
+
+	local down = util.TraceLine({ start = eye, endpos = eye - Vector(0, 0, Z_RANGE), mask = MASK_SOLID_BRUSHONLY })
+	local floor = down.Hit and down.HitPos.z or eye.z
+	local ply = LocalPlayer()
+	if IsValid(ply) and ply:IsOnGround() and math.abs(floor - ply:GetPos().z) <= LEVEL_GROUND_TOLERANCE then
+		levels[key] = { floor = floor, ceiling = top }
+
+		return levels[key]
 	end
 
-	return levels[key]
+	unsettledLevel.floor, unsettledLevel.ceiling = floor, top
+
+	return unsettledLevel
 end
 
 function cover.SkyLevel()
@@ -583,7 +640,7 @@ end
 -- nowhere.  A solid standing in air is what the rain lands on; one standing in
 -- water is a bed the rain never reaches, and the surface over it is, so the
 -- second trace only runs where the first came up wet.
-local function traceColumn(cx, cy, top, bottom)
+local function traceOpenColumn(cx, cy, top, bottom)
 	local x, y = (cx + 0.5) * COLUMN, (cy + 0.5) * COLUMN
 	upTrace.start:SetUnpacked(x, y, top)
 	upTrace.endpos:SetUnpacked(x, y, top + 8192)
@@ -608,7 +665,7 @@ local function traceColumn(cx, cy, top, bottom)
 				level = shore.Hit and not shore.StartSolid and shore.HitPos.z
 			end
 
-			return hit.z, down.HitNormal.z > SPLASH_SLOPE and hit.z + 0.4, GLOSS[down.MatType] or 1, level
+			return hit.z, down.HitNormal.z > SPLASH_SLOPE and hit.z + 0.4, GLOSS[down.MatType] or 1, level, down.HitNormal.z
 		end
 	end
 
@@ -627,10 +684,23 @@ local function traceColumn(cx, cy, top, bottom)
 	end
 
 	if down.Hit then
-		return down.HitPos.z, false, GLOSS[down.MatType] or 1, false
+		return down.HitPos.z, false, GLOSS[down.MatType] or 1, false, down.HitNormal.z
 	end
 
 	return spanData and spanCut(x, y, top) or Z_MIN, false, SEED_GLOSS, false
+end
+
+local function traceColumn(cx, cy, top, bottom)
+	local cut, level, gloss, waterLevel, normalZ = traceOpenColumn(cx, cy, top, bottom)
+	if spanData and cut < Z_MIN + Z_RANGE then
+		local nz = math.max(normalZ or 1, SPAN_MIN_NORMAL)
+		local slack = SPAN_OPEN_SLACK + SPAN_COLUMN_OFFSET * math.sqrt(1 - nz * nz) / nz
+		if not spanOpen((cx + 0.5) * COLUMN, (cy + 0.5) * COLUMN, cut + slack) then
+			return Z_MIN + Z_RANGE, false, 1, false
+		end
+	end
+
+	return cut, level, gloss, waterLevel
 end
 
 -- a clear inside a one texel viewport: the surface library's draws go through
