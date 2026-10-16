@@ -164,7 +164,7 @@ local function getWaterBrushEntity(mi)
 	if mi == 0 then return end
 
 	local want = "*" .. mi
-	for _, e in ipairs(ents.GetAll()) do
+	for _, e in ents.Iterator() do
 		if e:GetModel() == want then return e end
 	end
 end
