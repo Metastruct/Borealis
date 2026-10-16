@@ -483,27 +483,38 @@ local function sightBlocked(x, y, z)
 	return sightRes.Hit and not sightRes.StartSolid
 end
 
+local view = { frame = -1 }
+
+local function currentView()
+	local eye, ang = EyePos(), EyeAngles()
+	if view.frame == FrameNumber() and view.eye == eye and view.ang == ang then return view end
+
+	local vs = render.GetViewSetup()
+	view.frame, view.eye, view.ang = FrameNumber(), eye, ang
+	view.fwd, view.right, view.up = EyeVector(), ang:Right(), ang:Up()
+	view.amb, view.tonemap = render.GetAmbientLightColor(), render.GetToneMappingScaleLinear().x
+	view.tanH = math.tan(math.rad(vs.fov or 90) * 0.5)
+	view.tanV = view.tanH / (vs.aspect or (ScrW() / ScrH()))
+
+	return view
+end
+
 function Layer:draw(sky3d)
 	if self.paused or not self.ready or sky3d or render.GetRenderTarget() then return end
 	local MAT, DEPTH_MAT = self.mat, self.depthMat
-	local eye = EyePos()
-	local fwd = EyeVector()
-	local amb = render.GetAmbientLightColor()
+	local v = currentView()
+	local eye, fwd, amb = v.eye, v.fwd, v.amb
 	local time = CurTime() * (self.cfg.timeScale or 1) % (self.cfg.timeWrap or 1000)
 
 	setConstant(MAT, "$c0", eye.x, eye.y, eye.z, time)
 	MAT:SetFloat("$c1_y", packColor(amb.x * FILL_K, amb.y * FILL_K, amb.z * FILL_K))
 	MAT:SetFloat("$c2_x", worldLightScale())
 	if self.cfg.frame then self.cfg.frame(MAT, DEPTH_MAT, time) end
-	MAT:SetFloat("$c2_w", render.GetToneMappingScaleLinear().x)
+	MAT:SetFloat("$c2_w", v.tonemap)
 	render.SetMaterial(MAT)
 
 	-- view frustum: the setup's fov is the horizontal one at this aspect
-	local vs = render.GetViewSetup()
-	local ang = EyeAngles()
-	local right, up = ang:Right(), ang:Up()
-	local tanH = math.tan(math.rad(vs.fov or 90) * 0.5)
-	local tanV = tanH / (vs.aspect or (ScrW() / ScrH()))
+	local right, up, tanH, tanV = v.right, v.up, v.tanH, v.tanV
 	local kH, kV = math.sqrt(1 + tanH * tanH), math.sqrt(1 + tanV * tanV)
 
 	local chunks, visible = self.chunks, self.visible

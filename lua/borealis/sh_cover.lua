@@ -643,9 +643,10 @@ local owner, ground, cuts, pending, queued = {}, {}, {}, {}, {}
 local traceZ, winX, winY
 local sweep, urgent = 1, true
 local updatedFrame = -1
-local upTrace = { mask = SOLID, start = Vector(), endpos = Vector() }
-local downTrace = { mask = SOLID, start = Vector(), endpos = Vector() }
-local waterTrace = { mask = WATER, start = Vector(), endpos = Vector() }
+local upTrace = { mask = SOLID, start = Vector(), endpos = Vector(), output = {} }
+local downTrace = { mask = SOLID, start = Vector(), endpos = Vector(), output = {} }
+local waterTrace = { mask = WATER, start = Vector(), endpos = Vector(), output = {} }
+local players, playerCount = {}, -1
 local probe = Vector()
 
 -- both axes offset so negative columns pack and unpack cleanly
@@ -888,8 +889,10 @@ local function updateColumns(eye)
 	moveWindow(eye)
 
 	local top, bottom = traceZ + TRACE_HALF, traceZ - TRACE_HALF
-	local players = player.GetAll()
-	upTrace.filter, downTrace.filter = players, players
+	if player.GetCount() ~= playerCount then
+		players, playerCount = player.GetAll(), player.GetCount()
+		upTrace.filter, downTrace.filter = players, players
+	end
 	local budget = (urgent or #pending > 0) and TRACES_PER_FRAME or IDLE_TRACES_PER_FRAME
 	render.PushRenderTarget(coverRT)
 	while budget > 0 and #pending > 0 do

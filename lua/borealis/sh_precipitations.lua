@@ -373,19 +373,24 @@ end
 
 local dropRows = { {}, {}, {}, {}, {} }
 local dropMatrix = Matrix()
+local dropPos = Vector()
 local dropLeanX, dropLeanY = 0, 0
 local DROP_SPREAD = CROSS_SPREAD * 0.5 + HALF_W
 local planes = { Vector(), Vector(), Vector(), Vector() }
 local corner = Vector()
 
+local function setPlane(plane, a, ka, b, kb)
+	plane:SetUnpacked(a.x * ka + b.x * kb, a.y * ka + b.y * kb, a.z * ka + b.z * kb)
+end
+
 local function setPlanes(fwd, right, up, vs)
 	local h = math.rad(vs.fov) * 0.5
 	local v = math.atan(math.tan(h) / vs.aspect)
 	local sh, ch, sv, cv = math.sin(h), math.cos(h), math.sin(v), math.cos(v)
-	planes[1]:Set(fwd * sh + right * ch)
-	planes[2]:Set(fwd * sh - right * ch)
-	planes[3]:Set(fwd * sv + up * cv)
-	planes[4]:Set(fwd * sv - up * cv)
+	setPlane(planes[1], fwd, sh, right, ch)
+	setPlane(planes[2], fwd, sh, right, -ch)
+	setPlane(planes[3], fwd, sv, up, cv)
+	setPlane(planes[4], fwd, sv, up, -cv)
 end
 
 local function boxVisible(x0, x1, y0, y1)
@@ -446,7 +451,8 @@ local function drawDrops(eye, time, level)
 		for dy = 0, span do
 			local tx, ty = fx + dx * DROP_TILE, fy + dy * DROP_TILE
 			if tileVisible(eye, tx, ty, fieldZ) then
-				dropMatrix:SetTranslation(Vector(tx, ty, fieldZ))
+				dropPos:SetUnpacked(tx, ty, fieldZ)
+				dropMatrix:SetTranslation(dropPos)
 				cam.PushModelMatrix(dropMatrix)
 				for _, chunk in ipairs(dropChunks) do
 					if chunk.first < pairsCount then

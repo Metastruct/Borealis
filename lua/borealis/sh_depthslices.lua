@@ -44,18 +44,45 @@ local refogFrame = -1
 local MARK, CODES
 local markRetry = 0
 
+local quadPos, quadNormal = Vector(), Vector()
+
 local function quad(eye, fwd, halfW, halfH, t, col)
-	render.DrawQuadEasy(eye + fwd * t, -fwd, halfW * t * OVERSIZE, halfH * t * OVERSIZE, col, 0)
+	quadPos:Set(fwd)
+	quadPos:Mul(t)
+	quadPos:Add(eye)
+	quadNormal:Set(fwd)
+	quadNormal:Negate()
+	render.DrawQuadEasy(quadPos, quadNormal, halfW * t * OVERSIZE, halfH * t * OVERSIZE, col, 0)
 end
 
 local function quadNear(vs)
 	return math.max(QUAD_NEAR, vs.znear * 1.5)
 end
 
+local heldFrame = -1
+local heldEye, heldFwd, heldW, heldH, heldVs
+
 local function viewFan()
+	if heldFrame == FrameNumber() then return heldEye, heldFwd, heldW, heldH, heldVs end
 	local halfW, halfH, vs = shaderpack.ViewTan()
 
 	return EyePos(), EyeAngles():Forward(), halfW, halfH, vs
+end
+
+local function holdView()
+	heldFrame = -1
+	heldEye, heldFwd, heldW, heldH, heldVs = viewFan()
+	heldFrame = FrameNumber()
+end
+
+local function releaseView()
+	heldFrame = -1
+end
+
+function depthslices.ViewTan()
+	if heldFrame == FrameNumber() then return heldW, heldH, heldVs end
+
+	return shaderpack.ViewTan()
 end
 
 local function fillAlpha(col)
@@ -76,12 +103,11 @@ local function fillAlpha(col)
 end
 
 -- Safe to call from several effects in one frame: only the first does the work.
-function depthslices.Capture()
+local function capture(eye, fwd, halfW, halfH, vs)
 	if capturedFrame == FrameNumber() then return end
 	capturedFrame = FrameNumber()
 	dirtyFrame = capturedFrame
 
-	local eye, fwd, halfW, halfH, vs = viewFan()
 	local first = 0
 	while first < SLICES and dist[first] <= vs.znear do
 		first = first + 1
@@ -104,6 +130,12 @@ function depthslices.Capture()
 	render.OverrideBlend(false)
 	render.OverrideAlphaWriteEnable(false, false)
 	render.OverrideColorWriteEnable(false, false)
+end
+
+function depthslices.Capture()
+	if capturedFrame == FrameNumber() then return end
+
+	capture(viewFan())
 end
 
 function depthslices.Invalidate()
@@ -151,18 +183,18 @@ function depthslices.Composite(mat, color)
 	local depth, fb = render.GetResolvedFullFrameDepth(), render.GetScreenEffectTexture()
 	if not shaderpack.UsableRT(depth) or not shaderpack.UsableRT(fb) then return false end
 
-	depthslices.Capture()
+	local eye, fwd, halfW, halfH, vs = viewFan()
+	capture(eye, fwd, halfW, halfH, vs)
 	render.UpdateScreenEffectTexture()
 	mat:SetTexture("$texture1", depth)
 	mat:SetTexture("$basetexture", fb)
 
-	local eye, fwd, halfW, halfH, vs = viewFan()
-	depthslices.KeepAlpha(function()
-		render.OverrideDepthEnable(true, false)
-		render.SetMaterial(mat)
-		quad(eye, fwd, halfW, halfH, quadNear(vs), color)
-		render.OverrideDepthEnable(false, false)
-	end)
+	render.OverrideAlphaWriteEnable(true, false)
+	render.OverrideDepthEnable(true, false)
+	render.SetMaterial(mat)
+	quad(eye, fwd, halfW, halfH, quadNear(vs), color)
+	render.OverrideDepthEnable(false, false)
+	render.OverrideAlphaWriteEnable(false, false)
 
 	return true
 end
@@ -230,7 +262,7 @@ local function refog()
 	shaderpack.SetConstant(MARK, "$c0", vs.znear, vs.zfar, nil, depthslices.Samples())
 
 	capturedFrame = -1
-	depthslices.Capture()
+	capture(eye, fwd, halfW, halfH, vs)
 
 	render.SetStencilWriteMask(255)
 	render.SetStencilTestMask(255)
@@ -280,6 +312,7 @@ end)
 hook.Add("PreDrawTranslucentRenderables", "ms_depthslices_effects", function(bDepth, bSkybox, b3DSky)
 	if bDepth or bSkybox or b3DSky or render.GetRenderTarget() then return end
 	depthslices.Invalidate()
+	holdView()
 	local t = depthslices.effects
 	local wantsRefog = false
 	for i = 1, #t do
@@ -287,6 +320,7 @@ hook.Add("PreDrawTranslucentRenderables", "ms_depthslices_effects", function(bDe
 			wantsRefog = true
 		end
 	end
+	releaseView()
 
 	if wantsRefog and markReady() then
 		refogFrame = FrameNumber()
@@ -304,5 +338,7 @@ end)
 hook.Add("PreDrawViewModels", "ms_depthslices_refog", function()
 	if refogFrame ~= FrameNumber() or render.GetRenderTarget() then return end
 	refogFrame = -1
+	holdView()
 	refog()
+	releaseView()
 end)

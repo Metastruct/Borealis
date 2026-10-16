@@ -86,8 +86,8 @@ local Z_MIN, Z_RANGE = cover.Z_MIN, cover.Z_RANGE
 
 local farRT, farX, farY, farZ
 local farQueue, farOwner = {}, {}
-local farTrace = { mask = MASK_SOLID_BRUSHONLY, start = Vector(), endpos = Vector() }
-local farWater = { mask = MASK_WATER, start = Vector(), endpos = Vector() }
+local farTrace = { mask = MASK_SOLID_BRUSHONLY, start = Vector(), endpos = Vector(), output = {} }
+local farWater = { mask = MASK_WATER, start = Vector(), endpos = Vector(), output = {} }
 
 local function farColumn(cx, cy, z)
 	local x, y = (cx + 0.5) * FAR_COLUMN, (cy + 0.5) * FAR_COLUMN
@@ -252,7 +252,7 @@ local function draw()
 	MAT:SetTexture("$texture6", spans or coverRT)
 	local eye, ang = EyePos(), EyeAngles()
 	local fwd, right = ang:Forward(), ang:Right()
-	local halfW, halfH, vs = shaderpack.ViewTan()
+	local halfW, halfH, vs = depthslices.ViewTan()
 	local hr, hg, hb, zr, zg, zb = skyColors()
 	setConstant(MAT, "$c0", eye.x, eye.y, eye.z, wet)
 	setConstant(MAT, "$c1", fwd.x, fwd.y, fwd.z, halfW)
