@@ -1,4 +1,4 @@
-local PS, VS = "cloudshadows_slab_ps30", "fog_vs30"
+local PS, VS = "vcloud_shadows_ps30", "fog_vs30"
 
 if SERVER then
 	shaderpack.AddResources({ VS, PS }, { "materials/shaderpack/procsky/cloudshape.vtf", "materials/shaderpack/procsky/clouddetail.vtf" })
@@ -7,7 +7,7 @@ if SERVER then
 end
 
 -- Cloud shadows: the shade sh_vclouds' slab throws on the world, marched by
--- cloudshadows_slab_ps30 and composited over the frame before the clouds and
+-- vcloud_shadows_ps30 and composited over the frame before the clouds and
 -- the fog, so the layer and the haze sit over shaded ground instead of under
 -- it.
 --
@@ -54,7 +54,7 @@ local materialSerial = 0
 
 local function build()
 	materialSerial = materialSerial + 1
-	MAT = CreateShaderMaterial("ms_cloudshadows_" .. os.time() .. "_" .. materialSerial, {
+	MAT = CreateShaderMaterial("ms_vcloud_shadows_" .. os.time() .. "_" .. materialSerial, {
 		["$pixshader"] = PS,
 		["$vertexshader"] = VS,
 		["$texture2"] = "shaderpack/procsky/cloudshape",
@@ -149,16 +149,16 @@ end
 -- lifecycle
 --------------------------------------------------------------------------
 local function stop()
-	hook.Remove("Think", "ms_cloudshadows")
-	depthslices.RemoveEffect("ms_cloudshadows")
+	hook.Remove("Think", "ms_vcloud_shadows")
+	depthslices.RemoveEffect("ms_vcloud_shadows")
 	active = false
 end
 
 local function start()
 	stop()
 	MAT = nil
-	hook.Add("Think", "ms_cloudshadows", update)
-	depthslices.AddEffect("ms_cloudshadows", ORDER, draw, false, function() return active end)
+	hook.Add("Think", "ms_vcloud_shadows", update)
+	depthslices.AddEffect("ms_vcloud_shadows", ORDER, draw, false, function() return active end)
 end
 
-shaderpack.Toggle("ms_cloudshadows", nil, { PS, VS }, start, stop)()
+shaderpack.Toggle("ms_vcloud_shadows", nil, { PS, VS }, start, stop)()

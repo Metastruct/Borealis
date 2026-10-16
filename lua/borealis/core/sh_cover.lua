@@ -51,21 +51,6 @@ cover.COLUMN, cover.COLUMNS, cover.Z_MIN, cover.Z_RANGE = COLUMN, COLUMNS, Z_MIN
 cover.GLOSS = GLOSS
 cover.listeners = cover.listeners or {}
 
-local function le16(v)
-	return string.char(v % 256, math.floor(v / 256) % 256)
-end
-
-local function le32(v)
-	return le16(v % 65536) .. le16(math.floor(v / 65536))
-end
-
-local function vtfHeader()
-	local header = "VTF\0" .. le32(7) .. le32(2) .. le32(80) .. le16(SPAN_COLUMNS * 2) .. le16(SPAN_COLUMNS) .. le32(SPAN_VTF_FLAGS) .. le16(1) .. le16(0) .. le32(0)
-		.. "\0\0\0\63\0\0\0\63\0\0\0\63" .. le32(0) .. "\0\0\128\63" .. le32(SPAN_VTF_FORMAT) .. string.char(1) .. "\255\255\255\255" .. string.char(0, 0) .. le16(1)
-
-	return header .. string.rep("\0", 80 - #header)
-end
-
 local ROW_BYTES = SPAN_COLUMNS * 2 * 8
 local CHAR_CHUNK = 4096
 
@@ -300,7 +285,7 @@ function cover.BakeSpans()
 		end
 	end
 
-	local rows = { vtfHeader() }
+	local rows = { shaderpack.VTFHeader(SPAN_COLUMNS * 2, SPAN_COLUMNS, SPAN_VTF_FORMAT, SPAN_VTF_FLAGS) }
 	local rowBytes = {}
 	for r = 1, SPAN_TILE do
 		rowBytes[r] = {}

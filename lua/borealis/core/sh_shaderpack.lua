@@ -5,6 +5,21 @@ if HAS_SHADER_TO_GMA then
 	require("shader_to_gma")
 end
 
+local function le16(v)
+	return string.char(v % 256, math.floor(v / 256) % 256)
+end
+
+local function le32(v)
+	return le16(v % 65536) .. le16(math.floor(v / 65536))
+end
+
+function shaderpack.VTFHeader(w, h, format, flags)
+	local header = "VTF\0" .. le32(7) .. le32(2) .. le32(80) .. le16(w) .. le16(h) .. le32(flags) .. le16(1) .. le16(0) .. le32(0)
+		.. "\0\0\0\63\0\0\0\63\0\0\0\63" .. le32(0) .. "\0\0\128\63" .. le32(format) .. string.char(1) .. "\255\255\255\255" .. string.char(0, 0) .. le16(1)
+
+	return header .. string.rep("\0", 80 - #header)
+end
+
 if SERVER then
 	function shaderpack.AddResources(shaders, files)
 		if resource.AddShader then

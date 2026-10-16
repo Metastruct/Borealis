@@ -120,7 +120,7 @@ local function baseZ()
 end
 
 -- The slab's base and the coverage it is marching, or nil while it is off.
--- sh_cloudshadows shades the ground from this, so the shade belongs to the
+-- sh_vcloud_shadows shades the ground from this, so the shade belongs to the
 -- same field this draws rather than to a second guess at it.
 function vclouds.GetLayer()
 	if not active then return end
