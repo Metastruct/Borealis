@@ -25,7 +25,7 @@ local cover, depthslices = shaderpack.cover, shaderpack.depthslices
 local FOG_ENABLED = CreateClientConVar("cl_draw_fog", "1", true, false, "draw volumetric fog in fog, rain and snow weather")
 
 local PROFILES = { -- extinction per unit at the base, height falloff in units, noise strength
-	fog = { density = 0.0007, falloff = 250, noise = 0.8 },
+	fog = { density = 0.0002, falloff = 250, noise = 0.8 },
 	rain = { density = 0.00025, falloff = 600, noise = 0.4 },
 	snow = { density = 0.0002, falloff = 700, noise = 0.5 },
 }
@@ -109,6 +109,9 @@ local active = false
 
 local function think()
 	active = weather() > 0
+	if tod and tod.SetVolumetricFog and tod.volumetric_fog ~= VOLUMETRIC_WEATHERS then
+		tod.SetVolumetricFog(VOLUMETRIC_WEATHERS)
+	end
 end
 
 function fog.Layer()
@@ -183,9 +186,6 @@ local function start()
 	hook.Add("Think", "ms_fog", think)
 	hook.Add("PreRender", "ms_fog", prepare)
 	depthslices.AddEffect("ms_fog", ORDER, draw, true, function() return active end)
-	if tod and tod.SetVolumetricFog then
-		tod.SetVolumetricFog(VOLUMETRIC_WEATHERS)
-	end
 end
 
 shaderpack.Toggle("ms_fog", FOG_ENABLED, { PS, VS }, start, stop)()
