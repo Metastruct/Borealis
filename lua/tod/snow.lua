@@ -2,7 +2,7 @@ local config =
 {
 	["fog_start"] = 0,
 	["fog_end"] = 7000,
-	["fog_max_density"] = 0.25,
+	["fog_max_density"] = 0.7,
 	["fog_color"] = Vector(255,255,255) * 0.8,
 	["star_intensity"] = 0,
 	["sky_topcolor"] = Vector(1,1,1) * 0.5,

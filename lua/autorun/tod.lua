@@ -971,6 +971,17 @@ function tod.RemoveOverrideConfig(name)
 	tod.override_configs[name] = nil
 end
 
+tod.fog_configs = {}
+
+function tod.AddFogConfig(name, config, probability)
+	tod.fog_configs[name] = {
+		config = config,
+		amount = 0
+	}
+
+	tod.AddWeather(name, probability)
+end
+
 local last_time
 local last_lerp
 
@@ -980,13 +991,15 @@ function tod.SetVolumetricFog(weathers)
 	last_time = nil
 end
 
-local function volumetricOverride()
+local function volumetric(name)
 	local weathers = tod.volumetric_fog
-	if not weathers then return false end
+	return weathers ~= nil and weathers[name] == true
+end
 
+local function volumetricOverride()
 	for name, data in pairs(tod.override_configs) do
 		if data.config == tod.override_config then
-			return weathers[name] == true
+			return volumetric(name)
 		end
 	end
 
@@ -1025,6 +1038,14 @@ hook.Add("Think", "tod", function()
 			end
 		end
 
+		for name, data in pairs(tod.fog_configs) do
+			local amount = tod.GetWeather(name)
+			if data.amount ~= amount then
+				data.amount = amount
+				cache = {}
+			end
+		end
+
 		-- cache lerp results
 		-- good for realtime
 		time = math.Round(time, 3)
@@ -1057,6 +1078,20 @@ hook.Add("Think", "tod", function()
 				if isnumber(clear_fog.fog_max_density) and isnumber(cfg.fog_max_density)
 					and (clear_fog.fog_max_density >= cfg.fog_max_density or volumetricOverride()) then
 					for key, val in pairs(clear_fog) do
+						cfg[key] = val
+					end
+				end
+			end
+
+			for name, data in pairs(tod.fog_configs) do
+				local fog = data.config
+				if data.amount > 0 and not volumetric(name) and isnumber(cfg.fog_max_density) and fog.fog_max_density > cfg.fog_max_density then
+					local hour = {}
+					for key in pairs(fog) do
+						hour[key] = cfg[key]
+					end
+
+					for key, val in pairs(tod.Lerp(data.amount, hour, fog)) do
 						cfg[key] = val
 					end
 				end

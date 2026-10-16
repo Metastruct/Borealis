@@ -1,9 +1,11 @@
--- Fog weather, year round, on tod's weather schedule.  It registers no
--- override config, the client only tracks the amount, the volumetric fog
--- (sh_fog) reads it.
-local PROBABILITY = 0.15
+local PROBABILITY = 0.10
 
-tod.AddWeather("fog", PROBABILITY)
+tod.AddFogConfig("fog", {
+	["fog_start"] = 0,
+	["fog_end"] = 5000,
+	["fog_max_density"] = 0.6,
+	["fog_color"] = Vector(190, 195, 200),
+}, PROBABILITY)
 
 if not CLIENT then return end
 

@@ -2,12 +2,12 @@
 -- carries the fog and the engine sky, procsky's theme carries the overcast,
 -- the darker fog and a flat cast, and the client plays the rumble outside,
 -- drips under cover and thunder with a flash when the rain is heavy.
-local PROBABILITY = 0.25
+local PROBABILITY = 0.20
 local CURVE = 0.35 -- the sky greys over well before the rain is heavy
 local config = {
 	["fog_start"] = 0,
 	["fog_end"] = 6000,
-	["fog_max_density"] = 0.35,
+	["fog_max_density"] = 0.7,
 	["fog_color"] = Vector(150, 155, 160),
 	["star_intensity"] = 0,
 	["sky_topcolor"] = Vector(1, 1, 1) * 0.35,
