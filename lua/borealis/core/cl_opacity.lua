@@ -697,7 +697,7 @@ local function updatePac(ent)
 		pacOverrides[ent] = nil
 	end
 
-	if current ~= nil and not ent.pac_hide_entity and not ent:IsWeapon() and isPac(current) then
+	if isfunction(current) and not ent.pac_hide_entity and not ent:IsWeapon() and isPac(current) then
 		pacOverrides[ent] = current
 		ent.RenderOverride = pacDraw
 	end
