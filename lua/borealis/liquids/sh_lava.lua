@@ -635,7 +635,7 @@ local function activate()
 
 	lava.emitter = ParticleEmitter(EyePos())
 	hook.Add("Think", "ms_lava", think)
-	depthslices.AddEffect("ms_lava", ORDER, draw, false, function() return fade > 0.001 end)
+	depthslices.AddEffect("ms_lava", ORDER, draw, true, function() return fade > 0.001 end)
 end
 
 local function bakeAll()

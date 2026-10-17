@@ -299,6 +299,136 @@ local function updateSent(ent)
 	setSent(ent, wanted)
 end
 
+opacity.drawn = opacity.drawn or setmetatable({}, { __mode = "k" })
+opacity.drawWrappers = opacity.drawWrappers or setmetatable({}, { __mode = "k" })
+local drawn, drawWrappers = opacity.drawn, opacity.drawWrappers
+
+local DEPTH_SOLID = CreateMaterial("ms_opacity_depth_solid", "DepthWrite", { ["$color_depth"] = 1 })
+local entityMeta = FindMetaTable("Entity")
+local innerDrawModel = entityMeta.DrawModel
+local modelPlans = {}
+
+local function depthPlan(ent, model, override)
+	local mats = materialsOf(ent, model)
+	local plan = {}
+	for i = 1, #mats do
+		local sub = ent:GetSubMaterial(i - 1)
+		local info = classify(sub ~= "" and sub or override ~= "" and override or mats[i])
+		plan[i] = info == SEE and NO_DRAW or info or DEPTH_SOLID
+	end
+
+	return plan
+end
+
+local function fullPlan(ent)
+	local model = ent:GetModel()
+	if not model then return nil end
+
+	local plan
+	for i, mat in ipairs(depthPlan(ent, model, ent:GetMaterial())) do
+		plan = plan or {}
+		plan[i - 1] = mat
+	end
+
+	return plan
+end
+
+local function planOf(ent)
+	local state = drawn[ent]
+	if state and state.plan then return state.plan end
+
+	local model = ent:GetModel()
+	if not model then return nil end
+
+	local plan = modelPlans[model]
+	if not plan then
+		plan = depthPlan(ent, model, "")
+		modelPlans[model] = plan
+	end
+
+	return plan
+end
+
+local function depthDrawModel(ent, flags)
+	local plan = not ent.GetRenderMesh and planOf(ent)
+	if not plan or #plan == 0 then
+		render.MaterialOverride(DEPTH_SOLID)
+		local r = innerDrawModel(ent, flags)
+		render.MaterialOverride()
+
+		return r
+	end
+
+	for i = 1, #plan do
+		render.MaterialOverrideByIndex(i - 1, plan[i])
+	end
+
+	local r = innerDrawModel(ent, flags)
+	render.MaterialOverrideByIndex()
+
+	return r
+end
+
+local function depthDraw(self, flags)
+	local state = drawn[self]
+	local orig = state and state.orig
+	if not orig then return end
+
+	if not flags or bit.band(flags, STUDIO_SSAODEPTHTEXTURE) == 0 then
+		return orig(self, flags)
+	end
+
+	local prev = entityMeta.DrawModel
+	if prev ~= depthDrawModel then
+		innerDrawModel = prev
+	end
+
+	entityMeta.DrawModel = depthDrawModel
+	local ok, err = pcall(orig, self, flags)
+	entityMeta.DrawModel = prev
+	render.MaterialOverride()
+	render.MaterialOverrideByIndex()
+	if not ok then
+		ErrorNoHalt(err, "\n")
+	end
+end
+
+drawWrappers[depthDraw] = true
+
+for ent, state in pairs(drawn) do
+	if IsValid(ent) and ent.Draw ~= depthDraw and drawWrappers[ent.Draw] then
+		ent.Draw = depthDraw
+	end
+end
+
+local function setDrawn(ent, wanted)
+	local state = drawn[ent]
+	local current = ent.Draw
+	if not wanted then
+		if state then
+			if drawWrappers[current] then
+				ent.Draw = state.orig
+			end
+
+			drawn[ent] = nil
+		end
+
+		return
+	end
+
+	if current ~= depthDraw then
+		if not (state and drawWrappers[current]) then
+			state = { orig = current }
+			drawn[ent] = state
+		end
+
+		ent.Draw = depthDraw
+	end
+
+	local model = ent:GetModel()
+	state.plan = model and depthPlan(ent, model, ent:GetMaterial()) or nil
+end
+
 local function isBrush(ent)
 	local model = ent:GetModel()
 
@@ -353,12 +483,15 @@ local function update(ent)
 
 	if see or not overridable(ent) then
 		plan = nil
+	elseif IsValid(ent:GetParent()) then
+		plan = fullPlan(ent)
 	end
 
 	setDepthPlan(ent, plan)
 
 	if ent.Draw ~= nil then
 		updateSent(ent)
+		setDrawn(ent, not see and ent:EntIndex() > 0 and not ent:IsPlayer() and not ent:IsWeapon())
 	end
 end
 
@@ -614,6 +747,15 @@ local function stop()
 		opacity.sents[ent] = nil
 	end
 
+	for ent in pairs(drawn) do
+		if IsValid(ent) then
+			setDrawn(ent, false)
+		end
+
+		drawn[ent] = nil
+	end
+
+	modelPlans = {}
 	updateHolder()
 	queue, cursor = {}, 1
 end

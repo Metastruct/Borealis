@@ -112,7 +112,9 @@ float4 main(PS_IN i) : COLOR0
 	float4 frame = tex2D(Frame, uv);
 	float raw = tex2D(Depth, uv).r;
 	float samples = max(floor(i.color.b * 255.0 + 0.5), 1.0);
-	float d = abs(raw - 1.0) < SKY_EPS ? SKY_FAR : SliceDepth(max(raw, 0.0) * DEPTH_SCALE, frame.a * 255.0, samples);
+	float code = frame.a * 255.0;
+	float coded = code > SLICE_EXACT - 0.5 ? SLICE_NEAR * pow(SLICE_RATIO, code - SLICE_EXACT) : SLICE_NEAR * pow(SLICE_RATIO, floor(code + 0.5) - 0.5);
+	float d = abs(raw - 1.0) < SKY_EPS ? SKY_FAR : (raw <= 0.0 ? coded : SliceDepth(raw * DEPTH_SCALE, code, samples));
 	float3 view = viewRay(uv);
 	float3 p = EYE + view * d;
 	float3 n = normalize(cross(ddx(p), ddy(p)));
