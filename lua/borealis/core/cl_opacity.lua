@@ -8,6 +8,7 @@ local TRANSLUCENT = 2097152
 local ALPHATEST = 256
 local NOCULL = 8192
 local DECAL = 65536
+local VERTEXALPHA = 32
 local CUTOUT_MAX_BETWEEN = 0.25
 local CUTOUT_MIN_HOLES = 0.05
 local ALPHA_SAMPLES = 128
@@ -27,13 +28,17 @@ opacity.fixed = opacity.fixed or setmetatable({}, { __mode = "k" })
 opacity.depth = opacity.depth or setmetatable({}, { __mode = "k" })
 opacity.brushes = opacity.brushes or setmetatable({}, { __mode = "k" })
 opacity.sents = opacity.sents or setmetatable({}, { __mode = "k" })
+opacity.screens = opacity.screens or setmetatable({}, { __mode = "k" })
+opacity.regrouped = opacity.regrouped or setmetatable({}, { __mode = "k" })
 opacity.world = opacity.world or {}
 opacity.cutouts = opacity.cutouts or {}
-local fixed, depth, brushes = opacity.fixed, opacity.depth, opacity.brushes
+opacity.models = opacity.models or {}
+local fixed, depth, brushes, screens = opacity.fixed, opacity.depth, opacity.brushes, opacity.screens
 
 local materialInfo = {}
 local modelMaterials = {}
 local queue, cursor = {}, 1
+local queueModel
 
 local function depthMaterial(name, mat, flags)
 	local tex = mat:GetTexture("$basetexture")
@@ -65,8 +70,13 @@ local function classify(name)
 	local result = false
 	if not mat:IsError() then
 		local flags = mat:GetInt("$flags") or 0
-		if bit.band(flags, SEE_THROUGH) ~= 0 or mat:GetShader():find("^Sprite") or (mat:GetFloat("$alpha") or 1) < 1 then
+		local sprite = mat:GetShader():find("^Sprite") ~= nil
+		local alpha = mat:GetFloat("$alpha") or 1
+		if bit.band(flags, SEE_THROUGH) ~= 0 or sprite or alpha < 1 then
 			result = SEE
+			if bit.band(flags, SEE_THROUGH + VERTEXALPHA) == TRANSLUCENT and not sprite and alpha >= 1 and queueModel(name, mat) then
+				return classify(name)
+			end
 		elseif bit.band(flags, ALPHATEST) ~= 0 then
 			result = depthMaterial(name, mat, flags)
 		end
@@ -180,7 +190,12 @@ local function overridable(ent)
 	return ent:EntIndex() > 0 and ent.Draw == nil and not ent:IsPlayer() and not ent:IsWeapon()
 end
 
-local function drawBrushes(_, flags)
+local DEPTH_QUAD = CreateMaterial("ms_opacity_depth_quad", "DepthWrite", {
+	["$color_depth"] = 1,
+	["$nocull"] = 1,
+})
+
+local function drawBrushes(flags)
 	local drew = false
 	for ent in pairs(brushes) do
 		if IsValid(ent) and not ent:GetNoDraw() and not ent:IsDormant() then
@@ -196,9 +211,61 @@ local function drawBrushes(_, flags)
 	end
 end
 
+opacity.screenArgs = opacity.screenArgs or setmetatable({}, { __mode = "k" })
+local screenArgs = opacity.screenArgs
+
+local function screenRender(gpu, ...)
+	local args = screenArgs[gpu]
+	if not args then return end
+
+	local n = select("#", ...)
+	args.n = n
+	for i = 1, n do
+		args[i] = (select(i, ...))
+	end
+end
+
+for ent in pairs(screens) do
+	local gpu = IsValid(ent) and ent.GPU
+	if istable(gpu) and screenArgs[gpu] then
+		rawset(gpu, "Render", screenRender)
+	end
+end
+
+local function drawScreenDepth(ent, gpu)
+	local monitor = gpu.RT and gpu.translucent ~= true and gpu.Entity == ent and WireGPU_Monitors[ent:GetModel()]
+	if not monitor then return end
+
+	local pos = ent:LocalToWorld(monitor.offset)
+	local ang = ent:LocalToWorldAngles(monitor.rot)
+	local f = ang:Forward() * (512 * monitor.RS / monitor.RatioX)
+	local r = ang:Right() * (512 * monitor.RS)
+	render.SetMaterial(DEPTH_QUAD)
+	render.DrawQuad(pos - f - r, pos + f - r, pos + f + r, pos - f + r)
+end
+
+local function drawScreens(depthPass)
+	for ent in pairs(screens) do
+		local gpu = IsValid(ent) and not ent:GetNoDraw() and not ent:IsDormant() and ent.GPU
+		local args = gpu and screenArgs[gpu]
+		if args then
+			if depthPass then
+				drawScreenDepth(ent, gpu)
+			else
+				GPULib.GPU.Render(gpu, unpack(args, 1, args.n))
+			end
+		end
+	end
+end
+
+local function drawHolder(_, flags)
+	drawBrushes(flags)
+	drawScreens(bit.band(flags, STUDIO_SSAODEPTHTEXTURE) ~= 0)
+end
+
 local function updateHolder()
 	local holder = opacity.holder
-	if not next(brushes) then
+	if not next(brushes) and not next(screens) then
 		if IsValid(holder) then
 			holder:Remove()
 		end
@@ -214,7 +281,36 @@ local function updateHolder()
 		opacity.holder = holder
 	end
 
-	holder.RenderOverride = drawBrushes
+	holder.RenderOverride = drawHolder
+end
+
+local function setScreen(ent, wanted)
+	if wanted == (screens[ent] ~= nil) then return end
+
+	local gpu = ent.GPU
+	if wanted then
+		screenArgs[gpu] = { n = 0 }
+		rawset(gpu, "Render", screenRender)
+		screens[ent] = true
+	else
+		if istable(gpu) and rawget(gpu, "Render") == screenRender then
+			rawset(gpu, "Render", nil)
+		end
+
+		screens[ent] = nil
+	end
+
+	updateHolder()
+end
+
+local function opaqueScreen(ent)
+	local gpu = ent.GPU
+	if not GPULib or not istable(gpu) or getmetatable(gpu) ~= GPULib.GPU then return false end
+	if gpu.Entity ~= ent or gpu.translucent == true or ent:GetRenderGroup() ~= RENDERGROUP_TRANSLUCENT then return false end
+
+	local monitor = WireGPU_Monitors and WireGPU_Monitors[ent:GetModel()]
+
+	return monitor ~= nil and not monitor.translucent
 end
 
 local NO_DRAW = CreateMaterial("ms_opacity_nodraw", "UnlitGeneric", {
@@ -349,10 +445,78 @@ local function planOf(ent)
 	return plan
 end
 
+local innerSetMaterial = render.SetMaterial
+local innerSetRenderTarget = render.SetRenderTarget
+local innerPushRenderTarget = render.PushRenderTarget
+local innerPopRenderTarget = render.PopRenderTarget
+local depthShaders = setmetatable({}, { __mode = "k" })
+local depthTarget
+local onDepth, materialWrites = false, false
+
+local function setWrites(on)
+	if on then
+		render.OverrideColorWriteEnable(false)
+		render.OverrideDepthEnable(false)
+	else
+		render.OverrideColorWriteEnable(true, false)
+		render.OverrideDepthEnable(true, false)
+	end
+end
+
+local function applyWrites()
+	setWrites(materialWrites or not onDepth)
+end
+
+local function syncTarget()
+	local target = render.GetRenderTarget()
+	onDepth = target ~= nil and target:GetName() == depthTarget
+	applyWrites()
+end
+
+local function isDepthWrite(mat)
+	local known = depthShaders[mat]
+	if known == nil then
+		known = mat:GetShader() == "DepthWrite"
+		depthShaders[mat] = known
+	end
+
+	return known
+end
+
+local function depthSetMaterial(mat)
+	innerSetMaterial(mat)
+	materialWrites = mat ~= nil and isDepthWrite(mat)
+	applyWrites()
+end
+
+local function depthSetRenderTarget(...)
+	innerSetRenderTarget(...)
+	syncTarget()
+end
+
+local function depthPushRenderTarget(...)
+	innerPushRenderTarget(...)
+	syncTarget()
+end
+
+local function depthPopRenderTarget(...)
+	innerPopRenderTarget(...)
+	syncTarget()
+end
+
 local function depthDrawModel(ent, flags)
+	if not onDepth then
+		return innerDrawModel(ent, flags)
+	end
+
+	setWrites(true)
+
 	local plan = not ent.GetRenderMesh and planOf(ent)
 	if not plan or #plan == 0 then
-		return innerDrawModel(ent, flags)
+		local r = innerDrawModel(ent, flags)
+		applyWrites()
+
+		return r
 	end
 
 	for i = 1, #plan do
@@ -361,6 +525,7 @@ local function depthDrawModel(ent, flags)
 
 	local r = innerDrawModel(ent, flags)
 	render.MaterialOverrideByIndex()
+	applyWrites()
 
 	return r
 end
@@ -374,14 +539,37 @@ local function depthDraw(self, flags)
 		return orig(self, flags)
 	end
 
-	local prev = entityMeta.DrawModel
-	if prev ~= depthDrawModel then
-		innerDrawModel = prev
+	local prevDrawModel, prevSetMaterial = entityMeta.DrawModel, render.SetMaterial
+	local prevSetTarget, prevPushTarget, prevPopTarget = render.SetRenderTarget, render.PushRenderTarget, render.PopRenderTarget
+	local prevTarget, prevOnDepth, prevMaterialWrites = depthTarget, onDepth, materialWrites
+	if prevDrawModel ~= depthDrawModel then
+		innerDrawModel = prevDrawModel
+		innerSetMaterial = prevSetMaterial
+		innerSetRenderTarget = prevSetTarget
+		innerPushRenderTarget = prevPushTarget
+		innerPopRenderTarget = prevPopTarget
 	end
 
 	entityMeta.DrawModel = depthDrawModel
+	render.SetMaterial = depthSetMaterial
+	render.SetRenderTarget = depthSetRenderTarget
+	render.PushRenderTarget = depthPushRenderTarget
+	render.PopRenderTarget = depthPopRenderTarget
+
+	local target = render.GetRenderTarget()
+	depthTarget = target and target:GetName()
+	onDepth, materialWrites = depthTarget ~= nil, false
+	applyWrites()
+
 	local ok, err = pcall(orig, self, flags)
-	entityMeta.DrawModel = prev
+
+	entityMeta.DrawModel = prevDrawModel
+	render.SetMaterial = prevSetMaterial
+	render.SetRenderTarget = prevSetTarget
+	render.PushRenderTarget = prevPushTarget
+	render.PopRenderTarget = prevPopTarget
+	depthTarget, onDepth, materialWrites = prevTarget, prevOnDepth, prevMaterialWrites
+	applyWrites()
 	render.MaterialOverrideByIndex()
 	if not ok then
 		ErrorNoHalt(err, "\n")
@@ -449,6 +637,105 @@ local function setBrush(ent, alphaTested)
 	updateHolder()
 end
 
+opacity.pac = opacity.pac or setmetatable({}, { __mode = "k" })
+opacity.pacWrappers = opacity.pacWrappers or setmetatable({}, { __mode = "k" })
+local pacOverrides = opacity.pac
+local pacSources = setmetatable({}, { __mode = "k" })
+
+local function pacDraw(self, flags)
+	local prev = pacOverrides[self]
+	if not prev then return end
+
+	if not flags or bit.band(flags, STUDIO_SSAODEPTHTEXTURE) == 0 then
+		return prev(self, flags)
+	end
+
+	if self.pac_hide_entity then return end
+
+	local model = self:GetModel()
+	local plan = model and depthPlan(self, model, self:GetMaterial())
+	if plan then
+		for i = 1, #plan do
+			render.MaterialOverrideByIndex(i - 1, plan[i])
+		end
+	end
+
+	self:DrawModel(flags)
+	render.MaterialOverrideByIndex()
+end
+
+opacity.pacWrappers[pacDraw] = true
+
+for ent in pairs(pacOverrides) do
+	if IsValid(ent) and ent.RenderOverride ~= pacDraw and opacity.pacWrappers[ent.RenderOverride] then
+		ent.RenderOverride = pacDraw
+	end
+end
+
+local function isPac(fn)
+	local known = pacSources[fn]
+	if known == nil then
+		known = debug.getinfo(fn, "S").short_src:find("pac3/", 1, true) ~= nil
+		pacSources[fn] = known
+	end
+
+	return known
+end
+
+local function updatePac(ent)
+	local current = ent.RenderOverride
+	if current == pacDraw then
+		if ent.pac_hide_entity then
+			ent.RenderOverride = pacOverrides[ent]
+			pacOverrides[ent] = nil
+		end
+
+		return
+	end
+
+	if pacOverrides[ent] then
+		pacOverrides[ent] = nil
+	end
+
+	if current ~= nil and not ent.pac_hide_entity and not ent:IsWeapon() and isPac(current) then
+		pacOverrides[ent] = current
+		ent.RenderOverride = pacDraw
+	end
+end
+
+local function convertedOpaque(ent)
+	local stored = scripted_ents.GetStored(ent:GetClass())
+	if not stored or stored.t.RenderGroup ~= nil then return false end
+	if ent:GetRenderMode() ~= RENDERMODE_NORMAL or ent:GetColor().a < 255 then return false end
+
+	local model = ent:GetModel()
+	if not model then return false end
+
+	local override = ent:GetMaterial()
+	local converted = false
+	for i, mat in ipairs(materialsOf(ent, model)) do
+		local sub = ent:GetSubMaterial(i - 1)
+		local name = sub ~= "" and sub or override ~= "" and override or mat
+		if classify(name) == SEE then return false end
+
+		converted = converted or opacity.models[name] ~= nil
+	end
+
+	return converted
+end
+
+local function setGroup(ent, wanted)
+	if wanted then
+		if not opacity.regrouped[ent] then
+			opacity.regrouped[ent] = true
+			ent.RenderGroup = RENDERGROUP_OPAQUE
+		end
+	elseif opacity.regrouped[ent] then
+		opacity.regrouped[ent] = nil
+		ent.RenderGroup = nil
+	end
+end
+
 local function update(ent)
 	if not IsValid(ent) then return end
 
@@ -482,11 +769,14 @@ local function update(ent)
 		plan = fullPlan(ent)
 	end
 
+	updatePac(ent)
 	setDepthPlan(ent, plan)
 
 	if ent.Draw ~= nil then
+		setGroup(ent, not see and convertedOpaque(ent))
 		updateSent(ent)
 		setDrawn(ent, not see and ent:EntIndex() > 0 and not ent:IsPlayer() and not ent:IsWeapon())
+		setScreen(ent, opaqueScreen(ent))
 	end
 end
 
@@ -614,6 +904,21 @@ local function restoreWorld()
 	end
 end
 
+local function alphaReady()
+	if not shaderpack.UsableRT(alphaRT, 1024, 1024) then
+		alphaRT = GetRenderTargetEx("ms_opacity_alpha", 1024, 1024, RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE, 0, 0, IMAGE_FORMAT_RGBA8888)
+		return false
+	end
+
+	alphaProbe = alphaProbe or CreateMaterial("ms_opacity_alphaprobe", "UnlitGeneric", {
+		["$basetexture"] = "color/white",
+		["$vertexalpha"] = 1,
+		["$translucent"] = 1,
+	})
+
+	return true
+end
+
 local function scanStep()
 	local name = worldQueue[#worldQueue]
 	if not name then
@@ -622,16 +927,7 @@ local function scanStep()
 		return
 	end
 
-	if not shaderpack.UsableRT(alphaRT, 1024, 1024) then
-		alphaRT = GetRenderTargetEx("ms_opacity_alpha", 1024, 1024, RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE, 0, 0, IMAGE_FORMAT_RGBA8888)
-		return
-	end
-
-	alphaProbe = alphaProbe or CreateMaterial("ms_opacity_alphaprobe", "UnlitGeneric", {
-		["$basetexture"] = "color/white",
-		["$vertexalpha"] = 1,
-		["$translucent"] = 1,
-	})
+	if not alphaReady() then return end
 
 	worldQueue[#worldQueue] = nil
 	local tex = cutoutTexture(name)
@@ -677,6 +973,87 @@ local function scanWorld()
 	end
 end
 
+local MODEL_CACHE = CACHE_DIR .. "/models.json"
+local modelQueue, modelQueued = {}, {}
+local modelCache, modelCacheDirty = nil, false
+
+local function convertModel(name)
+	if opacity.models[name] then return end
+
+	local mat = Material(name)
+	local flags = mat:GetInt("$flags")
+	opacity.models[name] = flags
+	mat:SetInt("$flags", bit.band(flags, bit.bnot(TRANSLUCENT)))
+	materialInfo[name] = nil
+	modelPlans = {}
+end
+
+local function restoreModels()
+	for name, flags in pairs(opacity.models) do
+		Material(name):SetInt("$flags", flags)
+		opacity.models[name] = nil
+		materialInfo[name] = nil
+	end
+
+	modelPlans = {}
+end
+
+local function saveModelCache()
+	if not modelCacheDirty then return end
+
+	file.CreateDir(CACHE_DIR)
+	file.Write(MODEL_CACHE, util.TableToJSON(modelCache))
+	modelCacheDirty = false
+end
+
+local function modelStep()
+	local name = modelQueue[#modelQueue]
+	if not name then
+		hook.Remove("PostRender", "ms_opacity_models")
+		saveModelCache()
+		return
+	end
+
+	if not alphaReady() then return end
+
+	modelQueue[#modelQueue] = nil
+	modelQueued[name] = nil
+
+	local tex = Material(name):GetTexture("$basetexture")
+	if not tex or tex:IsError() then return end
+
+	local holes, between = measureAlpha(tex)
+	local opaque = holes == 0 and between == 0
+	modelCache[name] = { key = textureKey(tex), opaque = opaque }
+	modelCacheDirty = true
+	if opaque then
+		convertModel(name)
+	end
+end
+
+function queueModel(name, mat)
+	if opacity.models[name] or modelQueued[name] then return false end
+
+	local tex = mat:GetTexture("$basetexture")
+	if not tex or tex:IsError() then return false end
+
+	modelCache = modelCache or util.JSONToTable(file.Read(MODEL_CACHE, "DATA") or "") or {}
+	local cached = modelCache[name]
+	if cached and cached.key == textureKey(tex) then
+		if not cached.opaque then return false end
+
+		convertModel(name)
+
+		return true
+	end
+
+	modelQueued[name] = true
+	modelQueue[#modelQueue + 1] = name
+	hook.Add("PostRender", "ms_opacity_models", modelStep)
+
+	return false
+end
+
 local function step()
 	if cursor > #queue then
 		local _, list = ents.Iterator()
@@ -707,8 +1084,20 @@ local function stop()
 	hook.Remove("NetworkEntityCreated", "ms_opacity")
 	hook.Remove("PostRender", "ms_opacity_world")
 	hook.Remove("InitPostEntity", "ms_opacity_world")
+	hook.Remove("PostRender", "ms_opacity_models")
 	worldQueue = {}
 	restoreWorld()
+	saveModelCache()
+	modelQueue, modelQueued = {}, {}
+	restoreModels()
+
+	for ent in pairs(opacity.regrouped) do
+		if IsValid(ent) then
+			setGroup(ent, false)
+		end
+
+		opacity.regrouped[ent] = nil
+	end
 
 	for ent in pairs(fixed) do
 		if IsValid(ent) and ent:GetRenderMode() == RENDERMODE_TRANSALPHA then
@@ -748,6 +1137,22 @@ local function stop()
 		end
 
 		drawn[ent] = nil
+	end
+
+	for ent in pairs(screens) do
+		if IsValid(ent) then
+			setScreen(ent, false)
+		end
+
+		screens[ent] = nil
+	end
+
+	for ent, prev in pairs(pacOverrides) do
+		if IsValid(ent) and ent.RenderOverride == pacDraw then
+			ent.RenderOverride = prev
+		end
+
+		pacOverrides[ent] = nil
 	end
 
 	modelPlans = {}
