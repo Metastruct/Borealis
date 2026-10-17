@@ -43,9 +43,9 @@ sampler3D Noise : register(s3);
 #define MASK_RES 256.0
 #define HEIGHT_RANGE 255.0
 #define SKY_FAR 8000.0
-#define SURFACE_EPS 6.0
+#define SURFACE_EPS 1.0
 #define SURFACE_COVER 0.003
-#define SURFACE_FLAT 0.9
+#define SURFACE_FLAT 0.99
 #define FALLOFF 260.0
 #define LIFT 48.0
 #define SIDE_REACH 700.0
