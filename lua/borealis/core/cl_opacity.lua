@@ -352,11 +352,7 @@ end
 local function depthDrawModel(ent, flags)
 	local plan = not ent.GetRenderMesh and planOf(ent)
 	if not plan or #plan == 0 then
-		render.MaterialOverride(DEPTH_SOLID)
-		local r = innerDrawModel(ent, flags)
-		render.MaterialOverride()
-
-		return r
+		return innerDrawModel(ent, flags)
 	end
 
 	for i = 1, #plan do
@@ -386,7 +382,6 @@ local function depthDraw(self, flags)
 	entityMeta.DrawModel = depthDrawModel
 	local ok, err = pcall(orig, self, flags)
 	entityMeta.DrawModel = prev
-	render.MaterialOverride()
 	render.MaterialOverrideByIndex()
 	if not ok then
 		ErrorNoHalt(err, "\n")
