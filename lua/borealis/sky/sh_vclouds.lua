@@ -60,6 +60,9 @@ local COVERAGE_PERIOD_B = 1900
 local NIGHT_GAIN = 0.2
 local NIGHT_ELEV = -6 -- sun elevation, in degrees, where NIGHT_GAIN is reached
 local LOG_RANGE = 12 -- light scales span 2^-12 .. 2^12, matches vclouds_ps30
+local EXPOSURE = 0.8
+local OVERCAST_LIGHT = 0.3
+local OVERCAST_AMB = 0.55
 
 local active = false
 
@@ -170,7 +173,7 @@ end
 local WHITE = { 1, 1, 1 }
 local SKY_BLUE = { 0.35, 0.45, 0.62 }
 
-local nightLight = { 0, 0, 0 }
+local litLight, litAmb = { 0, 0, 0 }, { 0, 0, 0 }
 
 -- direction to the sun and the cloud lighting procsky already derives, with
 -- the direct term pulled down once the sun is below the horizon
@@ -178,16 +181,15 @@ local function lighting()
 	if procsky and procsky.GetCloudLighting then
 		local dir, light, amb = procsky.GetCloudLighting()
 		local _, _, elev = procsky.GetLights()
-		local gain = Lerp(math.Clamp(elev / NIGHT_ELEV, 0, 1), 1, NIGHT_GAIN)
-		if gain < 1 then
-			for i = 1, 3 do
-				nightLight[i] = light[i] * gain
-			end
-
-			return dir, nightLight, amb
+		local overcast = shaderpack.Overcast()
+		local gain = Lerp(math.Clamp(elev / NIGHT_ELEV, 0, 1), 1, NIGHT_GAIN) * Lerp(overcast, 1, OVERCAST_LIGHT) * EXPOSURE
+		local ambGain = Lerp(overcast, 1, OVERCAST_AMB) * EXPOSURE
+		for i = 1, 3 do
+			litLight[i] = light[i] * gain
+			litAmb[i] = amb[i] * ambGain
 		end
 
-		return dir, light, amb
+		return dir, litLight, litAmb
 	end
 
 	local params = tod and tod.CurrentParams
@@ -195,6 +197,16 @@ local function lighting()
 
 	return sun, WHITE, SKY_BLUE
 end
+
+function vclouds.Layer(tonemap)
+	local sun, light, amb = lighting()
+	local lightHue, lightScale = splitColor(light, tonemap)
+	local ambHue, ambScale = splitColor(amb, tonemap)
+
+	return sun, lightHue, lightScale, ambHue, ambScale, baseZ(), coverage()
+end
+
+vclouds.Fog = fogRamp
 
 --------------------------------------------------------------------------
 -- rendering
@@ -207,16 +219,14 @@ local function draw()
 
 	local eye = EyePos()
 	local fwd = EyeAngles():Forward()
-	local sun, light, amb = lighting()
 	local tonemap = render.GetToneMappingScaleLinear().x
-	local lightHue, lightScale = splitColor(light, tonemap)
-	local ambHue, ambScale = splitColor(amb, tonemap)
+	local sun, lightHue, lightScale, ambHue, ambScale, base, cov = vclouds.Layer(tonemap)
 	local fogHue, fogPacked, fogScale = fogRamp(tonemap)
 
 	setConstant(MAT, "$c0", eye.x, eye.y, eye.z, lightHue)
 	setConstant(MAT, "$c1", fwd.x, fwd.y, fwd.z, CurTime() % 3600)
 	setConstant(MAT, "$c2", sun.x, sun.y, sun.z, ambHue)
-	setConstant(MAT, "$c3", baseZ(), fogHue, coverage(), fogPacked)
+	setConstant(MAT, "$c3", base, fogHue, cov, fogPacked)
 
 	quadColor.r = ambScale * 255
 	quadColor.g = lightScale * 255

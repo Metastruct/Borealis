@@ -33,11 +33,14 @@ sampler3D Detail : register(s3);
 #define COVER_SCALE (1.0 / 47000.0)
 #define COVER_SWING 3.6
 #define COVER_DRIFT 0.5
-#define DETAIL_SCALE (1.0 / 1200.0)
+#define DETAIL_SCALE (1.0 / 4800.0)
 #define DETAIL_WIND 2.5
 #define ERODE 0.45
 #define WIND float3(70.0, 26.0, 0.0)
 #define SLAB_STEPS 4
+#define BIG_SCALE 0.3
+
+static float bigMix = 0.0;
 
 struct PS_IN
 {
@@ -51,6 +54,7 @@ float coverAt(float3 p)
 	float2 q = (p.xy - WIND.xy * TIME * COVER_DRIFT) * COVER_SCALE;
 	float c = tex3Dlod(Shape, float4(q, 0.37, 0.0)).r;
 	float k = saturate((c - 0.35) * COVER_SWING);
+	bigMix = smoothstep(0.55, 0.8, c);
 	k = lerp(k, 1.0, smoothstep(0.45, 0.75, COVERAGE));
 
 	return saturate(COVERAGE * k);
@@ -60,7 +64,9 @@ float cloudDensity(float3 p, float cover)
 {
 	float h = saturate((p.z - BASE_Z) / THICK);
 	float grad = saturate(remap(h, 0.0, 0.12, 0.0, 1.0)) * saturate(remap(h, 0.5, 1.0, 1.0, 0.0));
-	float s = tex3Dlod(Shape, float4((p - WIND * TIME) * SHAPE_SCALE, 0.0)).r;
+	float3 q = (p - WIND * TIME) * SHAPE_SCALE;
+	float3 r = float3(dot(q.xy, float2(0.2588, 0.9659)), dot(q.xy, float2(-0.9659, 0.2588)), q.z) * float3(BIG_SCALE, BIG_SCALE, 1.0) + float3(0.71, 0.23, 0.0);
+	float s = max(tex3Dlod(Shape, float4(q, 0.0)).r, tex3Dlod(Shape, float4(r, 0.0)).r * lerp(0.95, 1.1, bigMix));
 	float d = saturate(remap(s * grad, 1.0 - cover, 1.0, 0.0, 1.0));
 	if (d <= 0.0)
 	{

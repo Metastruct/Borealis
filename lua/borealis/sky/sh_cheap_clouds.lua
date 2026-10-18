@@ -1,5 +1,5 @@
 if SERVER then
-	shaderpack.AddResources({ "clouds_ps30" }, { "materials/shaderpack/clouds/noise.vtf" })
+	shaderpack.AddResources({ "cloudbake_ps30", "cloudlut_ps30" })
 
 	return
 end
@@ -17,66 +17,161 @@ local function level()
 	return cover and cover.SkyLevel()
 end
 
-local COVERAGE = 0.5
-local INTENSITY = 1
-local WIND = { 0.012, 0.004 } -- noise units per second
-local NOISE_SCALE = 20000 -- world units per noise unit, S_LO in clouds_ps30
-local EYE_K = 1 / NOISE_SCALE -- parallax while moving, the same at any deck height
-local NOISE_PERIOD = 64
-local DECK_CLEAR = 4800 -- least a deck stands over its level's floor, past FADE_H in clouds_ps30
-local SKY_DECK_Z = 14000 -- the overcast deck, and the deck outside every level
+local function wanted()
+	return level() or shaderpack.Overcast() >= 0.01
+end
+
+local LUT_W, LUT_H = 2048, 1024
+local BANDS = 16
+local BAKE_EVERY = 4
+local CLOUD_SCALE = 3
+local SLAB_MID = 1750 * CLOUD_SCALE
+local HISTORY = 0.7
+local CLEAR_COVERAGE = 0.6
+local DECK_CLEAR = 4800
+local SKY_DECK_Z = 14000
 
 local function deckHeight(lvl, overcast)
+	if not lvl then return SKY_DECK_Z end
 	local z = math.max(lvl.ceiling, lvl.floor + DECK_CLEAR)
 
 	return Lerp(overcast, z, math.max(z, SKY_DECK_Z))
 end
 
-local packColor, setConstant = shaderpack.PackColor, shaderpack.SetConstant
+local setConstant = shaderpack.SetConstant
 
-local function lightInfo()
-	if procsky and procsky.IsActive() then
-		return procsky.GetCloudLighting()
+local function startShader()
+	local luts = {}
+	for i, name in ipairs({ "a", "b", "c" }) do
+		local rt = GetRenderTargetEx("ms_cloudlut_" .. name .. "_" .. LUT_W .. "x" .. LUT_H, LUT_W, LUT_H, RT_SIZE_LITERAL, MATERIAL_RT_DEPTH_NONE, 8, 0, IMAGE_FORMAT_RGBA16161616F)
+		if not rt or rt:IsError() or rt:Width() ~= LUT_W then return false end
+		render.PushRenderTarget(rt)
+		render.Clear(0, 0, 0, 0)
+		render.PopRenderTarget()
+		luts[i] = { rt = rt, origin = Vector(), mid = 0, side = 1 }
 	end
 
-	local params = tod and tod.CurrentParams
-	local sun = params and isangle(params.sun_angles) and params.sun_angles
-	local moon = params and isangle(params.moon_angles) and params.moon_angles
-	local sunDir = sun and -sun:Forward() or Vector(0, 0, 1)
-
-	if sunDir.z > -0.12 then
-		local t = math.Clamp((sunDir.z + 0.08) / 0.35, 0, 1)
-		local light = { 1, Lerp(t, 0.42, 0.96), Lerp(t, 0.18, 0.9) }
-		local amb = { Lerp(t, 0.30, 0.60), Lerp(t, 0.26, 0.68), Lerp(t, 0.38, 0.84) }
-		local fade = math.Clamp((sunDir.z + 0.12) / 0.1, 0, 1) -- dim everything
-		for i = 1, 3 do
-			light[i] = light[i] * fade
-			amb[i] = Lerp(fade, 0.035, amb[i])
-		end
-
-		return sunDir, light, amb
-	end
-
-	local moonDir = moon and -moon:Forward() or Vector(0, 0, 1)
-	if moonDir.z < 0.05 then moonDir = Vector(0, 0, 1) end
-
-	return moonDir, { 0.10, 0.12, 0.17 }, { 0.03, 0.035, 0.06 }
-end
-
-local function startShader(PIXEL_SHADER)
-	local MAT = CreateShaderMaterial("buildclouds_" .. os.time(), {
-		["$pixshader"] = PIXEL_SHADER,
+	local BAKE = CreateShaderMaterial("ms_cloudbake_" .. os.time(), {
+		["$pixshader"] = "cloudbake_ps30",
 		["$vertexshader"] = "aurora_vs30",
-		["$basetexture"] = "shaderpack/clouds/noise",
+		["$texture2"] = "shaderpack/procsky/cloudshape",
+		["$texture3"] = "shaderpack/procsky/clouddetail",
+		["$linearread_texture2"] = 1,
+		["$linearread_texture3"] = 1,
+		["$alpha_blend"] = 0,
 		["$additive"] = 0,
-		["$c0_x"] = 1, ["$c0_y"] = 0, ["$c0_z"] = 0, ["$c0_w"] = 1,
-		["$c1_x"] = 0, ["$c1_y"] = 1, ["$c1_z"] = 0, ["$c1_w"] = 1,
-		["$c2_x"] = 0, ["$c2_y"] = 0, ["$c2_z"] = 1, ["$c2_w"] = COVERAGE,
+		["$c0_x"] = 0, ["$c0_y"] = 0, ["$c0_z"] = 0, ["$c0_w"] = 0,
+		["$c1_x"] = LUT_W, ["$c1_y"] = LUT_H, ["$c1_z"] = 0, ["$c1_w"] = 0,
+		["$c2_x"] = 0, ["$c2_y"] = 0, ["$c2_z"] = 1, ["$c2_w"] = 0,
 		["$c3_x"] = 0, ["$c3_y"] = 0, ["$c3_z"] = 0, ["$c3_w"] = 0,
 	})
 
-	-- basis from EyeAngles, which is right inside a RenderView too; the fan
-	-- from the view setup's fov (horizontal, aspect-adjusted)
+	local READ = CreateShaderMaterial("ms_cloudlut_" .. os.time(), {
+		["$pixshader"] = "cloudlut_ps30",
+		["$vertexshader"] = "aurora_vs30",
+		["$linearread_texture1"] = 1,
+		["$linearwrite"] = 0,
+		["$additive"] = 0,
+		["$c0_x"] = 1, ["$c0_y"] = 0, ["$c0_z"] = 0, ["$c0_w"] = 0,
+		["$c1_x"] = 0, ["$c1_y"] = 1, ["$c1_z"] = 0, ["$c1_w"] = 1,
+		["$c2_x"] = 0, ["$c2_y"] = 0, ["$c2_z"] = 0, ["$c2_w"] = 1,
+		["$c3_x"] = 0, ["$c3_y"] = 0, ["$c3_z"] = 0, ["$c3_w"] = 1,
+	})
+
+	local bakeExtra = Matrix()
+	local prev, cur, back = 1, 1, 2
+	local ready, band, cycle = false, 0, 0
+	local rows = LUT_H / BANDS
+	local fogHue, fogPacked, fogScale = 0, 0, 0
+	local eye, eyeFrame = Vector(), -1
+	local anchor, anchorLevel = Vector(), nil
+
+	local function cacheFog(depth, skybox)
+		if depth or skybox then return end
+		fogHue, fogPacked, fogScale = vclouds.Fog(render.GetToneMappingScaleLinear().x)
+	end
+
+	local function bakeBand()
+		local lut = luts[back]
+		if band == 0 then
+			local o = lut.origin
+			o:Set(anchor)
+			local sun, lightHue, lightScale, ambHue, ambScale, _, coverage = vclouds.Layer(render.GetToneMappingScaleLinear().x)
+			local overcast = shaderpack.Overcast()
+			local base = deckHeight(anchorLevel, overcast)
+			coverage = coverage * Lerp(overcast, CLEAR_COVERAGE, 1)
+			lut.mid = base + SLAB_MID
+			lut.side = o.z > lut.mid and -1 or 1
+
+			local hist = luts[cur]
+			local ho = hist.origin
+			cycle = cycle + 1
+
+			local k = 1 / CLOUD_SCALE
+			setConstant(BAKE, "$c0", o.x * k, o.y * k, o.z * k, lightHue)
+			setConstant(BAKE, "$c1", nil, nil, (cycle * 0.618034) % 1, CurTime() % 3600)
+			setConstant(BAKE, "$c2", sun.x, sun.y, sun.z, ambHue)
+			setConstant(BAKE, "$c3", base * k, fogHue, coverage, fogPacked)
+			bakeExtra:SetUnpacked(
+				ambScale, lightScale, fogScale, lut.side,
+				o.x - ho.x, o.y - ho.y, o.z - ho.z, hist.mid - o.z,
+				ready and HISTORY or 0, 0, 0, 0,
+				0, 0, 0, 0
+			)
+			BAKE:SetMatrix("$viewprojmat", bakeExtra)
+			BAKE:SetTexture("$basetexture", hist.rt)
+		end
+
+		local sx, sy = ScrW() / LUT_W, ScrH() / LUT_H
+		render.PushRenderTarget(lut.rt)
+		render.OverrideAlphaWriteEnable(true, true)
+		render.SetMaterial(BAKE)
+		render.DrawScreenQuadEx(0, (band * rows - 1) * sy, LUT_W * sx, (rows + 2) * sy)
+		render.OverrideAlphaWriteEnable(false)
+		render.PopRenderTarget()
+
+		band = band + 1
+		if band < BANDS then return false end
+
+		band = 0
+		if ready then
+			prev, cur = cur, back
+		else
+			prev, cur = back, back
+		end
+		back = prev == cur and (cur % 3) + 1 or 6 - prev - cur
+		READ:SetTexture("$basetexture", luts[cur].rt)
+		READ:SetTexture("$texture1", luts[prev].rt)
+		ready = true
+
+		return true
+	end
+
+	local function bake()
+		if vclouds.IsActive() or not wanted() then
+			ready, band = false, 0
+			return
+		end
+
+		local lvl = level()
+		if not ready or lvl ~= anchorLevel then
+			if eyeFrame < 0 then eye:Set(EyePos()) end
+			anchor:Set(eye)
+			if lvl then anchor.z = lvl.floor end
+			anchorLevel = lvl
+			ready, band = false, 0
+		end
+
+		if ready then
+			if FrameNumber() % BAKE_EVERY == 0 then bakeBand() end
+			return
+		end
+
+		for _ = 1, BANDS do
+			if bakeBand() then break end
+		end
+	end
+
 	local function viewRays()
 		local ang = EyeAngles()
 		local halfW, halfH = shaderpack.ViewTan()
@@ -84,50 +179,35 @@ local function startShader(PIXEL_SHADER)
 		return ang:Forward(), ang:Right(), halfW, halfH
 	end
 
-	local deckLight, deckAmb = { 0, 0, 0 }, { 0, 0, 0 }
-
-	-- the build area's clouds, or a deck over the whole sky when procsky is overcast
 	local function drawClouds()
-		-- the volumetric clouds replace this deck, overcast included, while on
-		if vclouds and vclouds.IsActive() then return end
-		local overcast = shaderpack.Overcast()
-		local lvl = level()
-		if not lvl and overcast < 0.01 then return end
-		-- the shader lerps its threshold by coverage, so past 1 the deck closes up
-		-- and past 2 it has no thin spots for the sun to show through
-		local coverage = math.max(lvl and COVERAGE or 0, overcast * 2.2)
-
-		local fwd, right, halfW, halfH = viewRays()
-		local lightDir, light, amb = lightInfo()
-		if overcast > 0 then
-			-- a bright flat deck: the sun's colour drains so the noise barely
-			-- shades it, the ambient goes to a light grey well above the sky's own
-			local lum = 0.2126 * amb[1] + 0.7152 * amb[2] + 0.0722 * amb[3]
-			local bright = procsky.theme.overcastBrightness or 1
-			for i = 1, 3 do
-				deckLight[i] = light[i] * (1 - 0.8 * overcast) * bright
-				deckAmb[i] = amb[i] + (lum * 3 * bright - amb[i]) * overcast
-			end
-
-			light, amb = deckLight, deckAmb
+		local ep = render.GetViewSetup().origin
+		local frame = FrameNumber()
+		if frame ~= eyeFrame then
+			eyeFrame = frame
+			eye:Set(ep)
 		end
 
-		local ep = render.GetViewSetup().origin
-		local t = CurTime()
-		local deckZ = lvl and deckHeight(lvl, overcast) or SKY_DECK_Z
+		if not ready or vclouds.IsActive() then return end
 
-		setConstant(MAT, "$c0", fwd.x, fwd.y, fwd.z, INTENSITY * render.GetToneMappingScaleLinear().x)
-		setConstant(MAT, "$c1", right.x * halfW, right.y * halfW, right.z * halfW, halfH)
-		setConstant(MAT, "$c2", lightDir.x, lightDir.y, deckZ - ep.z, coverage)
-		setConstant(MAT, "$c3", (ep.x * EYE_K - WIND[1] * t) % NOISE_PERIOD, (ep.y * EYE_K - WIND[2] * t) % NOISE_PERIOD, packColor(light[1], light[2], light[3]), packColor(amb[1], amb[2], amb[3]))
+		local c, p = luts[cur], luts[prev]
+		local fwd, right, halfW, halfH = viewRays()
+		local co, po = c.origin, p.origin
+		setConstant(READ, "$c0", fwd.x, fwd.y, fwd.z, band / (BANDS - 1))
+		setConstant(READ, "$c1", right.x * halfW, right.y * halfW, right.z * halfW, halfH)
+		setConstant(READ, "$c2", ep.x - co.x, ep.y - co.y, ep.z - co.z, c.mid - ep.z)
+		setConstant(READ, "$c3", ep.x - po.x, ep.y - po.y, ep.z - po.z, p.mid - ep.z)
 
-		render.SetMaterial(MAT)
+		render.SetMaterial(READ)
 		render.DrawScreenQuad(true)
 	end
 
+	hook.Add("PreDrawTranslucentRenderables", Tag, cacheFog)
+	hook.Add("PreRender", Tag, bake)
 	skyboxer.RemoveHook("d_" .. Tag)
 	skyboxer.RemoveHook("e_buildclouds")
 	skyboxer.AddHook("e_buildclouds", drawClouds)
+
+	return true
 end
 
 -- fallback
@@ -229,12 +309,16 @@ local function startMesh()
 end
 
 local function start()
-	if not shaderpack.WhenMounted(Tag, { "clouds_ps30", "aurora_vs30" }, function() startShader("clouds_ps30") end) then
+	if not shaderpack.WhenMounted(Tag, { "cloudbake_ps30", "cloudlut_ps30", "aurora_vs30" }, function()
+		if not startShader() then startMesh() end
+	end) then
 		startMesh()
 	end
 end
 
 local function stop()
+	hook.Remove("PreDrawTranslucentRenderables", Tag)
+	hook.Remove("PreRender", Tag)
 	skyboxer.RemoveHook("d_" .. Tag)
 	skyboxer.RemoveHook("e_buildclouds")
 end
