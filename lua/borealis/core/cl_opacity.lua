@@ -195,20 +195,14 @@ local DEPTH_QUAD = CreateMaterial("ms_opacity_depth_quad", "DepthWrite", {
 	["$nocull"] = 1,
 })
 
-local function drawBrushes(flags)
-	local drew = false
-	for ent in pairs(brushes) do
-		if IsValid(ent) and not ent:GetNoDraw() and not ent:IsDormant() then
-			ent:DrawModel(flags)
-			drew = true
-		end
-	end
+local function drawBrush(proxy, flags)
+	local ent = proxy.brush
+	if not IsValid(ent) or ent:GetNoDraw() or ent:IsDormant() then return end
 
-	if drew then
-		local p = EyePos()
-		render.SetMaterial(STATE_RESET)
-		render.DrawQuad(p, p, p, p)
-	end
+	ent:DrawModel(flags)
+	local p = EyePos()
+	render.SetMaterial(STATE_RESET)
+	render.DrawQuad(p, p, p, p)
 end
 
 opacity.screenArgs = opacity.screenArgs or setmetatable({}, { __mode = "k" })
@@ -259,13 +253,12 @@ local function drawScreens(depthPass)
 end
 
 local function drawHolder(_, flags)
-	drawBrushes(flags)
 	drawScreens(bit.band(flags, STUDIO_SSAODEPTHTEXTURE) ~= 0)
 end
 
 local function updateHolder()
 	local holder = opacity.holder
-	if not next(brushes) and not next(screens) then
+	if not next(screens) then
 		if IsValid(holder) then
 			holder:Remove()
 		end
@@ -618,23 +611,52 @@ local function isBrush(ent)
 	return model ~= nil and model:sub(1, 1) == "*" and not ent:IsWorld()
 end
 
+opacity.proxies = opacity.proxies or {}
+local proxies = opacity.proxies
+
+local function removeProxy(proxy)
+	if IsValid(proxy) then
+		proxy:Remove()
+	end
+
+	proxies[proxy] = nil
+end
+
+local function sweepProxies()
+	for proxy in pairs(proxies) do
+		if not IsValid(proxy) or not IsValid(proxy.brush) or brushes[proxy.brush] == nil then
+			removeProxy(proxy)
+		end
+	end
+end
+
 local function setBrush(ent, alphaTested)
 	local saved = brushes[ent]
 	if alphaTested then
 		if not saved then
 			local mins, maxs = ent:GetRenderBounds()
-			brushes[ent] = { mins, maxs }
+			saved = { mins, maxs }
+			brushes[ent] = saved
 		end
 
+		local proxy = saved[3]
+		if not IsValid(proxy) then
+			proxy = ClientsideModel("models/hunter/plates/plate.mdl", RENDERGROUP_OPAQUE)
+			proxy:SetRenderBounds(saved[1], saved[2])
+			proxy.brush = ent
+			proxies[proxy] = true
+			saved[3] = proxy
+		end
+
+		proxy:SetPos(ent:GetPos())
+		proxy:SetAngles(ent:GetAngles())
+		proxy.RenderOverride = drawBrush
 		ent:SetRenderBounds(HIDDEN_MIN, HIDDEN_MAX)
 	elseif saved then
+		removeProxy(saved[3])
 		ent:SetRenderBounds(saved[1], saved[2])
 		brushes[ent] = nil
-	else
-		return
 	end
-
-	updateHolder()
 end
 
 opacity.pac = opacity.pac or setmetatable({}, { __mode = "k" })
@@ -1056,6 +1078,7 @@ end
 
 local function step()
 	if cursor > #queue then
+		sweepProxies()
 		local _, list = ents.Iterator()
 		queue, cursor = list, 1
 	end
@@ -1122,6 +1145,8 @@ local function stop()
 
 		brushes[ent] = nil
 	end
+
+	sweepProxies()
 
 	for ent in pairs(opacity.sents) do
 		if IsValid(ent) then
