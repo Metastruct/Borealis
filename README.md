@@ -21,7 +21,7 @@ Relevant documentation and help pages:
 - Every effect draws through `screenspace_general` (or `_8tex`) with a custom `$pixshader` and sometimes `$vertexshader`.
 - Gmod keeps the first shader it loaded under a certain name, so if you recompiled a shader with the same name, you need a restart. (This is also valid for the server e.g you need to reboot, not restart!).
 - `shader_to_gma` packs `shaders/fxc` into a GMA, sends it to clients when they spawn and mounts it. (`ShaderMounted` is called at that point if you need that).
-- We not mount shaders for builds that are not Windows/Proton because the native builds of Linux and MacOS use `ToGL` (https://github.com/valvesoftware/togl), which fucks up with them.
+- We do not mount shaders for builds that are not Windows/Proton because the native builds of Linux and MacOS use `ToGL` (https://github.com/valvesoftware/togl), which fucks up with them.
 - Shaders start with `shaderpack.WhenMounted`, this waits for every `.vcs` needed.
 
 ## Compiling
