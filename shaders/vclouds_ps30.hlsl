@@ -5,11 +5,13 @@ const float4 Constants0 : register(c0);
 const float4 Constants1 : register(c1);
 const float4 Constants2 : register(c2);
 const float4 Constants3 : register(c3);
+const float4 Extra0 : register(c11);
 
 sampler Frame : register(s0);
 sampler Depth : register(s1);
 sampler3D Shape : register(s2);
 sampler3D Detail : register(s3);
+sampler LightMap : register(s4);
 
 #define EYE      Constants0.xyz
 #define LIGHT_P  Constants0.w
@@ -22,6 +24,10 @@ sampler3D Detail : register(s3);
 #define COVERAGE Constants3.z
 #define FOG_RAMP Constants3.w
 
+#define MAP_ORIGIN Extra0.xy
+#define MAP_INV    Extra0.z
+#define MAP_ON     Extra0.w
+
 #define SHAPE_BLEND
 #define SINGLE_SMALL_LATTICE
 #define LIGHT_PLAIN_SHAPE
@@ -29,6 +35,16 @@ sampler3D Detail : register(s3);
 #include "include/cloud_volume.hlsl"
 
 #define STEPS 64
+#define STEP_POW 1.5
+
+#define DETAIL_NEAR 18000.0
+#define DETAIL_FAR 26000.0
+#define DETAIL2_SCALE 2.7
+#define DETAIL2_OFFSET float3(0.37, 0.11, 0.73)
+#define DETAIL2_EDGE 0.3
+#define DETAIL2_GAIN 0.35
+
+#define LIGHT_LOD_T 0.3
 
 #define SKIP_ALPHA (254.5 / 255.0)
 
@@ -38,6 +54,14 @@ struct PS_IN
 	float3 wpos  : TEXCOORD1;
 	float4 spos  : TEXCOORD2;
 };
+
+float mapTransmittance(float3 p)
+{
+	float4 m = tex2Dlod(LightMap, float4((p.xy - MAP_ORIGIN) * MAP_INV + 0.5, 0.0, 0.0));
+	float l = heightFraction(p) * 4.0 - 0.5;
+
+	return m.x + (m.y - m.x) * saturate(l) + (m.z - m.y) * saturate(l - 1.0) + (m.w - m.z) * saturate(l - 2.0);
+}
 
 float4 main(PS_IN i) : COLOR
 {
@@ -101,12 +125,9 @@ float4 main(PS_IN i) : COLOR
 	float3 ambCol = unpackColor(AMB_P) * decodeScale(i.color.r);
 	float3 fogCol = unpackColor(FOG_HUE) * decodeScale(i.color.a);
 	float3 fog = unpackFog(FOG_RAMP);
+	float3 phases = cloudPhases(dot(ray, SUN_DIR));
 
-	float cosSun = dot(ray, SUN_DIR);
-	float g2 = HG_G * HG_G;
-	float phase = (1.0 - g2) / pow(max(1.0 + g2 - 2.0 * HG_G * cosSun, 1e-3), 1.5);
-
-	float ds = (t1 - t0) / STEPS;
+	float path = t1 - t0;
 	float jitter = frac(52.9829189 * frac(dot(uv * float2(1920.0, 1080.0), float2(0.06711056, 0.00583715))));
 
 	float T = 1.0;
@@ -120,33 +141,58 @@ float4 main(PS_IN i) : COLOR
 			break;
 		}
 
-		float t = t0 + (k + jitter) * ds;
-		if (t > t1)
-		{
-			break;
-		}
-
+		float u = (k + jitter) / STEPS;
+		float t = t0 + path * pow(u, STEP_POW);
+		float ds = path * STEP_POW * pow(max(u, 0.5 / STEPS), STEP_POW - 1.0) / STEPS;
 		float3 p = EYE + ray * t;
 		float h = heightFraction(p);
 		float cover = coverAt(p);
-		float dens = cloudDensity(p, h, erode, cover);
-		if (dens > 0.0)
+		float base = baseDensity(shapeAt(p, h), h, cover);
+		[branch] if (base > 0.0)
 		{
-			dens *= saturate(remap(t, MAX_RANGE, FADE_RANGE, 0.0, 1.0));
-			debugDens = max(debugDens, dens);
+			float detailW = saturate(remap(t, DETAIL_FAR, DETAIL_NEAR, 0.0, 1.0));
+			float n = MEAN_DETAIL;
+			[branch] if (detailW > 0.0)
+			{
+				n = detailAt(p, h, 1.0, 0.0);
+				float w2 = saturate((DETAIL2_EDGE - base) / DETAIL2_EDGE) * DETAIL2_GAIN;
+				[branch] if (w2 > 0.0)
+				{
+					n = saturate(n + (detailAt(p, h, DETAIL2_SCALE, DETAIL2_OFFSET) - 0.5) * w2);
+				}
+				n = lerp(MEAN_DETAIL, n, detailW);
+			}
 
-			float sigma = dens * DENSITY;
-			float a = 1.0 - exp(-sigma * ds);
+			float dens = erodeBy(base, n, h, erode) * saturate(remap(t, MAX_RANGE, FADE_RANGE, 0.0, 1.0));
+			[branch] if (dens > 0.0)
+			{
+				debugDens = max(debugDens, dens);
 
-			float beer = exp(-lightTau(p, erode, cover));
-			float powder = 1.0 - exp(-sigma * POWDER * 400.0);
-			float3 sun = sunCol * phase * beer * lerp(1.0, powder, 0.7);
-			float3 amb = ambCol * lerp(AMBIENT_BASE, 1.0, h);
+				float sigma = dens * DENSITY;
+				float a = 1.0 - exp(-sigma * ds);
 
-			float3 col = lerp(sun + amb, fogCol, saturate((t - fog.x) / fog.y) * fog.z);
+				float beer;
+				[branch] if (MAP_ON > 0.5)
+				{
+					[branch] if (T > LIGHT_LOD_T)
+					{
+						beer = exp(-nearLightTau(p, erode, cover)) * mapTransmittance(p + SUN_DIR * LIGHT_NEAR_REACH);
+					}
+					else
+					{
+						beer = mapTransmittance(p);
+					}
+				}
+				else
+				{
+					beer = exp(-lightTau(p, erode, cover));
+				}
 
-			L += col * a * T;
-			T *= 1.0 - a;
+				float3 col = lerp(cloudLight(beer, sigma, dens, h, phases, sunCol, ambCol), fogCol, saturate((t - fog.x) / fog.y) * fog.z);
+
+				L += col * a * T;
+				T *= 1.0 - a;
+			}
 		}
 	}
 

@@ -26,21 +26,13 @@ sampler3D Detail : register(s3);
 
 #define SHADOW_COL float3(0.60, 0.65, 0.76)
 
-#define THICK 3500.0
-
 #define DENSITY 0.0005
-#define SHAPE_SCALE (1.0 / 16000.0)
-#define COVER_SCALE (1.0 / 47000.0)
-#define COVER_SWING 3.6
-#define COVER_DRIFT 0.5
-#define DETAIL_SCALE (1.0 / 4800.0)
-#define DETAIL_WIND 2.5
-#define ERODE 0.45
-#define WIND float3(70.0, 26.0, 0.0)
 #define SLAB_STEPS 4
-#define BIG_SCALE 0.3
 
-static float bigMix = 0.0;
+#define SHAPE_BLEND
+#define SINGLE_SMALL_LATTICE
+
+#include "include/cloud_volume.hlsl"
 
 struct PS_IN
 {
@@ -48,36 +40,6 @@ struct PS_IN
 	float3 wpos  : TEXCOORD1;
 	float4 spos  : TEXCOORD2;
 };
-
-float coverAt(float3 p)
-{
-	float2 q = (p.xy - WIND.xy * TIME * COVER_DRIFT) * COVER_SCALE;
-	float c = tex3Dlod(Shape, float4(q, 0.37, 0.0)).r;
-	float k = saturate((c - 0.35) * COVER_SWING);
-	bigMix = smoothstep(0.55, 0.8, c);
-	k = lerp(k, 1.0, smoothstep(0.45, 0.75, COVERAGE));
-
-	return saturate(COVERAGE * k);
-}
-
-float cloudDensity(float3 p, float cover)
-{
-	float h = saturate((p.z - BASE_Z) / THICK);
-	float grad = saturate(remap(h, 0.0, 0.12, 0.0, 1.0)) * saturate(remap(h, 0.5, 1.0, 1.0, 0.0));
-	float3 q = (p - WIND * TIME) * SHAPE_SCALE;
-	float3 r = float3(dot(q.xy, float2(0.2588, 0.9659)), dot(q.xy, float2(-0.9659, 0.2588)), q.z) * float3(BIG_SCALE, BIG_SCALE, 1.0) + float3(0.71, 0.23, 0.0);
-	float s = max(tex3Dlod(Shape, float4(q, 0.0)).r, tex3Dlod(Shape, float4(r, 0.0)).r * lerp(0.95, 1.1, bigMix));
-	float d = saturate(remap(s * grad, 1.0 - cover, 1.0, 0.0, 1.0));
-	if (d <= 0.0)
-	{
-		return 0.0;
-	}
-
-	float n = tex3Dlod(Detail, float4((p - WIND * DETAIL_WIND * TIME) * DETAIL_SCALE, 0.0)).r;
-	float e = lerp(1.0 - n, n, saturate(h * 4.0));
-
-	return saturate(remap(d, e * ERODE, 1.0, 0.0, 1.0));
-}
 
 float slabShade(float3 p, float sz)
 {
@@ -90,12 +52,18 @@ float slabShade(float3 p, float sz)
 	}
 
 	float cover = coverAt(p + SUN_DIR * (t0 + t1) * 0.5);
+	t1 = min(t1, (BASE_Z + THICK * columnTop - p.z) / sz);
+	if (t1 <= t0)
+	{
+		return 0.0;
+	}
 
 	float ds = (t1 - t0) / SLAB_STEPS;
 	float tau = 0.0;
 	for (int k = 0; k < SLAB_STEPS; k++)
 	{
-		tau += cloudDensity(p + SUN_DIR * (t0 + ((float)k + 0.5) * ds), cover);
+		float3 q = p + SUN_DIR * (t0 + ((float)k + 0.5) * ds);
+		tau += cloudDensity(q, heightFraction(q), ERODE, cover);
 	}
 
 	return 1.0 - exp(-tau * ds * DENSITY);

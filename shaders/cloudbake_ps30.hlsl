@@ -78,9 +78,7 @@ float4 march(float3 ray, float jitter)
 	float3 fogCol = unpackColor(FOG_HUE) * decodeScale(FOG_S);
 	float3 fog = unpackFog(FOG_RAMP);
 
-	float cosSun = dot(ray, SUN_DIR);
-	float g2 = HG_G * HG_G;
-	float phase = (1.0 - g2) / pow(max(1.0 + g2 - 2.0 * HG_G * cosSun, 1e-3), 1.5);
+	float3 phases = cloudPhases(dot(ray, SUN_DIR));
 
 	float ds = (t1 - t0) / STEPS;
 
@@ -107,11 +105,7 @@ float4 march(float3 ray, float jitter)
 			float a = 1.0 - exp(-sigma * ds);
 
 			float beer = exp(-lightTau(p, erode, cover));
-			float powder = 1.0 - exp(-sigma * POWDER * 400.0);
-			float3 sun = sunCol * phase * beer * lerp(1.0, powder, 0.7);
-			float3 amb = ambCol * lerp(AMBIENT_BASE, 1.0, h);
-
-			float3 col = lerp(sun + amb, fogCol, saturate((t - fog.x) / fog.y) * fog.z);
+			float3 col = lerp(cloudLight(beer, sigma, dens, h, phases, sunCol, ambCol), fogCol, saturate((t - fog.x) / fog.y) * fog.z);
 
 			L += col * a * T;
 			T *= 1.0 - a;
