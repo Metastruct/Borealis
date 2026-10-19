@@ -24,6 +24,19 @@ Relevant documentation and help pages:
 - We not mount shaders for builds that are not Windows/Proton because the native builds of Linux and MacOS use `ToGL` (https://github.com/valvesoftware/togl), which fucks up with them.
 - Shaders start with `shaderpack.WhenMounted`, this waits for every `.vcs` needed.
 
+## Compiling
+
+`./compile.sh [-s] GMOD_DIR name [name ...] -- COMPILER_COMMAND...` compiles `shaders/<name>.hlsl` into `GMOD_DIR/garrysmod/shaders/fxc/<name>.vcs`.
+- `GMOD_DIR` is the GarrysMod install folder.
+- After `--`, put the command you use to run ShaderCompile, e.g. `-- ShaderCompile.exe` or `-- wine /path/to/ShaderCompile.exe`.
+- `-s` writes `<name>_<unix>.vcs` instead, so we can mount a new version of the same shader with a timestamp.
+
+On Windows, use `compile.ps1`:
+```powershell
+.\compile.ps1 -GmodDir "C:\path\to\GarrysMod" -Names ssao_ps30,sky_ps30 -Compiler "C:\path\to\ShaderCompile.exe"
+```
+Add `-Stamp` for the timestamped name.
+
 ## Core
 
 ### sh_shaderpack
