@@ -37,6 +37,8 @@ On Windows, use `compile.ps1`:
 ```
 Add `-Stamp` for the timestamped name.
 
+> I recommend using [autoshader](https://github.com/Earu/gm_autoshader) for iterating quickly between shader versions, it can get quite tedious otherwise.
+
 ## Core
 
 ### sh_shaderpack
