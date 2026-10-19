@@ -122,11 +122,12 @@ local function startShader()
 			BAKE:SetTexture("$basetexture", hist.rt)
 		end
 
-		local sx, sy = ScrW() / LUT_W, ScrH() / LUT_H
-		render.PushRenderTarget(lut.rt)
+		local top = math.max(band * rows - 1, 0)
+		local bottom = math.min((band + 1) * rows + 1, LUT_H)
+		render.PushRenderTarget(lut.rt, 0, top, LUT_W, bottom - top)
 		render.OverrideAlphaWriteEnable(true, true)
 		render.SetMaterial(BAKE)
-		render.DrawScreenQuadEx(0, (band * rows - 1) * sy, LUT_W * sx, (rows + 2) * sy)
+		render.DrawScreenQuad()
 		render.OverrideAlphaWriteEnable(false)
 		render.PopRenderTarget()
 
