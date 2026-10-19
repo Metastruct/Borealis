@@ -397,13 +397,17 @@ local entityMeta = FindMetaTable("Entity")
 local innerDrawModel = entityMeta.DrawModel
 local modelPlans = {}
 
+local function depthOf(name)
+	local info = classify(name)
+	return info == SEE and NO_DRAW or info or DEPTH_SOLID
+end
+
 local function depthPlan(ent, model, override)
 	local mats = materialsOf(ent, model)
 	local plan = {}
 	for i = 1, #mats do
 		local sub = ent:GetSubMaterial(i - 1)
-		local info = classify(sub ~= "" and sub or override ~= "" and override or mats[i])
-		plan[i] = info == SEE and NO_DRAW or info or DEPTH_SOLID
+		plan[i] = depthOf(sub ~= "" and sub or override ~= "" and override or mats[i])
 	end
 
 	return plan
@@ -663,6 +667,53 @@ opacity.pac = opacity.pac or setmetatable({}, { __mode = "k" })
 opacity.pacWrappers = opacity.pacWrappers or setmetatable({}, { __mode = "k" })
 local pacOverrides = opacity.pac
 local pacSources = setmetatable({}, { __mode = "k" })
+local pacParts = setmetatable({}, { __mode = "kv" })
+
+local function pacPart(fn)
+	local part = pacParts[fn]
+	if part == nil then
+		part = false
+		local i = 1
+		while true do
+			local name, value = debug.getupvalue(fn, i)
+			if name == nil then break end
+			if name == "self" and istable(value) then
+				part = value
+				break
+			end
+
+			i = i + 1
+		end
+
+		pacParts[fn] = part
+	end
+
+	return part
+end
+
+local function pacHidden(part)
+	if not part:IsValid() or part.Alpha < 1 or part.Size == 0 then return true end
+	if part.ClassName == "entity" then return false end
+
+	return part.NoDraw or part.loading or not part.Enabled or part.draw_hidden or part:IsHiddenCached()
+end
+
+local function pacName(mat)
+	return mat and not mat:IsError() and mat:GetName() or nil
+end
+
+local function pacMaterial(part, i)
+	if part.ClassName == "entity" then
+		return i == 0 and pacName(part.Materialm) or nil
+	end
+
+	local own = part.material_override_self
+	if own then return pacName(own[i]) end
+
+	local stack = part.material_override and part.material_override[i]
+	local top = stack and stack[1]
+	return top and pacName(top:GetRawMaterial())
+end
 
 local function pacDraw(self, flags)
 	local prev = pacOverrides[self]
@@ -674,8 +725,23 @@ local function pacDraw(self, flags)
 
 	if self.pac_hide_entity then return end
 
+	local part = pacPart(prev)
+	if part and pacHidden(part) then return end
+
+	local whole = part and pacMaterial(part, 0)
+	if whole and depthOf(whole) == NO_DRAW then return end
+
 	local model = self:GetModel()
 	local plan = model and depthPlan(self, model, self:GetMaterial())
+	if plan and part then
+		for i = 1, #plan do
+			local name = whole or pacMaterial(part, i)
+			if name then
+				plan[i] = depthOf(name)
+			end
+		end
+	end
+
 	if plan then
 		for i = 1, #plan do
 			render.MaterialOverrideByIndex(i - 1, plan[i])
