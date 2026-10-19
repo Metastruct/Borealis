@@ -86,6 +86,16 @@ Detection of things that are drawing into the translucent pass even though they 
 
 `shaderpack.wind`: fixed heading of 20 degrees, wind blows toward it. `Strength()` is a wall-clock breeze (0.15 to 0.45), pulled to 1.5 by rain, 0.5 by snow, cut by fog. The heading cannot change at runtime: clouds and fog animate as `position - wind * time`. Used by grass, seagrass, kelp, rain, snow, leaves, clouds and fog.
 
+### halo
+
+`lua/includes/modules/halo.lua` replaces GMod's halo library, same API (`halo.Add`, `halo.Render`, `halo.RenderedEntity`, `PreDrawHalos`).
+
+- Entities are drawn through their own path: `RenderOverride`, `ENT:Draw` / `DrawTranslucent`, `SWEP:DrawWorldModel`, PAC3 parts, clientside and bonemerged children (prop2mesh meshes, held weapons). Stock halo only called `DrawModel`, so those were missing. Entities checking `halo.RenderedEntity() == self` can still draw a plain model.
+- Each group gets a stencil id, the ids become codes 230 to 255 in frame alpha (an 8x MSAA edge blend tops out at 223, so it never reads as a group), then `halo_rows_ps30` and `halo_ps30` draw a crisp outline from an exact distance, `max(blurx, blury)` pixels wide (max 15). Up to 6 groups per pass. Frame RGB is never copied or restored.
+- Passes are scissored to the screen rect of the drawn entities' render bounds, full screen when a corner is behind the camera or PAC3 is involved. Content drawn outside an entity's render bounds gets no outline.
+- Without the shaders (ToGL, `cl_shaderpack 0`) it falls back to the stock blur glow, still with the new entity drawing.
+- `core/sv_halo` registers the shaders. The loader keeps `sv_` files on the server and `cl_` files on the client.
+
 ### cl_bench
 
 `ms_shaderpack_bench` Needs `fps_max 0` and vsync off. Literally the benchmark of the shaderpack.

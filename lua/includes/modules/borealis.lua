@@ -9,6 +9,7 @@ local FILES = {
 	"core/sh_bsp",
 	"core/cl_depth_hacks",
 	"core/sh_cover",
+	"core/sv_halo",
 	"sky/sh_vclouds",
 	"sky/sh_cheap_clouds",
 	"sky/sh_aurora",
@@ -30,12 +31,12 @@ local FILES = {
 
 for _, name in ipairs(FILES) do
 	local path = "borealis/" .. name .. ".lua"
-	local clientOnly = name:match("[^/]+$"):sub(1, 3) == "cl_"
+	local prefix = name:match("[^/]+$"):sub(1, 3)
 
 	if SERVER then
-		AddCSLuaFile(path)
-		if not clientOnly then include(path) end
-	else
+		if prefix ~= "sv_" then AddCSLuaFile(path) end
+		if prefix ~= "cl_" then include(path) end
+	elseif prefix ~= "sv_" then
 		include(path)
 	end
 end
