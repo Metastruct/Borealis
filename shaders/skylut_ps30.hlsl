@@ -12,7 +12,6 @@ const float4 Constants2 : register(c2);
 #define LUT_H      Constants2.y
 #define SUN_I      20.0
 
-// km
 #define R_EARTH 6371.0
 #define R_ATMO  6471.0
 #define H_R     8.0
@@ -20,7 +19,7 @@ const float4 Constants2 : register(c2);
 #define EYE_H   0.2
 static const float3 BETA_R = float3(5.8e-3, 13.5e-3, 33.1e-3);
 static const float3 BETA_O = float3(0.65e-3, 1.881e-3, 0.085e-3);
-#define O_CENTER 25.0 // ozone layer: tent profile, km
+#define O_CENTER 25.0
 #define O_WIDTH  15.0
 #define BETA_M  5e-3
 #define MIE_G   0.76
@@ -47,7 +46,6 @@ float exitDist(float3 o, float3 d, float r)
 	return -b + sqrt(max(b * b - c, 0.0));
 }
 
-// x = Rayleigh, y = Mie, z = ozone density at altitude h
 float3 density(float h)
 {
 	h = max(h, 0.0);

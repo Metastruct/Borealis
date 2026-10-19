@@ -3,19 +3,16 @@ shaderpack.cover = cover
 
 local bspdata = shaderpack.bspdata
 
-local COLUMN = 24 -- cover map cell, matches the shaders
-local COLUMNS = 64 -- cover map size in cells, matches the shaders
-local Z_MIN, Z_RANGE = -16384, 32768 -- the cut height's 16 bit range, matches the shaders
-local TRACE_SLOT = 80 -- every column is traced again when the eye moves this far in z
-local TRACE_HALF = 480 -- the traces look this far above and below the eye
+local COLUMN = 24
+local COLUMNS = 64
+local Z_MIN, Z_RANGE = -16384, 32768
+local TRACE_SLOT = 80
+local TRACE_HALF = 480
 local TRACES_PER_FRAME = 60
-local IDLE_TRACES_PER_FRAME = 24 -- the whole window again while nothing is pending, so props built or moved after the trace count
-local SPLASH_SLOPE = 0.8 -- steepest ground the rain still rings on, as the surface normal's z
+local IDLE_TRACES_PER_FRAME = 24
+local SPLASH_SLOPE = 0.8
 local SEED_GLOSS = 0.7
--- MASK_SOLID: without CONTENTS_MONSTER a trace hits brushes only and every prop is missed; players are filtered per batch
 local SOLID = MASK_SOLID
--- water is not in MASK_SOLID, so a solid trace runs straight through a lake and
--- lands on its bed: the rain stopped under the water and rippled down there
 local WATER = MASK_WATER
 local IN_WATER = CONTENTS_WATER
 local SHORE_PROBE = 8
@@ -619,10 +616,6 @@ net.Receive(SPAN_NET, function()
 	end
 end)
 
---------------------------------------------------------------------------
--- cover map: owner[texel] = the column key written there, ground[key] = the
--- level ground's z for the ripples, traced a few per frame from a queue
---------------------------------------------------------------------------
 local coverRT
 local owner, ground, cuts, pending, queued = {}, {}, {}, {}, {}
 local traceZ, winX, winY
@@ -634,7 +627,6 @@ local waterTrace = { mask = WATER, start = Vector(), endpos = Vector(), output =
 local players, playerCount = {}, -1
 local probe = Vector()
 
--- both axes offset so negative columns pack and unpack cleanly
 local KEY_OFFSET = 32768
 
 local function columnKey(cx, cy)
@@ -657,11 +649,6 @@ function cover.Unlisten(id)
 	cover.listeners[id] = nil
 end
 
--- where the rain stops in this column: the top of the world when the sky over
--- it is blocked, else the water's surface or the first solid below it, else
--- nowhere.  A solid standing in air is what the rain lands on; one standing in
--- water is a bed the rain never reaches, and the surface over it is, so the
--- second trace only runs where the first came up wet.
 local function traceOpenColumn(cx, cy, top, bottom)
 	local x, y = (cx + 0.5) * COLUMN, (cy + 0.5) * COLUMN
 	upTrace.start:SetUnpacked(x, y, top)
@@ -694,13 +681,10 @@ local function traceOpenColumn(cx, cy, top, bottom)
 	waterTrace.start:SetUnpacked(x, y, top)
 	waterTrace.endpos:SetUnpacked(x, y, bottom)
 	local water = util.TraceLine(waterTrace)
-	-- the trace began under the surface: this whole column is water, and the
-	-- rain landed on it somewhere above
 	if water.StartSolid then
 		return Z_MIN + Z_RANGE, false, 1, false
 	end
 
-	-- a water surface is always level, so the ripples ride it whatever the bed does
 	if water.Hit then
 		return water.HitPos.z, water.HitPos.z + 0.4, down.Hit and GLOSS[down.MatType] or 1, water.HitPos.z
 	end
@@ -725,9 +709,6 @@ local function traceColumn(cx, cy, top, bottom)
 	return cut, level, gloss, waterLevel
 end
 
--- a clear inside a one texel viewport: the surface library's draws go through
--- the sRGB path and land a few values off, the ripples' seeds do not care
--- but 16 bits of height do
 local function writeTexel(cx, cy, cut, gloss, level)
 	local v = math.floor(math.Clamp((cut - Z_MIN) / Z_RANGE, 0, 1) * 65535 + 0.5)
 	local hi = math.floor(v / 256)
@@ -847,8 +828,6 @@ end
 local function moveWindow(eye)
 	local half = COLUMNS / 2
 	local cx0, cy0 = math.floor(eye.x / COLUMN) - half, math.floor(eye.y / COLUMN) - half
-	-- every column again once the eye has moved a slot up or down, a jump
-	-- never does; the old heights stay in the map meanwhile
 	if not traceZ or math.abs(eye.z - traceZ) > TRACE_SLOT then
 		traceZ = eye.z
 		sweep, urgent = 1, true
@@ -884,7 +863,6 @@ local function updateColumns(eye)
 		local key = table.remove(pending)
 		queued[key] = nil
 		local cx, cy = columnFromKey(key)
-		-- only columns still in the window are worth tracing
 		if cx >= winX and cx < winX + COLUMNS and cy >= winY and cy < winY + COLUMNS then
 			traceOne(cx, cy, top, bottom)
 			budget = budget - 1
@@ -903,15 +881,7 @@ local function updateColumns(eye)
 	render.PopRenderTarget()
 end
 
--- The render targets do not exist yet while the map loads, and asking for one
--- then hands back a texture that answers IsError with false and only becomes
--- the cover map later.  A material bound to it samples black for good, so
--- every column reads a cut of Z_MIN and the rain falls through every roof.
--- The ripples come from Lua and keep obeying the traces, which is what the
--- symptom looks like: cover works on the ground and nowhere else.
--- on the first frame the targets are real, never at load
 local function build()
-	-- point sampled and wrapped: the shader addresses it by world column
 	coverRT = coverRT or GetRenderTargetEx("ms_rain_cover_" .. COLUMNS, COLUMNS, COLUMNS, RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE, 1, 0, IMAGE_FORMAT_RGBA8888)
 	if not shaderpack.UsableRT(coverRT, COLUMNS) then
 		coverRT = nil
@@ -919,7 +889,6 @@ local function build()
 		return false
 	end
 
-	-- untraced columns rain everywhere
 	render.PushRenderTarget(coverRT)
 	render.Clear(0, 0, 0, 255)
 	render.PopRenderTarget()
@@ -935,7 +904,6 @@ local function build()
 	return true
 end
 
--- Safe to call from several effects in one frame: only the first does the work.
 function cover.Update(eye)
 	if updatedFrame == FrameNumber() then return coverRT ~= nil end
 	updatedFrame = FrameNumber()

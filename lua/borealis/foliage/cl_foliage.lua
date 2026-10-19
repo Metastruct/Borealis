@@ -3,13 +3,13 @@ shaderpack.foliage = foliage
 local bspdata, depthslices = shaderpack.bspdata, shaderpack.depthslices
 foliage.layers = foliage.layers or {}
 
-local CHUNK = 512 -- world units per chunk
-local BUILD_BUDGET_MS = 3 -- generation work per frame
-local MESH_BATCH = 240 -- tufts per IMesh, about 1 ms to build
-local STRIDE = 7 -- numbers per tuft in a chunk's flat tuft array: x, y, z, seed, height scale, packed light, vis cluster
-local SIGHT_TESTS_PER_FRAME = 40 -- line of sight tests per draw
+local CHUNK = 512
+local BUILD_BUDGET_MS = 3
+local MESH_BATCH = 240
+local STRIDE = 7
+local SIGHT_TESTS_PER_FRAME = 40
 local MESH_CACHE_TUFTS = jit.arch == "x64" and math.huge or 200000
-local FILL_K = 0.5 -- ambient cube share added as fill light, not scaled by tod's light style
+local FILL_K = 0.5
 
 local Layer = {}
 Layer.__index = Layer
@@ -80,9 +80,6 @@ function foliage.SurfaceClassifier(kinds, names)
 	end
 end
 
--- tod rescales the lightmaps at runtime through the named light_environment's
--- light style; ComputeLighting returns the unscaled lightmap, so the current
--- style scale is applied per frame (engine: (letter - 'a') * 22 / 256)
 local lightEnvironment
 local function hasLightEnvironment()
 	if lightEnvironment == nil then
@@ -113,13 +110,10 @@ local traceStart, traceEnd, lightPos = Vector(0, 0, 0), Vector(0, 0, 0), Vector(
 local coverTraceRes = {}
 local coverTrace = { mask = MASK_SOLID_BRUSHONLY, start = traceStart, endpos = traceEnd, output = coverTraceRes }
 
--- more generation work when the frame has headroom, less when it is already slow
 function Layer:budget()
 	return math.Clamp(16 - RealFrameTime() * 1000 + self.lastThinkMs, BUILD_BUDGET_MS * 0.7, BUILD_BUDGET_MS * 2)
 end
 
--- rasterises the chunk into a flat tuft array (STRIDE numbers per tuft),
--- yielding when the frame budget is spent
 function Layer:raster(ch, cand)
 	local cfg = self.cfg
 	local spacing, jitter, keep, minLight = cfg.spacing, cfg.jitter, cfg.keep, cfg.minLight
@@ -135,9 +129,8 @@ function Layer:raster(ch, cand)
 		return rng / 2147483648
 	end
 
-	local lightCache = {} -- one lighting sample per 2x2 cells, lightmap luxels are ~16 units, packed as r * 65536 + g * 256 + b of light / 2
+	local lightCache = {}
 	local function coverLight(x, y, z)
-		-- skip tufts under floors, roofs and other covering brushes
 		traceStart:SetUnpacked(x, y, z + coverHeight)
 		traceEnd:SetUnpacked(x, y, z + 1)
 		util.TraceLine(coverTrace)
@@ -175,11 +168,9 @@ function Layer:raster(ch, cand)
 					if kept then
 						local light = coverLight(x, y, z)
 						if light then
-							-- cluster sampled above the blade, a hair higher when that lands in solid
 							local cluster = clusterAt(x, y, z + 8)
 							if cluster < 0 then cluster = clusterAt(x, y, z + 24) end
 
-							-- mostly tall, some short
 							tufts[n + 1], tufts[n + 2], tufts[n + 3], tufts[n + 4], tufts[n + 5], tufts[n + 6], tufts[n + 7] = x, y, z, seed, 0.5 + r4 * r4 * 0.9 * (kept == true and 1 or kept), light, cluster
 							n = n + STRIDE
 						end
@@ -189,7 +180,6 @@ function Layer:raster(ch, cand)
 		end
 	end
 
-	-- tufts sorted by cluster, so a mesh batch spans few clusters
 	local count = n / STRIDE
 	local order = {}
 	for i = 1, count do
@@ -212,7 +202,7 @@ function Layer:raster(ch, cand)
 end
 
 local COS60, SIN60 = math.cos(math.rad(60)), math.sin(math.rad(60))
-local DIRS = { { 1, 0 }, { COS60, SIN60 }, { -COS60, SIN60 } } -- three crossed quads per tuft
+local DIRS = { { 1, 0 }, { COS60, SIN60 }, { -COS60, SIN60 } }
 local vpos = Vector(0, 0, 0)
 local vr, vg, vb, va = 0, 0, 0, 0
 local function vert(px, py, pz, u, v)
@@ -246,11 +236,6 @@ local function emitTuft(quadW, quadH, height, x, y, z, seed, hs, light)
 	end
 end
 
--- one batch { m = IMesh, groups } for tufts first .. last (tuft indices,
--- 1-based).  The tufts come sorted by vis cluster, each run is a group with
--- its cluster (-1 for in solid), its centre and its first and last tuft.
--- screenspace_general binds position, colour and texcoord 0 only: colour
--- rgb = light / 2, colour a = seed, uv.x = blade u + 2 * height index
 function Layer:buildMesh(tufts, first, last)
 	local quadW, quadH, height, emit = self.cfg.quadW, self.cfg.quadH, self.height, self.cfg.emit
 	local quads = 0
@@ -300,7 +285,6 @@ local function destroyMeshes(ch)
 	end
 end
 
--- bounding sphere of a chunk's tufts, for the frustum test in draw
 function Layer:chunkBounds(ch, tufts)
 	local zmin, zmax = math.huge, -math.huge
 	for o = 3, #tufts, STRIDE do
@@ -315,9 +299,6 @@ function Layer:chunkBounds(ch, tufts)
 	ch.radius = math.sqrt(half * half * 2 + hz * hz)
 end
 
--- picks the next queued chunk: nearest first, chunks in front of the camera
--- before the rest.  Priorities are recomputed only when chunks were added or the
--- eye moved a chunk, a large radius queues thousands of mostly empty chunks
 function Layer:nextChunk()
 	local eye, fwd = EyePos(), EyeVector()
 	local buildQueue, chunks = self.buildQueue, self.chunks
@@ -371,7 +352,6 @@ function Layer:nextChunk()
 	end
 end
 
--- advances the current chunk: raster until the budget is spent, then one mesh batch at a time
 function Layer:stepChunk()
 	local ch = self.current
 	if ch.pendingTufts then
@@ -409,7 +389,7 @@ function Layer:stepChunk()
 			self:chunkBounds(ch, tufts)
 		end
 	else
-		return false -- budget spent inside the raster
+		return false
 	end
 
 	return true
@@ -437,7 +417,6 @@ function Layer:think()
 		end
 
 		if coroutine.status(self.loader) == "dead" then
-			-- a parse that gave up leaves no tree to look clusters up in
 			if not res then
 				ErrorNoHalt("[" .. self.cfg.name .. "] off: " .. tostring(why) .. "\n")
 				self:Stop()
@@ -469,11 +448,6 @@ local function byDrawDist(a, b)
 	return a.drawDist < b.drawDist
 end
 
--- line of sight from the eye to a group, against world brushes only: a
--- blocking face either draws (depth hides the blades) or does not (nodraw,
--- sky, a back face) and the sky fills it, so the blades are skipped either
--- way.  Windows and grates are passed through like the depth test does.
--- Tests are redone when the eye moves or after a while, a few per frame
 local sightStart, sightEnd, sightRes = Vector(), Vector(), {}
 local sightTrace = { start = sightStart, endpos = sightEnd, mask = CONTENTS_SOLID, output = sightRes, filter = function() return false end }
 local function sightBlocked(x, y, z)
@@ -513,7 +487,6 @@ function Layer:draw(sky3d)
 	MAT:SetFloat("$c2_w", v.tonemap)
 	render.SetMaterial(MAT)
 
-	-- view frustum: the setup's fov is the horizontal one at this aspect
 	local right, up, tanH, tanV = v.right, v.up, v.tanH, v.tanV
 	local kH, kV = math.sqrt(1 + tanH * tanH), math.sqrt(1 + tanV * tanV)
 
@@ -537,7 +510,6 @@ function Layer:draw(sky3d)
 					self.buildQueue[#self.buildQueue + 1] = ch
 					self.queueDirty = true
 				elseif ch.mesh then
-					-- bounding sphere against the four side planes
 					local ddz, r = ch.cz - eye.z, ch.radius + sway
 					local fz = ddx * fwd.x + ddy * fwd.y + ddz * fwd.z
 					if fz > -r then
@@ -554,15 +526,12 @@ function Layer:draw(sky3d)
 		end
 	end
 
-	-- the material tests depth but does not write it; force both, near to far
 	for i = #visible, nvis + 1, -1 do
 		visible[i] = nil
 	end
 
 	table.sort(visible, byDrawDist)
 
-	-- a batch draws when one of its groups is in the eye's PVS and in line of
-	-- sight at its centre or either end.  An untested group counts as visible
 	local eyeCluster = bspdata.ClusterAt(eye.x, eye.y, eye.z)
 	local pvs = bspdata.PVS(eyeCluster)
 	if RealTime() > self.sightNext or eye:DistToSqr(self.sightEye) > 64 * 64 then
@@ -622,7 +591,6 @@ function Layer:draw(sky3d)
 		drawn[i] = nil
 	end
 
-	-- evict chunks well outside the radius, keeping their tuft lists
 	if RealTime() > self.evictNext then
 		self.evictNext = RealTime() + 2
 		local limit = (radius + CHUNK * 2) ^ 2
@@ -668,8 +636,6 @@ function Layer:Stop()
 	self.triGrid, self.loader, self.ready = nil, nil, false
 end
 
--- draw distance: the chunk radius and the shader's fade range.  Chunks past a
--- shrunk radius get evicted by draw, a grown one fills in through the queue
 function Layer:SetDistance(radius)
 	self.radius = radius
 	self.fadeStart, self.fadeEnd = radius * 0.72, radius * 0.98
@@ -689,7 +655,7 @@ function Layer:Start()
 		["$depthtest"] = 1,
 		["$additive"] = 0,
 		["$alpha_blend"] = 0,
-		["$linearwrite"] = 0, -- sRGB write like the world shaders, the baked light is linear
+		["$linearwrite"] = 0,
 		["$nocull"] = 1,
 		["$c0_x"] = 0, ["$c0_y"] = 0, ["$c0_z"] = 0, ["$c0_w"] = 0,
 		["$c1_x"] = 0, ["$c1_y"] = 0, ["$c1_z"] = 0, ["$c1_w"] = 0,
@@ -710,7 +676,6 @@ function Layer:Start()
 		})
 	end
 
-	-- the materials outlive a restart, so the palette is set every time
 	cfg.palette(self.mat, self.depthMat)
 	self:SetDistance(self.radius)
 

@@ -6,38 +6,23 @@ if SERVER then
 	return
 end
 
--- Volumetric fog: a height layer ray marched per pixel by fog_ps30 and
--- composited over the frame before the translucent pass, so glass, particles
--- and the viewmodel draw on top.  Depth comes from two sources and the nearer
--- wins: the engine's depth pass (exact, but only what the engine draws) and the
--- coarse slice capture in sh_depthslices, shared with the volumetric clouds, so
--- Lua-drawn things like PAC3 parts occlude the fog too.
---
--- Density follows tod's weather: fog weather (tod.fog) is a ground layer,
--- rain (tod.rain) a taller thin haze, the two profiles blended by their share
--- of the total.  The base follows the ground under the player.  Colour is the
--- horizon colour tod set as the engine fog colour.
-
 local fog = shaderpack.fog or {}
 shaderpack.fog = fog
 
 local cover, depthslices = shaderpack.cover, shaderpack.depthslices
 local FOG_ENABLED = CreateClientConVar("cl_draw_fog", "1", true, false, "draw volumetric fog in fog, rain and snow weather")
 
-local PROFILES = { -- extinction per unit at the base, height falloff in units, noise strength
+local PROFILES = {
 	fog = { density = 0.0002, falloff = 250, noise = 0.8 },
 	rain = { density = 0.00025, falloff = 600, noise = 0.4 },
 	snow = { density = 0.0002, falloff = 700, noise = 0.5 },
 }
-local SUN_GAIN = 1 -- sun in-scatter share, 0..1
+local SUN_GAIN = 1
 local VOLUMETRIC_WEATHERS = { rain = true, fog = true, snow = true }
-local BASE_LIFT = 40 -- fog base above the ground under the player
-local BASE_RATE = 0.5 -- share of the remaining gap closed per second when the ground changes
+local BASE_LIFT = 40
+local BASE_RATE = 0.5
 local BASE_TRACE_INTERVAL = 0.25
 
---------------------------------------------------------------------------
--- material, a new one every start so a kept one never lacks a constant
---------------------------------------------------------------------------
 local MAT
 local materialSerial = 0
 
@@ -48,7 +33,7 @@ local function build()
 		["$vertexshader"] = VS,
 		["$texture2"] = "shaderpack/procsky/fognoise",
 		["$linearread_basetexture"] = 0,
-		["$linearread_texture1"] = 1, -- depth and noise are data
+		["$linearread_texture1"] = 1,
 		["$linearread_texture2"] = 1,
 		["$linearread_texture3"] = 1,
 		["$linearread_texture4"] = 1,
@@ -64,12 +49,8 @@ local function build()
 	return true
 end
 
---------------------------------------------------------------------------
--- weather, sun and base
---------------------------------------------------------------------------
 local toLinear, setConstant = shaderpack.ToLinear, shaderpack.SetConstant
 
--- total density and the density-weighted falloff and noise strength, or 0
 local function weather()
 	if not tod then return 0 end
 
@@ -89,7 +70,6 @@ end
 
 local base, targetBase, nextTrace = nil, nil, 0
 
--- eased so level changes on stacked maps do not snap the layer
 local function currentBase()
 	local now = RealTime()
 	if now >= nextTrace then
@@ -129,12 +109,9 @@ local function prepare()
 	end
 end
 
---------------------------------------------------------------------------
--- rendering
---------------------------------------------------------------------------
 local quadColor = Color(SUN_GAIN * 255, 0, 0, 255)
 local extra = Matrix()
-local ORDER = 20 -- the near volume: this composites over the clouds
+local ORDER = 20
 
 local function draw()
 	local density, falloff, noise = weather()
@@ -167,9 +144,6 @@ local function draw()
 	return depthslices.Composite(MAT, quadColor)
 end
 
---------------------------------------------------------------------------
--- lifecycle
---------------------------------------------------------------------------
 local function stop()
 	hook.Remove("Think", "ms_fog")
 	hook.Remove("PreRender", "ms_fog")

@@ -210,7 +210,6 @@ local function startShader()
 	return true
 end
 
--- fallback
 local function startMesh()
 	local sz = 8192 * 8 * 4
 	local q = sz * (1 / (8192 * 2 * 4))
@@ -279,7 +278,6 @@ local function startMesh()
 		render.SetBlend(1)
 		render.SetMaterial(mat1)
 
-		-- enjoy black magic
 		cam.Start3D(vector_origin, EyeAngles(), nil, nil, nil, nil, nil, 256, 8192 * 2 * 2 * 2 * 2)
 		cam.PushModelMatrix(mat)
 		mesh:Draw()
@@ -303,7 +301,6 @@ local function startMesh()
 		render.ClearDepth()
 	end
 
-	-- moon draws before this
 	skyboxer.RemoveHook("d_" .. Tag)
 	skyboxer.AddHook("d_" .. Tag, drawMesh)
 end

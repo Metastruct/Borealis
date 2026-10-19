@@ -118,7 +118,6 @@ local function readSurfaceWaterBrushes()
 					if nz > TOP_FACING and not (name:find("_beneath", 1, true) or name:find("under", 1, true)) then
 						local td = i32(TEXINFO, tp + 68)
 						local tw, th = i32(TEXDATA, td * 32 + 17), i32(TEXDATA, td * 32 + 21)
-						-- folded by texture size, so pass "world x to tiles" and we dont need division
 						local su, ou = f32(TEXINFO, tp) / tw, f32(TEXINFO, tp + 12) / tw
 						local sv, ov = f32(TEXINFO, tp + 20) / th, f32(TEXINFO, tp + 28) / th
 
@@ -144,7 +143,6 @@ local function readSurfaceWaterBrushes()
 							g.clusters[cluster] = true
 						end
 
-						-- convex polygon
 						local t = g.verts
 						for n = 2, #poly - 1 do
 							t[#t + 1] = poly[1]
@@ -211,7 +209,6 @@ local function prepareWaterBodyMaterials(matNames)
 		surfaceMat:SetInt("$forcecheap", 1)
 		surfaceMat:SetInt("$forceexpensive", 0)
 
-		-- disables surface water rendering
 		surfaceMat:SetInt("$fogend", 1e6)
 		surfaceMat:SetFloat("$alpha", 0.99)
 		surfaceMat:SetInt("$flags", bit.bor(surfaceMat:GetInt("$flags"), 4, MATERIAL_VAR_TRANSLUCENT))
@@ -222,14 +219,12 @@ local function prepareWaterBodyMaterials(matNames)
 		local underWaterMat = Material(underWaterMatName)
 		local bottomFogEnd = rememberOriginal(underWaterMat)
 		fogEnd = fogEnd or bottomFogEnd
-		underWaterMat:SetInt("$fogend", 1e6) -- disables underwater rendering
-		underWaterMat:SetString("$underwateroverlay", "") -- disables underwater screen postprocessing
+		underWaterMat:SetInt("$fogend", 1e6)
+		underWaterMat:SetString("$underwateroverlay", "")
 
-		-- make sure the water is using the expensive setting, we cannot make the cheap water transparent
 		underWaterMat:SetInt("$forcecheap", 1)
 		underWaterMat:SetInt("$forceexpensive", 0)
 
-		-- disable fresnel and refract/reflect so the surface bumpmap effectively appears transparent
 		underWaterMat:SetFloat("$alpha", 0.99)
 		underWaterMat:SetInt("$flags", bit.bor(underWaterMat:GetInt("$flags"), 4, MATERIAL_VAR_TRANSLUCENT))
 	end
@@ -281,7 +276,6 @@ local function writeBodyMesh(g, ent)
 
 	local msh = Mesh(SURF_MAT)
 	mesh.Begin(msh, MATERIAL_TRIANGLES, #g.verts / 3)
-	-- red channel has the water body murk
 	local murkByte = math.floor(g.murk / MURK_MAX * 255 + 0.5)
 	local minX, minY, maxX, maxY, maxZ = math.huge, math.huge, -math.huge, -math.huge, -math.huge
 	for _, v in ipairs(g.verts) do

@@ -12,30 +12,27 @@ local SKY_ENABLED = CreateClientConVar("cl_draw_procsky", "1", true, false, "dra
 local setConstant = shaderpack.SetConstant
 
 local INTENSITY = 1
-local MOON_INTENSITY = 0.012 -- relative to the sun
-local moonGain = 1 -- 0 while the theme hides the moon
-local UPDATE_INTERVAL = 0.2 -- seconds between fog and cloud colour updates
-local HORIZON_ELEV = math.rad(2) -- fog colour is sampled this far above the horizon
-local CLOUD_H = 2 -- km, altitude the cloud light is computed at
+local MOON_INTENSITY = 0.012
+local moonGain = 1
+local UPDATE_INTERVAL = 0.2
+local HORIZON_ELEV = math.rad(2)
+local CLOUD_H = 2
 
 local procsky = shaderpack.procsky or {}
 shaderpack.procsky = procsky
 procsky.theme = procsky.theme or {}
 local ONE = { 1, 1, 1 }
 
---------------------------------------------------------------------------
--- atmosphere model, the shader's math for single directions.  Units are km.
---------------------------------------------------------------------------
 local R_EARTH, R_ATMO = 6371, 6471
 local H_R, H_M, EYE_H = 8, 1.2, 0.2
 local BETA_R = { 5.8e-3, 13.5e-3, 33.1e-3 }
-local BETA_O = { 0.65e-3, 1.881e-3, 0.085e-3 } -- ozone, or twilight goes green
+local BETA_O = { 0.65e-3, 1.881e-3, 0.085e-3 }
 local O_CENTER, O_WIDTH = 25, 15
 local BETA_M, MIE_G, MIE_EXT = 5e-3, 0.76, 1.1
 local N_VIEW, N_LIGHT = 8, 3
 local DISC_STEPS = 12
 local SUN_DISC = 0.15
-local EXPOSURE = 1.2 -- soft shoulder per channel, same as the shader
+local EXPOSURE = 1.2
 local SUN_COL = { 1, 0.96, 0.9 }
 local MOON_COL = { 0.55, 0.7, 1 }
 local exp, sqrt, max, min = math.exp, math.sqrt, math.max, math.min
@@ -59,7 +56,6 @@ local function extinction(oR, oM, oO)
 		BETA_R[3] * oR + BETA_M * MIE_EXT * oM + BETA_O[3] * oO
 end
 
--- optical depth from p toward the light, zero when the earth is in the way
 local function lightDepth(px, py, pz, lx, ly, lz)
 	local b = px * lx + py * ly + pz * lz
 	local c = px * px + py * py + pz * pz - R_EARTH * R_EARTH
@@ -78,7 +74,6 @@ local function lightDepth(px, py, pz, lx, ly, lz)
 	return oR, oM, oO, 1
 end
 
--- in-scattered light and transmittance along a view ray of length len
 local function scatter(ox, oy, oz, dx, dy, dz, len, lx, ly, lz, lr, lg, lb)
 	local mu = dx * lx + dy * ly + dz * lz
 	local phaseR = 3 / (16 * math.pi) * (1 + mu * mu)
@@ -89,7 +84,6 @@ local function scatter(ox, oy, oz, dx, dy, dz, len, lx, ly, lz, lr, lg, lb)
 	local sR1, sR2, sR3, sM1, sM2, sM3 = 0, 0, 0, 0, 0, 0
 	local tPrev = 0
 	for i = 0, N_VIEW - 1 do
-		-- samples crowd toward the eye, where the dense air is
 		local u1 = (i + 1) / N_VIEW
 		local tNext = len * u1 * u1
 		local ds = tNext - tPrev
@@ -125,7 +119,6 @@ local function shoulder(r, g, b)
 	return shoulder1(r), shoulder1(g), shoulder1(b)
 end
 
--- sky radiance in direction d (linear, after the shoulder like the shader)
 local function radiance(dx, dy, dz, sun, moon)
 	local ox, oy, oz = 0, 0, R_EARTH + EYE_H
 	local b = oz * dz
@@ -147,7 +140,6 @@ local function radiance(dx, dy, dz, sun, moon)
 	return shoulder(r, g, bl)
 end
 
--- transmittance from altitude h km toward light l
 local function transmittance(h, l)
 	local oR, oM, oO, lit = lightDepth(0, 0, R_EARTH + h, l.x, l.y, l.z)
 	if lit == 0 then return 0, 0, 0 end
@@ -182,9 +174,6 @@ local function toSRGB(v)
 	return v <= 0.0031308 and v * 12.92 or 1.055 * v ^ (1 / 2.4) - 0.055
 end
 
---------------------------------------------------------------------------
--- derived state: sun, moon, fog colour, sky colours and cloud lighting
---------------------------------------------------------------------------
 local state = {
 	sun = Vector(0, 0, 1), moon = Vector(0, 0, -1), elev = 90,
 	fog = { 255, 255, 255 }, overcast = 0,
@@ -219,7 +208,6 @@ local function updateState()
 	local o = overcastLevel()
 	state.overcast = o
 
-	-- fog: the horizon averaged over 8 azimuths, grey at its own brightness when overcast
 	local fr, fg, fb = 0, 0, 0
 	local ce, se = math.cos(HORIZON_ELEV), math.sin(HORIZON_ELEV)
 	for i = 0, 7 do
@@ -235,8 +223,6 @@ local function updateState()
 	state.fog[2] = toSRGB(fg * fogK * mul[2]) * 255
 	state.fog[3] = toSRGB(fb * fogK * mul[3]) * 255
 
-	-- clouds: direct light through the air above the layer, ambient from the
-	-- sky halfway up opposite the sun and at the zenith
 	local s1, s2, s3 = transmittance(CLOUD_H, sun)
 	local m1, m2, m3 = transmittance(CLOUD_H, moon)
 	local sunUp = max(0, min(1, (elev + 2) / 6))
@@ -273,17 +259,14 @@ function procsky.IsActive()
 	return active
 end
 
--- direction to the sun and moon, and the sun's elevation in degrees
 function procsky.GetLights()
 	return state.sun, state.moon, state.elev
 end
 
--- light direction, direct light colour and ambient colour for the clouds
 function procsky.GetCloudLighting()
 	return state.lightDir, state.light, state.amb
 end
 
--- linear horizon and zenith colours of the sky without tonemap scale
 function procsky.GetSkyColors()
 	return state.horizon, state.zenith
 end
@@ -296,22 +279,6 @@ function procsky.GetSkyScale()
 	return INTENSITY * (1 - 0.3 * state.overcast)
 end
 
---------------------------------------------------------------------------
--- theme: the season's look (halloween/tod.lua).  Every key is optional.
---   moonVisible  false hides the moon: its glow here and tod's moon model
---   clouds       false hides the build clouds (sh_tod_build)
---   auroraHue    hue shift of the auroras in radians (sh_aurora)
---   stars        star brightness multiplier (sh_aurora)
---   airglow      horizon glow brightness multiplier (sh_aurora)
---   fogScale     fog colour multiplier
---   tintMul      { r, g, b } multiplied into the fog colour and the cloud light
---   tint         DrawColorModify params drawn every frame
---   overcast     0..1: grey fog, a dimmed atmosphere, a cloud deck over the
---                sky (sh_tod_build) and no sun shafts (snow and rain set it)
---   overcastBrightness  deck brightness, 1 is snow's white stratus
---------------------------------------------------------------------------
-
--- tod's moon model draws through skyboxer's c_moon hook, held here while hidden
 local moonHook
 
 local function syncMoon()
@@ -338,10 +305,6 @@ function procsky.GetTheme()
 	return procsky.theme
 end
 
---------------------------------------------------------------------------
--- fog: tod's hook backs off when STOP_STEALING_FOG_CONTROLS is set, so this
--- one applies tod's range with the horizon colour
---------------------------------------------------------------------------
 local function setupFog(scale)
 	local C = tod and tod.CurrentParams
 	if not C then return end
@@ -355,9 +318,6 @@ local function setupFog(scale)
 	return true
 end
 
---------------------------------------------------------------------------
--- rendering
---------------------------------------------------------------------------
 local MAT, LUT_MAT, lut
 local LUT_W, LUT_H = 256, 128
 
@@ -385,8 +345,6 @@ function procsky.GetLut()
 	return active and lut or nil
 end
 
--- basis from EyeAngles, which is right inside a RenderView too, and the fan
--- from the view setup (fov is the aspect-adjusted horizontal one)
 local function viewRays()
 	local ang = EyeAngles()
 	local halfW, halfH = shaderpack.ViewTan()
@@ -466,8 +424,6 @@ end
 
 local apply = shaderpack.Toggle("ms_procsky", SKY_ENABLED, SHADERS, start, stop)
 
--- the lights, the theme and the tint stay live while the sky itself is off:
--- the sun shafts, the clouds and the night sky read them
 hook.Add("Think", "ms_procsky", think)
 hook.Add("RenderScreenspaceEffects", "ms_procsky_tint", function()
 	local tint = shaderpack.Enabled() and procsky.theme.tint

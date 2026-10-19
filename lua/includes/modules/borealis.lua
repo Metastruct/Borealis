@@ -7,7 +7,7 @@ local FILES = {
 	"sky/sh_sky",
 	"sky/sh_sunshafts",
 	"core/sh_bsp",
-	"core/cl_opacity",
+	"core/cl_depth_hacks",
 	"core/sh_cover",
 	"sky/sh_vclouds",
 	"sky/sh_cheap_clouds",

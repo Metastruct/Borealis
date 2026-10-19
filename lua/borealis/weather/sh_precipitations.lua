@@ -10,54 +10,31 @@ if SERVER then
 	return
 end
 
--- Falling rain: one quad per drop, placed by raindrop_vs30 from a template
--- mesh shared by every tile, so the drops slide down crossed streak planes
--- that stay put in world space, and ripples on the ground, one quad per column
--- of level ground the rain reaches (rainsplash_ps30).
---
--- Cover is per column of the world, not per eye: a small wrapped texture
--- around the eye holds, for every COLUMN square, the height the rain stops
--- at (a roof, a bridge, the ground, or the top of the world when the sky is
--- blocked), from two traces per column that include props.  The streak
--- shader discards everything below it, so rain falls outside a doorway and
--- not inside, and stops on roofs.  The window is traced again continuously
--- at a low rate, so a roof built or moved after the trace still counts.  The
--- amount comes from tod/rain.lua.
---
--- The ripples are shaded, not drawn: each one is a height field and the quad
--- shows the wet ground's mirror of the sky bent by its slopes, so they need
--- the horizon's colour and the light's direction every frame.
---
--- Nothing is set between draws: with the threaded material system a draw
--- reads a material constant whenever the render thread gets to it, so a
--- constant set per tile lands on the wrong tiles.  The constants are set once
--- per frame, and each tile's position rides in its model matrix.
-
 local procsky, cover, wind, surfacewater = shaderpack.procsky, shaderpack.cover, shaderpack.wind, shaderpack.surfacewater
 local ENABLED = CreateClientConVar("cl_draw_precipitations", "1", true, false, "draw falling rain and snow")
 
-local TILE = 512 -- world units, the field is the 3 x 3 of these around the eye
+local TILE = 512
 local DROP_TILE = 256
-local STREAKS = 1100 -- crossed quad pairs per tile at full rain
-local DENSITY_STEPS = 4 -- levels of streak count between nothing and full rain
+local STREAKS = 1100
+local DENSITY_STEPS = 4
 local DROP_PAIRS = STREAKS * (DROP_TILE / TILE) ^ 2
 local DROP_WINDOW = 11
 local DROP_CODES = 2 * 3 * DROP_WINDOW
 local DROP_CHUNK = 138
-local HALF_H = 560 -- half height of the field, matches the shader
-local PERIOD = 80 -- world units between drop slots, matches the shader
-local FIELD_SLACK = 160 -- the field's height snaps again once the eye is this far above or below it, a jump never does
-local HALF_W = 2.6 -- half width of a strip: the drops scatter across it, so a wide one does not read as a line
-local CROSS_SPREAD = 24 -- how far the second plane of a cross sits from the first, so a pair is two streaks and not one column
+local HALF_H = 560
+local PERIOD = 80
+local FIELD_SLACK = 160
+local HALF_W = 2.6
+local CROSS_SPREAD = 24
 local RAIN_LEAN, RAIN_LEAN_WIND = 0.1, 0.2
 local LEAN_MAX, SWING_MAX = 1.45, 0.25
 local FADE_START, FADE_END = 560, 760
 local Z_FADE_END = 400
 local ALPHA = 0.24
-local COLOR_BODY = 0.5 -- a streak's body as a share of the sky behind it: rain reads dark against daylight
-local COLOR_HEAD = 1.5 -- and its head, which is what shows against the world instead
-local COLOR_HEAD_FLOOR = 0.22 -- the head never goes under this, or night rain has nothing left
-local WRAP = 20 -- seconds, the streak shader's time period: every speed in it moves a whole number of slot hash periods over this
+local COLOR_BODY = 0.5
+local COLOR_HEAD = 1.5
+local COLOR_HEAD_FLOOR = 0.22
+local WRAP = 20
 
 local COLUMN, COLUMNS, Z_MIN = cover.COLUMN, cover.COLUMNS, cover.Z_MIN
 local IN_WATER = CONTENTS_WATER
@@ -73,34 +50,31 @@ local SNOW_ALPHA = 0.9
 local SNOW_LIGHT = 2.5
 local SNOW_FLOOR = 0.12
 
-local SPLASH_STEP = 2 -- ripples on a coarser grid than the cover map, one quad per block of columns
-local SPLASH_QUAD = 3 -- ripple quad size in cells: overlapping, so spots cross block borders
+local SPLASH_STEP = 2
+local SPLASH_QUAD = 3
 local SPLASH_ALPHA = 0.5
-local SPLASH_FADE_START, SPLASH_FADE_END = 420, 720 -- inside the column window
-local SPLASH_WRAP = 64 -- seconds, a multiple of every ripple rate's cycle and of the shader's cycle hash period
-local SPLASH_SKY = 1.35 -- how much of the horizon's colour the wet ground mirrors
-local SPLASH_GREY = 0.45 -- and how far toward its own brightness that colour is pulled: the sky over the horizon is paler than the fog at it
-local SPLASH_OVERCAST = 0.85 -- how far a closed sky drains the glints off the ripples
-local SPLASH_REBUILD = 0.5 -- seconds between ripple mesh rebuilds while columns come in
-local SPLASH_FLAT = 10 -- how far a corner may sit off the plane through the other three before the quad is dropped
-local SPLASH_NSCALE = 0.75 -- the normal's xy range in the vertex colour, matches the shader
--- the columns under a quad's first and last corner, from the block it sits on
+local SPLASH_FADE_START, SPLASH_FADE_END = 420, 720
+local SPLASH_WRAP = 64
+local SPLASH_SKY = 1.35
+local SPLASH_GREY = 0.45
+local SPLASH_OVERCAST = 0.85
+local SPLASH_REBUILD = 0.5
+local SPLASH_FLAT = 10
+local SPLASH_NSCALE = 0.75
 local SPLASH_C0 = math.floor((SPLASH_STEP - SPLASH_QUAD) * 0.5)
 local SPLASH_C1 = SPLASH_C0 + SPLASH_QUAD
 
 local packColor, setConstant = shaderpack.PackColor, shaderpack.SetConstant
 
 local SPLASH_MAT, DROP_MAT, SNOW_MAT, splashMesh
-local build -- the materials, once the cover map is real
+local build
 local dropChunks = {}
 
 local UP = Vector(0, 0, 1)
-local DIM = { 0.12, 0.13, 0.16 } -- no procsky: a dull light, the glints barely show
+local DIM = { 0.12, 0.13, 0.16 }
 local skyCol, lightCol = { 0, 0, 0 }, { 0, 0, 0 }
 local bodyCol, headCol = { 0, 0, 0 }, { 0, 0, 0 }
 
--- a fixed grey held its own at dusk and vanished at noon: both streak colours
--- follow the hour's own sky instead, so the contrast survives the whole day
 local function streakColor()
 	local r, g, b = render.GetFogColor()
 	bodyCol[1], bodyCol[2], bodyCol[3] = r / 255 * COLOR_BODY, g / 255 * COLOR_BODY, b / 255 * COLOR_BODY
@@ -111,8 +85,6 @@ local function streakColor()
 	return bodyCol, headCol
 end
 
--- what the wet ground mirrors and what glints off it: the horizon's own colour,
--- which tod already matches to the hour, and the sun or moon behind the cloud
 local function wetLight()
 	local r, g, b = render.GetFogColor()
 	local lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
@@ -130,11 +102,7 @@ local function wetLight()
 	return dir, skyCol, lightCol
 end
 
---------------------------------------------------------------------------
--- streak tiles: a template mesh of drops shared by every tile, the 3 x 3
--- around the eye, drawn at the field's current height
---------------------------------------------------------------------------
-local fieldZ -- the field's centre, snapped to PERIOD; the drops hang off world height, so a snap never moves them
+local fieldZ
 
 local function densityLevel(amount)
 	return math.Clamp(math.ceil(amount * DENSITY_STEPS), 1, DENSITY_STEPS)
@@ -184,7 +152,7 @@ local setVertexConstants = shaderpack.SetVertexConstants
 
 local snowTiles, snowDirty = {}, {}
 local ripplesDirty, nextRipple = false, 0
-local submerged = false -- the eye is under a surface: there is no rain to see from down there
+local submerged = false
 local columnKey, columnFromKey = cover.ColumnKey, cover.ColumnFromKey
 
 local function markSnowDirty(cx, cy)
@@ -270,13 +238,6 @@ local function updateSnowTiles(eye)
 	end
 end
 
---------------------------------------------------------------------------
--- ripples: one quad per block of columns, larger than the block and centred
--- on it, the column's seed in the vertex colour; the shader never restarts a
--- ripple on a rebuild.  The quad takes its four corner heights from the
--- columns under those corners, so it lies in the ground instead of cutting
--- through it, and carries that plane's normal for the shader's sheen.
---------------------------------------------------------------------------
 local function packNormal(v)
 	return math.floor(math.Clamp(v / SPLASH_NSCALE * 0.5 + 0.5, 0, 1) * 255 + 0.5)
 end
@@ -294,22 +255,16 @@ local function buildSplashes()
 	local groundAt = cover.Ground
 	local quads, count = {}, 0
 	local q = COLUMN * SPLASH_QUAD
-	-- blocks aligned to the world, not the window, so they keep their seeds as it moves
 	for cy = winY + winY % SPLASH_STEP, winY + COLUMNS - 1, SPLASH_STEP do
 		for cx = winX + winX % SPLASH_STEP, winX + COLUMNS - 1, SPLASH_STEP do
-			-- the columns under the quad's own corners, which are its corner
-			-- heights; one missing means the quad reaches out past an edge
 			local z00 = groundAt(cx + SPLASH_C0, cy + SPLASH_C0)
 			local z10 = groundAt(cx + SPLASH_C1, cy + SPLASH_C0)
 			local z11 = groundAt(cx + SPLASH_C1, cy + SPLASH_C1)
 			local z01 = groundAt(cx + SPLASH_C0, cy + SPLASH_C1)
-			-- and a corner off the plane through the other three is a step, a
-			-- ridge or a hole: nothing one flat quad can lie on
 			if z00 and z10 and z11 and z01 and math.abs(z00 - z10 + z11 - z01) * 0.5 <= SPLASH_FLAT then
 				local seed = (cx * 73856093 + cy * 19349663) % 65536
 				local dzdx, dzdy = (z10 - z00 + z11 - z01) * 0.5 / q, (z01 - z00 + z11 - z10) * 0.5 / q
 				local nz = 1 / math.sqrt(dzdx * dzdx + dzdy * dzdy + 1)
-				-- overlapping quads never share a plane: no z-fighting where they cross
 				local lift = seed % 7 * 0.15
 				count = count + 1
 				quads[count] = { (cx + SPLASH_C0 + 0.5) * COLUMN, (cy + SPLASH_C0 + 0.5) * COLUMN,
@@ -337,9 +292,6 @@ local function buildSplashes()
 	return m
 end
 
---------------------------------------------------------------------------
--- drawing
---------------------------------------------------------------------------
 local function prepare()
 	local rain, snow = tod and tod.rain, tod and tod.snow
 	local raining = rain and rain.amount > 0.001
@@ -515,7 +467,6 @@ local function drawWeather()
 	local eye = EyePos()
 	local tonemap = render.GetToneMappingScaleLinear().x
 
-	-- bound again every frame: the targets are recreated across a map change
 	DROP_MAT:SetTexture("$basetexture", cover.Texture())
 	setConstant(DROP_MAT, "$c0", eye.x, eye.y, eye.z, CurTime() % WRAP)
 	local body, head = streakColor()
@@ -553,8 +504,6 @@ local function stop()
 	dropSnowTiles()
 end
 
--- a new material every start: a kept one from an older version of this file
--- would silently drop the constants it was not created with
 local materialSerial = 0
 
 local function material(name, pixelShader, vertexShader)
@@ -563,7 +512,7 @@ local function material(name, pixelShader, vertexShader)
 	return CreateShaderMaterial(name .. "_" .. os.time() .. "_" .. materialSerial, {
 		["$pixshader"] = pixelShader,
 		["$vertexshader"] = vertexShader or VS,
-		["$linearread_basetexture"] = 1, -- the cover map is data
+		["$linearread_basetexture"] = 1,
 		["$ignorez"] = 0,
 		["$depthtest"] = 1,
 		["$additive"] = 0,

@@ -6,29 +6,17 @@ if SERVER then
 	return
 end
 
--- Screen-space sun shafts.  A sky mask is written into the frame's alpha
--- channel after the translucent pass: a near quad sets alpha 0 everywhere,
--- then a quad at the far plane, depth-tested against the world already in the
--- buffer, sets alpha 1 where nothing was drawn.  The frame is copied to a
--- half-res target and blurred twice toward the sun's screen position by
--- sunshafts_ps30, then composited additively in the sun's colour.
---
--- The mask relies on the frame having an alpha channel (HDR float mode).
-
 local SHAFTS_ENABLED = CreateClientConVar("cl_draw_sunshafts", "1", true, false, "draw sun shafts")
 
 local INTENSITY = 0.45
-local RAY_LEN = 0.9 -- fraction of the way to the sun covered by one blur pass
-local DECAY = 0.95 -- tap weight decay
-local RADIUS = 0.25 -- source falloff around the sun, in screen heights
-local SCALE = 0.5 -- blur resolution relative to the screen
-local FAR_FRAC = 0.98 -- the mask quad sits at this fraction of zfar
-local NEAR_DIST = 64 -- the alpha clearing quad sits here
-local CLAMP = 4 + 8 -- TEXTUREFLAGS_CLAMPS + TEXTUREFLAGS_CLAMPT, not defined as globals on the client
+local RAY_LEN = 0.9
+local DECAY = 0.95
+local RADIUS = 0.25
+local SCALE = 0.5
+local FAR_FRAC = 0.98
+local NEAR_DIST = 64
+local CLAMP = 4 + 8
 
---------------------------------------------------------------------------
--- render targets and materials, rebuilt when the resolution changes
---------------------------------------------------------------------------
 local W, H, maskRT, blurA, blurB, BLUR1, BLUR2, COMPOSITE
 
 local function blurMaterial(name, src, falloff)
@@ -47,12 +35,6 @@ local function blurMaterial(name, src, falloff)
 	return mat
 end
 
--- The render targets do not exist yet while the map loads, and asking for one
--- then hands back a 32 x 32 error texture that answers IsError with false.  A
--- material bound to it keeps that texture even once the target is real: the
--- handle in hand heals, the binding inside the material does not.  So nothing
--- is built until the targets are usable, and the bindings are made again in
--- drawShafts every frame.
 local usableRT = shaderpack.UsableRT
 
 local function build()
@@ -78,10 +60,6 @@ local function build()
 	return true
 end
 
---------------------------------------------------------------------------
--- sun
---------------------------------------------------------------------------
--- basis from EyeAngles (right inside a RenderView too), fan from the view setup
 local function viewFan()
 	local ang = EyeAngles()
 	local halfW, halfH = shaderpack.ViewTan()
@@ -93,7 +71,6 @@ local sunDir = Vector(0, 0, 1)
 local sunUV = { 0.5, 0.5 }
 local sunWeight = 0
 
--- screen position of the sun and a weight fading it out of view and below the horizon
 local function updateSun()
 	sunDir = shaderpack.SunDir()
 
@@ -112,13 +89,10 @@ local function updateSun()
 	local inView = 1 - math.Clamp((off - 1) / 0.6, 0, 1)
 	local elev = shaderpack.Elevation(sunDir)
 	local risen = math.Clamp((elev + 1) / 4, 0, 1)
-	local low = 1 + 0.5 * (1 - math.Clamp(elev / 40, 0, 1)) -- stronger near the horizon
+	local low = 1 + 0.5 * (1 - math.Clamp(elev / 40, 0, 1))
 	sunWeight = inView * risen * low * (1 - shaderpack.Overcast())
 end
 
---------------------------------------------------------------------------
--- mask
---------------------------------------------------------------------------
 local ALPHA0, ALPHA1 = Color(0, 0, 0, 0), Color(255, 255, 255, 255)
 local maskValid = false
 
@@ -138,9 +112,6 @@ local function drawMask(bDepth, bSkybox, b3DSky)
 	local near = math.max(NEAR_DIST, vs.znear * 1.5)
 	local eye = EyePos()
 
-	-- alpha writes only, blending forced to replace so alpha 0 lands.  The
-	-- surface library ignores the override, so both steps are 3D quads, sized
-	-- well past the screen (they sit on a plane at their distance either way)
 	render.OverrideColorWriteEnable(true, false)
 	render.OverrideAlphaWriteEnable(true, true)
 	render.OverrideBlend(true, BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD, BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD)
@@ -154,8 +125,6 @@ local function drawMask(bDepth, bSkybox, b3DSky)
 	render.DrawQuadEasy(eye + fwd * far, -fwd, halfW * far * 4, halfH * far * 4, ALPHA1, 0)
 	render.CopyRenderTargetToTexture(maskRT)
 
-	-- alpha back to 1 everywhere: whoever snapshots the frame later reads it,
-	-- and the corrupted area's restore blit turned the world black on alpha 0
 	render.OverrideDepthEnable(true, false)
 	cam.IgnoreZ(true)
 	render.DrawQuadEasy(eye + fwd * near, -fwd, halfW * near * 4, halfH * near * 4, ALPHA1, 0)
@@ -168,15 +137,10 @@ local function drawMask(bDepth, bSkybox, b3DSky)
 	maskValid = true
 end
 
---------------------------------------------------------------------------
--- blur and composite
---------------------------------------------------------------------------
 local function drawShafts()
 	if not maskValid then return end
 	maskValid = false
 
-	-- see usableRT: a material built before the targets existed holds the error
-	-- texture, and the targets are recreated across a map change
 	BLUR1:SetTexture("$basetexture", maskRT)
 	BLUR2:SetTexture("$basetexture", blurA)
 	COMPOSITE:SetTexture("$basetexture", blurB)
@@ -193,7 +157,6 @@ local function drawShafts()
 	render.DrawScreenQuad(true)
 	render.PopRenderTarget()
 
-	-- sun colour through the atmosphere: warm at low sun
 	local elev = shaderpack.Elevation(sunDir)
 	local warm = 1 - math.Clamp(elev / 30, 0, 1)
 	local k = math.Clamp(INTENSITY * sunWeight, 0, 1) * 255
@@ -202,9 +165,6 @@ local function drawShafts()
 	surface.DrawTexturedRect(0, 0, ScrW(), ScrH())
 end
 
---------------------------------------------------------------------------
--- lifecycle
---------------------------------------------------------------------------
 local function stop()
 	hook.Remove("PostDrawTranslucentRenderables", "ms_sunshafts")
 	hook.Remove("RenderScreenspaceEffects", "ms_sunshafts")
@@ -213,7 +173,7 @@ end
 
 local function start()
 	stop()
-	W, H = nil, nil -- built on the first frame the targets are real, never at load
+	W, H = nil, nil
 	hook.Add("PostDrawTranslucentRenderables", "ms_sunshafts", drawMask)
 	hook.Add("RenderScreenspaceEffects", "ms_sunshafts", drawShafts)
 end

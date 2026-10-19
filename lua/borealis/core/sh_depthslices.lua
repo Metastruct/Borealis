@@ -9,16 +9,15 @@ end
 local depthslices = shaderpack.depthslices or {}
 shaderpack.depthslices = depthslices
 
-local SLICES = 32 -- both ends and the ratio are baked into fog_ps30 and vclouds_ps30
+local SLICES = 32
 local NEAR = 16
 local FAR = 8000
-local QUAD_NEAR = 12 -- the clearing quad sits this far in front of the eye
-local OVERSIZE = 6 -- quads are sized past the frustum
+local QUAD_NEAR = 12
+local OVERSIZE = 6
 local MARK_BIAS = 0.002
 local CLAMP = 4 + 8
 
 depthslices.SLICES, depthslices.NEAR, depthslices.FAR = SLICES, NEAR, FAR
--- on the module, so reloading this file does not drop what is registered
 depthslices.effects = depthslices.effects or {}
 
 local dist = {}
@@ -102,7 +101,6 @@ local function fillAlpha(col)
 	render.OverrideColorWriteEnable(false, false)
 end
 
--- Safe to call from several effects in one frame: only the first does the work.
 local function capture(eye, fwd, halfW, halfH, vs)
 	if capturedFrame == FrameNumber() then return end
 	capturedFrame = FrameNumber()
@@ -166,19 +164,12 @@ function depthslices.EndDepthWrite()
 	render.PopRenderTarget()
 end
 
--- an effect's own quad must not touch alpha, or the next effect reads its
--- output instead of the slice indices
 function depthslices.KeepAlpha(draw)
 	render.OverrideAlphaWriteEnable(true, false)
 	draw()
 	render.OverrideAlphaWriteEnable(false, false)
 end
 
--- The render targets do not exist yet while the map loads, and asking for one
--- then hands back a 32 x 32 error texture that answers IsError with false.
--- Bound as the depth, it reads as garbage.  They are rebound every frame: the
--- targets are recreated across a map change and a material built before they
--- existed holds the error texture forever.
 function depthslices.Composite(mat, color)
 	local depth, fb = render.GetResolvedFullFrameDepth(), render.GetScreenEffectTexture()
 	if not shaderpack.UsableRT(depth) or not shaderpack.UsableRT(fb) then return false end
@@ -199,14 +190,10 @@ function depthslices.Composite(mat, color)
 	return true
 end
 
---------------------------------------------------------------------------
--- the ordered composite pass
---------------------------------------------------------------------------
 local function byOrder(a, b)
 	return a.order < b.order
 end
 
--- order is a distance: the farther volume takes the lower number
 function depthslices.AddEffect(name, order, draw, refog, needsDepth)
 	depthslices.RemoveEffect(name)
 	local t = depthslices.effects
@@ -298,9 +285,6 @@ local function refog()
 	render.SetStencilEnable(false)
 end
 
--- NeedsDepthPass takes the FIRST non-nil return of all its hooks, so
--- returning false here would cancel another consumer's true and leave the
--- depth buffer stale.  Ask when it is needed, stay silent otherwise.
 hook.Add("NeedsDepthPass", "ms_depthslices", function()
 	local t = depthslices.effects
 	for i = 1, #t do

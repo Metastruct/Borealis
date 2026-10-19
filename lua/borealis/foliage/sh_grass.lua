@@ -15,17 +15,17 @@ local DENSITY, HEIGHT, DRYNESS, ROOT_COLOR, TIP_COLOR, DRY_COLOR
 
 local function setSeason(winter, autumn)
 	WINTER, AUTUMN = winter, autumn
-	DENSITY = winter and 0.35 or 1 -- share of the tufts kept
+	DENSITY = winter and 0.35 or 1
 	HEIGHT = winter and 0.7 or 1
-	DRYNESS = winter and 1 or autumn and 0.6 or 0.15 -- 0 green .. 1 golden
+	DRYNESS = winter and 1 or autumn and 0.6 or 0.15
 	ROOT_COLOR = winter and { 0.09, 0.085, 0.06 } or autumn and { 0.07, 0.06, 0.02 } or { 0.06, 0.075, 0.02 }
 	TIP_COLOR = autumn and { 0.13, 0.15, 0.045 } or { 0.15, 0.19, 0.05 }
-	DRY_COLOR = winter and { 0.28, 0.25, 0.17 } or autumn and { 0.32, 0.2, 0.06 } or { 0.24, 0.21, 0.09 } -- tip colour of dry blades
+	DRY_COLOR = winter and { 0.28, 0.25, 0.17 } or autumn and { 0.32, 0.2, 0.06 } or { 0.24, 0.21, 0.09 }
 end
 
 setSeason(WINTER, AUTUMN)
 
-local MAX_SLOPE_Z = 0.7 -- skip faces steeper than this normal z
+local MAX_SLOPE_Z = 0.7
 local CURL, CURL_MAX = 1.5, 0.45
 local LEAN = 0.5
 local LEAN_MAX = 0.95

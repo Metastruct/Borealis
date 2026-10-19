@@ -2,7 +2,7 @@
 #define SKY_EPS     0.0005
 #define SLICES      32.0
 #define SLICE_NEAR  16.0
-#define SLICE_RATIO 1.2219785 // (8000 / 16) ^ (1 / 31)
+#define SLICE_RATIO 1.2219785
 #define SLICE_SLACK 1.02
 #define SLICE_EXACT 64.0
 

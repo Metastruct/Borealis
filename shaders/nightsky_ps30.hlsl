@@ -89,7 +89,7 @@ float4 main(PS_IN i) : COLOR
 	col += st * STARS;
 
 	float h = saturate(1.0 - elev);
-	float3 haze = unpackColor(AIRGLOW) * 0.25 * pow(h, 5.0) * 0.14; // packed at 4x for precision
+	float3 haze = unpackColor(AIRGLOW) * 0.25 * pow(h, 5.0) * 0.14;
 
 	col *= smoothstep(0.04, 0.38, elev);
 	col += haze * smoothstep(0.0, 0.16, elev);

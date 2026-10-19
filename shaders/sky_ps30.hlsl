@@ -12,7 +12,6 @@ sampler SkyLut : register(s0);
 #define SUN_DIR    Constants2.xyz
 #define DISC_COL   Constants3.xyz
 
-// km
 #define R_EARTH 6371.0
 #define EYE_H   0.2
 

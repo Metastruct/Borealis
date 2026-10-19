@@ -10,20 +10,20 @@ end
 
 local procsky, cover = shaderpack.procsky, shaderpack.cover
 local AURORA_ENABLED = CreateClientConVar("cl_draw_auroras", 1, true, false, "should we draw auroras")
-local INTENSITY = 0.35 -- brightness
-local SCALE = 2 -- pattern scale
-local HUE = 0.5 -- hue shift in radians
-local HEIGHT = 1.235 -- height of the lowest curtain layer, seen from a level's floor
-local AURORA_SCALE = 30000 -- world units per curtain unit
-local AURORA_MIN = 0.15 -- the layers never collapse onto the eye
-local SHARPNESS = 1 -- curtain streak sharpness
-local WIDTH = 3 -- half-width of the band
-local HEADING = 10 -- world yaw the band runs along IN DEGREES
+local INTENSITY = 0.35
+local SCALE = 2
+local HUE = 0.5
+local HEIGHT = 1.235
+local AURORA_SCALE = 30000
+local AURORA_MIN = 0.15
+local SHARPNESS = 1
+local WIDTH = 3
+local HEADING = 10
 
-local SKY_INTENSITY = 0.25 -- overall night sky brightness
-local SKY_STARS = 2 -- star brightness
-local SKY_MILKYWAY = 6 -- milky way brightness
-local SKY_AIRGLOW = 1 -- horizon haze brightness
+local SKY_INTENSITY = 0.25
+local SKY_STARS = 2
+local SKY_MILKYWAY = 6
+local SKY_AIRGLOW = 1
 local SKY_POLE = Angle(-35, 60, 0):Forward()
 local SKY_AXIS = Angle(-55, 0, 0):Forward()
 local SKY_TURN_RATE = 0.25
@@ -106,7 +106,6 @@ local function start(PIXEL_SHADER, SKY_SHADER, MAP_SHADER)
 		return tod.GetCycle and tod.GetCycle() or tod.current_cycle or 0
 	end
 
-	-- sun elevation in degrees from tod's sun, nil without tod
 	local function sunElevation()
 		local C = tod and tod.CurrentParams
 		if not (C and isangle(C.sun_angles)) then return nil end
@@ -117,7 +116,6 @@ local function start(PIXEL_SHADER, SKY_SHADER, MAP_SHADER)
 	local function nightFactor()
 		local e = sunElevation()
 		if e then
-			-- stars from 3 degrees below the horizon, full at 9 (tod's twilight bottoms out at 12)
 			local x = math.Clamp((-e - 3) / 6, 0, 1)
 
 			return x * x * (3 - 2 * x)
@@ -125,7 +123,6 @@ local function start(PIXEL_SHADER, SKY_SHADER, MAP_SHADER)
 
 		local t = dayFraction()
 		if not t then return 1 end
-		-- full from 21:30 to 02:30, gone by 20:00 / 04:00
 		local hours = math.min(t, 1 - t) * 24
 		local x = math.Clamp((hours - 2.5) / 1.5, 0, 1)
 
@@ -141,7 +138,6 @@ local function start(PIXEL_SHADER, SKY_SHADER, MAP_SHADER)
 
 	local WORLD_UP = Vector(0, 0, 1)
 
-	-- deep night only, clock fallback from 22 to 02 without tod
 	local function auroraWindow()
 		local e = sunElevation()
 		if e then
@@ -167,8 +163,6 @@ local function start(PIXEL_SHADER, SKY_SHADER, MAP_SHADER)
 
 	local render_DrawScreenQuad = render.DrawScreenQuad
 	local render_SetMaterial = render.SetMaterial
-	-- basis from EyeAngles, which is right inside a RenderView too; the fan
-	-- from the view setup's fov (horizontal, aspect-adjusted)
 	local function viewRays()
 		local night = nightFactor() * render.GetToneMappingScaleLinear().x
 		if night <= 0.001 then return end
@@ -183,7 +177,6 @@ local function start(PIXEL_SHADER, SKY_SHADER, MAP_SHADER)
 		local night, fwd, right, halfW, halfH = viewRays()
 		if not night then return end
 
-		-- go the opposite way
 		local skyTurn = -(CurTime() * SKY_TURN_RATE) % 360
 		local sFwd = turned(fwd, SKY_AXIS, skyTurn)
 		local sRight = turned(right, SKY_AXIS, skyTurn)
@@ -230,7 +223,6 @@ local function start(PIXEL_SHADER, SKY_SHADER, MAP_SHADER)
 		local night, fwd, right, halfW, halfH = viewRays()
 		if not night then return end
 
-		-- the band along its x axis
 		local turn = Angle(0, -HEADING, 0)
 		fwd:Rotate(turn)
 		right:Rotate(turn)

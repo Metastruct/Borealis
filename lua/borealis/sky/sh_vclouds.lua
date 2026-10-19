@@ -10,56 +10,18 @@ local vclouds = shaderpack.vclouds or {}
 shaderpack.vclouds = vclouds
 local procsky, cover, depthslices = shaderpack.procsky, shaderpack.cover, shaderpack.depthslices
 
--- Volumetric clouds: a world-space slab ray marched by vclouds_ps30 and
--- composited over the frame before the translucent pass, so the clouds live in
--- the world instead of the skybox: geometry occludes them, they have real
--- perspective, and flying into the layer puts the camera inside them.
---
--- Off by default, and while on it replaces the skybox deck (sh_tod_build reads
--- vclouds.IsActive).  The slab's height comes from the level the eye is in, see
--- BASE_OVER_FLOOR below.
---
--- It shares the fog's vertex shader (a near-plane quad passing its world and
--- clip position) and the fog's depth handling twice over: the engine's depth
--- pass (exact, but only what the engine draws, and sky pixels there are exactly
--- 1.0) and a coarse slice capture of the real frame, so things drawn from Lua
--- hooks (PAC3 parts, clientside models) occlude the clouds too.  The nearer of
--- the two wins.  The slice capture lives in sh_depthslices and is shared with
--- the fog, so whichever draws first pays for it and both read the same alpha.
---
--- The engine fogs the world and never this quad, so the shader fogs the clouds
--- itself off the engine's own ramp, and sh_depthslices composites them before
--- the volumetric fog, which is the nearer volume.  Without either one a far
--- layer hangs in front of the haze instead of dissolving into it.
---
--- The slab's thickness and density are art values inside vclouds_ps30, next to
--- the rest of its shape, because the material has four constants and they are
--- spent on what changes per frame.
-
 local ENABLED = CreateClientConVar("cl_draw_vclouds", "0", true, false, "draw volumetric clouds instead of the skybox deck")
 
--- The slab stands this far over the floor of whichever outdoor level the camera
--- is in (sh_cover's SkyLevel), which puts it inside the build area's own air,
--- the one place where flying into the layer makes sense, and over the sky of the
--- fishing level, which has barely 3000 units of air beneath it.  Sitting above
--- a sky costs nothing, since sky pixels never clip the march.
 local BASE_OVER_FLOOR = 5000
-local SKY_BASE = 3000 -- slab base outside every level
--- Coverage drifts instead of sitting still, and sits low most of the time: two
--- slow sines with periods that do not divide into each other, so the pattern
--- never repeats cleanly, off a wall clock every client shares.  Weather takes
--- it over entirely, which is the only time the flat deck closes up either.
-local COVERAGE_BASE = 0.38 -- 0 clear, 1 solid
-local COVERAGE_SWING = 0.1 -- how far it wanders either side of the base
-local COVERAGE_OVERCAST = 0.8 -- where tod's rain and snow take it
-local COVERAGE_PERIOD_A = 1200 -- seconds
+local SKY_BASE = 3000
+local COVERAGE_BASE = 0.38
+local COVERAGE_SWING = 0.1
+local COVERAGE_OVERCAST = 0.8
+local COVERAGE_PERIOD_A = 1200
 local COVERAGE_PERIOD_B = 1900
--- procsky's moon light is an art value tuned for the flat deck, ~200x its own
--- night ambient, and a volumetric integrates it over a whole cloud, so direct
--- light fades to this share once the sun is well down
 local NIGHT_GAIN = 0.2
-local NIGHT_ELEV = -6 -- sun elevation, in degrees, where NIGHT_GAIN is reached
-local LOG_RANGE = 12 -- light scales span 2^-12 .. 2^12, matches vclouds_ps30
+local NIGHT_ELEV = -6
+local LOG_RANGE = 12
 local EXPOSURE = 0.8
 local OVERCAST_LIGHT = 0.3
 local OVERCAST_AMB = 0.55
@@ -70,9 +32,6 @@ function vclouds.IsActive()
 	return active
 end
 
---------------------------------------------------------------------------
--- material, rebuilt on every start so a kept one never lacks a constant
---------------------------------------------------------------------------
 local MAT
 local materialSerial = 0
 
@@ -84,7 +43,7 @@ local function build()
 		["$texture2"] = "shaderpack/procsky/cloudshape",
 		["$texture3"] = "shaderpack/procsky/clouddetail",
 		["$linearread_basetexture"] = 0,
-		["$linearread_texture1"] = 1, -- depth and both volumes are data
+		["$linearread_texture1"] = 1,
 		["$linearread_texture2"] = 1,
 		["$linearread_texture3"] = 1,
 		["$linearwrite"] = 0,
@@ -100,9 +59,6 @@ local function build()
 	return true
 end
 
---------------------------------------------------------------------------
--- placement and lighting
---------------------------------------------------------------------------
 local TAU = math.pi * 2
 
 local function coverage()
@@ -122,9 +78,6 @@ local function baseZ()
 	return lvl.floor + BASE_OVER_FLOOR
 end
 
--- The slab's base and the coverage it is marching, or nil while it is off.
--- sh_vcloud_shadows shades the ground from this, so the shade belongs to the
--- same field this draws rather than to a second guess at it.
 function vclouds.GetLayer()
 	if not active then return end
 
@@ -133,8 +86,6 @@ end
 
 local packColor, toLinear, setConstant = shaderpack.PackColor, shaderpack.ToLinear, shaderpack.SetConstant
 
--- a colour splits into an 8 bit hue and a log encoded scale: one 8 bit triple
--- cannot hold both a midday sun and a moonlit ambient of 0.002
 local function encodeScale(s)
 	return math.Clamp((math.log(math.max(s, 1e-6), 2) / LOG_RANGE + 1) * 0.5, 0, 1)
 end
@@ -149,11 +100,6 @@ end
 local FOG_START_STEP, FOG_RANGE_STEP = 64, 128
 local fogLinear = { 0, 0, 0 }
 
--- The same fog the engine gave the world: a hue and a log scale like the light,
--- and one packed float holding the start in 64 unit steps, the range in 128 unit
--- steps and the max density in 8 bits, which is 24 bits, all a mantissa carries
--- exactly.  Nothing reads the max density back out of the engine, so it comes
--- from tod's own config, and 1 without it: the fog the world got, not less.
 local function fogRamp(tonemap)
 	if render.GetFogMode() == MATERIAL_FOG_NONE then return 0, 0, 0 end
 	local params = tod and tod.CurrentParams
@@ -175,8 +121,6 @@ local SKY_BLUE = { 0.35, 0.45, 0.62 }
 
 local litLight, litAmb = { 0, 0, 0 }, { 0, 0, 0 }
 
--- direction to the sun and the cloud lighting procsky already derives, with
--- the direct term pulled down once the sun is below the horizon
 local function lighting()
 	if procsky and procsky.GetCloudLighting then
 		local dir, light, amb = procsky.GetCloudLighting()
@@ -208,11 +152,8 @@ end
 
 vclouds.Fog = fogRamp
 
---------------------------------------------------------------------------
--- rendering
---------------------------------------------------------------------------
 local quadColor = Color(255, 255, 0, 255)
-local ORDER = 10 -- the far volume: the fog composites over these
+local ORDER = 10
 
 local function draw()
 	if not MAT and not build() then return end
@@ -236,9 +177,6 @@ local function draw()
 	return depthslices.Composite(MAT, quadColor)
 end
 
---------------------------------------------------------------------------
--- lifecycle
---------------------------------------------------------------------------
 local function stop()
 	hook.Remove("PreDrawTranslucentRenderables", "ms_vclouds")
 	hook.Remove("RenderScreenspaceEffects", "ms_vclouds")

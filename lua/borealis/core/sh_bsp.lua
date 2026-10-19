@@ -1,10 +1,9 @@
 local bspdata = shaderpack.bspdata or {}
 shaderpack.bspdata = bspdata
 
-local LOAD_BUDGET_MS = 8 -- BSP parse work per frame
-local TRI_CELL = 1024 -- triangle index cell size
+local LOAD_BUDGET_MS = 8
+local TRI_CELL = 1024
 
--- little-endian decoders over lump strings (1-based positions)
 local byte = string.byte
 local function u16(s, pos)
 	local b1, b2 = byte(s, pos, pos + 1)
@@ -78,9 +77,6 @@ end
 
 bspdata.FrameBudget = frameBudget
 
--- BSP visibility: the node tree for point -> leaf, each leaf's cluster and the
--- compressed PVS rows.  The engine hides world geometry beyond sky brushes by
--- PVS, never by depth
 local function parseVis()
 	local f, lump = openLumps()
 	if not f then return false, "cannot open maps/" .. game.GetMap() .. ".bsp" end
@@ -92,7 +88,6 @@ local function parseVis()
 	local waterL, waLen = lump(36)
 	f:Close()
 
-	-- no node tree, no planes or no leaves means no vis lookup
 	if noLen == 0 or plLen == 0 or leLen == 0 then
 		return false, string.format("empty bsp lumps (planes %d, nodes %d, leaves %d)", plLen, noLen, leLen)
 	end
@@ -112,7 +107,7 @@ local function parseVis()
 		if i % 2048 == 0 then yieldIfOverBudget() end
 	end
 
-	local leafSize = leVer == 0 and 56 or 32 -- version 0 leaves carry ambient lighting
+	local leafSize = leVer == 0 and 56 or 32
 	local leafCluster, leafWater = {}, {}
 	for i = 0, leLen / leafSize - 1 do
 		leafCluster[i] = i16(leavesL, i * leafSize + 5)
@@ -190,7 +185,6 @@ local function leafAt(vis, x, y, z)
 	return -n - 1
 end
 
--- vis cluster of a point, -1 in solid
 function bspdata.ClusterAt(x, y, z)
 	local vis = bspdata.vis
 
@@ -204,8 +198,6 @@ function bspdata.WaterSurfaceAt(x, y, z)
 	return w >= 0 and vis.waterSurface[w] or nil
 end
 
--- clusters visible from a cluster, decoded from the run-length zero packed row
--- and kept until the cluster changes.  nil means everything (in solid, no vis)
 local pvsVis, pvsCluster, pvsSet
 function bspdata.PVS(cluster)
 	local vis = bspdata.vis
@@ -259,8 +251,6 @@ local function addTri(triGrid, ax, ay, az, bx, by, bz, cx, cy, cz, aa, ab, ac)
 	end
 end
 
--- displacement grid: the face is a quad, corner order starts at startPosition,
--- disp verts run column-major relative to that order (verified against traces)
 local function displacementGrid(px, py, pz, dispinfo, dispverts, di)
 	local dp = di * 176 + 1
 	local sx, sy, sz = f32(dispinfo, dp), f32(dispinfo, dp + 4), f32(dispinfo, dp + 8)
@@ -326,8 +316,6 @@ end
 
 bspdata.Displacement = addDisplacement
 
--- triangles with per-vertex blend alpha (0 = picked, 255 = other), indexed by
--- TRI_CELL grid cell.  Parsed in a coroutine over several frames
 function bspdata.Triangles(classify, minNormalZ)
 	local f, lump = openLumps()
 	if not f then return nil, "cannot open maps/" .. game.GetMap() .. ".bsp" end
@@ -356,7 +344,6 @@ function bspdata.Triangles(classify, minNormalZ)
 		texinfo[i] = i32(texinfoL, i * 72 + 69)
 	end
 
-	-- mode per texdata: 1 = whole surface, 2 = where blend alpha is low, 3 = where it is high
 	local modes = {}
 	for i = 0, tdLen / 32 - 1 do
 		modes[i] = classify(names[i32(texdataL, i * 32 + 13)])
@@ -404,7 +391,6 @@ function bspdata.Triangles(classify, minNormalZ)
 	return triGrid
 end
 
--- point (x, y) against triangle t: z and blend alpha when inside
 function bspdata.Sample(t, x, y)
 	local ax, ay, bx, by, cx, cy = t[1], t[2], t[4], t[5], t[7], t[8]
 	local v0x, v0y = cx - ax, cy - ay
@@ -425,7 +411,6 @@ function bspdata.Sample(t, x, y)
 	return wa * t[3] + wb * t[6] + wc * t[9], wa * t[10] + wb * t[11] + wc * t[12]
 end
 
--- triangles overlapping a chunk, from the grid index
 function bspdata.Candidates(triGrid, x0, y0, x1, y1)
 	local cand, seen = {}, {}
 	for gy = math.floor(y0 / TRI_CELL), math.floor(y1 / TRI_CELL) do
