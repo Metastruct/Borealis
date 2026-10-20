@@ -110,6 +110,8 @@ sampler CoverSpans : register(s6);
 #define SSR_MAX 6000.0
 #define SSR_MIN_THICKNESS 40.0
 #define SSR_THICKNESS_RATIO 0.03
+#define SSR_HIT_SLACK 8.0
+#define SSR_HIT_RATIO 0.005
 #define FOG_DENSITY_MAX 0.001
 #define FOG_FALLOFF_MAX 1000.0
 #define FOG_RANGE 5000.0
@@ -291,7 +293,7 @@ float4 puddleReflection(float3 p, float3 dir, float3 fallback, float2 halfTexel,
 				}
 			}
 
-			if (farBehind < max(SSR_MIN_THICKNESS, farZ * SSR_THICKNESS_RATIO))
+			if (farBehind < max(SSR_HIT_SLACK, max((tFar - tNear) * 2.0, farZ * SSR_HIT_RATIO)))
 			{
 				float2 hitUV = project(p + dir * tFar).xy;
 				float4 hitFrame = tex2Dlod(Frame, float4(hitUV + halfTexel, 0.0, 0.0));
