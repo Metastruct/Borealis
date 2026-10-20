@@ -36,9 +36,14 @@ if SERVER then
 	return
 end
 
+local mountedShaders = {}
+
 function shaderpack.Available(shaders)
 	for _, name in ipairs(shaders) do
-		if not file.Exists("shaders/fxc/" .. name .. ".vcs", "GAME") then return false end
+		if not mountedShaders[name] then
+			if not file.Exists("shaders/fxc/" .. name .. ".vcs", "GAME") then return false end
+			mountedShaders[name] = true
+		end
 	end
 
 	return true
@@ -97,15 +102,25 @@ function shaderpack.Toggle(id, convar, shaders, start, stop)
 	return apply
 end
 
+local pendingToggles = {}
+
+local function applyNextToggle()
+	local id = table.remove(pendingToggles, 1)
+	if not id then
+		hook.Remove("Think", "shaderpack_toggles")
+		return
+	end
+
+	local ok, err = pcall(shaderpack.toggles.apply[id])
+	if not ok then
+		ErrorNoHalt("shaderpack: " .. id .. ": " .. tostring(err) .. "\n")
+	end
+end
+
 cvars.RemoveChangeCallback("cl_shaderpack", "shaderpack")
 cvars.AddChangeCallback("cl_shaderpack", function()
-	local toggles = shaderpack.toggles
-	for _, id in ipairs(toggles.order) do
-		local ok, err = pcall(toggles.apply[id])
-		if not ok then
-			ErrorNoHalt("shaderpack: " .. id .. ": " .. tostring(err) .. "\n")
-		end
-	end
+	pendingToggles = table.Add({}, shaderpack.toggles.order)
+	hook.Add("Think", "shaderpack_toggles", applyNextToggle)
 end, "shaderpack")
 
 function shaderpack.AfterWorld(id, fn)

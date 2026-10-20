@@ -425,7 +425,7 @@ local function initialize()
 		["$c3_x"] = 0, ["$c3_y"] = 0, ["$c3_z"] = 0, ["$c3_w"] = 0,
 	}, "screenspace_general_8tex")
 
-	DEPTH_MAT = file.Exists("shaders/fxc/waterdepth_ps30.vcs", "GAME") and CreateShaderMaterial("water_depth_" .. suffix, {
+	DEPTH_MAT = shaderpack.Available({ "waterdepth_ps30" }) and CreateShaderMaterial("water_depth_" .. suffix, {
 		["$pixshader"] = "waterdepth_ps30",
 		["$vertexshader"] = vs,
 		["$alpha_blend"] = 0,
