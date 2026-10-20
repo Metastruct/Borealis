@@ -17,7 +17,7 @@ sampler Occlusion : register(s2);
 #define DEPTH_BIAS 0.002
 #define EDGE_SLOPE 0.08
 #define BLUR_TOLERANCE 0.05
-#define CENTER_WEIGHT 0.05
+#define FALLBACK 1.0
 #define UNCHANGED 0.998
 
 struct PS_IN
@@ -33,12 +33,20 @@ struct PS_OUT
 	float depth  : DEPTH0;
 };
 
-float2 blurTap(float2 uv, float raw)
+float2 blurTap(float2 uv, float weight, float raw)
 {
 	float2 o = tex2Dlod(Occlusion, float4(uv, 0.0, 0.0)).rg;
-	float w = saturate(1.0 - abs(o.g - raw) / (raw * BLUR_TOLERANCE));
+	float w = weight * saturate(1.0 - abs(o.g - raw) / (raw * BLUR_TOLERANCE));
 
 	return float2(o.r * w, w);
+}
+
+float2 nearestTap(float2 best, float2 uv, float raw)
+{
+	float2 o = tex2Dlod(Occlusion, float4(uv, 0.0, 0.0)).rg;
+	float diff = abs(o.g - raw);
+
+	return diff < best.y ? float2(o.r, diff) : best;
 }
 
 PS_OUT main(PS_IN i)
@@ -61,13 +69,36 @@ PS_OUT main(PS_IN i)
 		return o;
 	}
 
-	float2 corner = floor(uv / TEXEL - 0.5) * TEXEL;
-	float2 acc = float2(tex2Dlod(Occlusion, float4(uv, 0.0, 0.0)).r, 1.0) * CENTER_WEIGHT;
-	acc += blurTap(corner, raw);
-	acc += blurTap(corner + TEXEL * float2(2.0, 0.0), raw);
-	acc += blurTap(corner + TEXEL * float2(0.0, 2.0), raw);
-	acc += blurTap(corner + TEXEL * float2(2.0, 2.0), raw);
-	float ao = acc.x / acc.y;
+	float2 t = uv / TEXEL;
+	float2 g = frac(t);
+	float2 k = floor(t);
+	float3 wx = float3(2.0 - g.x, 2.0, g.x);
+	float3 wy = float3(2.0 - g.y, 2.0, g.y);
+	float3 tx = (k.x + float3(1.0 / (2.0 - g.x) - 1.5, 1.0, 2.5)) * TEXEL.x;
+	float3 ty = (k.y + float3(1.0 / (2.0 - g.y) - 1.5, 1.0, 2.5)) * TEXEL.y;
+
+	float2 acc = 0.0;
+	[unroll]
+	for (int y = 0; y < 3; y++)
+	{
+		[unroll]
+		for (int x = 0; x < 3; x++)
+		{
+			acc += blurTap(float2(tx[x], ty[y]), wx[x] * wy[y], raw);
+		}
+	}
+	float ao = acc.x / max(acc.y, 1e-4);
+
+	[branch] if (acc.y < FALLBACK)
+	{
+		float2 near = (floor(t - 0.5) + 0.5) * TEXEL;
+		float2 best = float2(1.0, 1e30);
+		best = nearestTap(best, near, raw);
+		best = nearestTap(best, near + float2(TEXEL.x, 0.0), raw);
+		best = nearestTap(best, near + float2(0.0, TEXEL.y), raw);
+		best = nearestTap(best, near + TEXEL, raw);
+		ao = lerp(best.x, ao, acc.y / FALLBACK);
+	}
 
 	float luma = max(dot(frame.rgb, float3(0.2126, 0.7152, 0.0722)), 1e-4);
 	float applied = 1.0 - (1.0 - ao) * STRENGTH * min(luma, AMBIENT) / luma;

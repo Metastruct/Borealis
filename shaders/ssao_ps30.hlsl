@@ -16,8 +16,8 @@ sampler Depth : register(s0);
 #define AO_SIZE    Constants2.xy
 #define AO_SCALE   Constants2.z
 
-#define SAMPLES 12
-#define TURNS 5.0
+#define SAMPLES 24
+#define TURNS 7.0
 #define TAU 6.2831853
 #define BIAS 0.5
 #define BIAS_RATIO 0.002
