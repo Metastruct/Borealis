@@ -6,6 +6,9 @@ if SERVER then
 	return
 end
 
+local grade = shaderpack.grade or {}
+shaderpack.grade = grade
+
 local ENABLED = CreateClientConVar("cl_draw_grade", "1", true, false, "colour grade the frame from the time of day")
 local SHARPEN = CreateClientConVar("cl_sharpen", "0.4", true, false, "contrast adaptive sharpening strength, 0 turns it off", 0, 1)
 
@@ -46,17 +49,20 @@ local function neutral(v)
 	return not isvector(v) or (math.abs(v.x - v.y) < EPSILON and math.abs(v.y - v.z) < EPSILON)
 end
 
+local graded = false
+
 local function draw()
 	if render.GetRenderTarget() then return end
+	graded = true
 
 	local C = ENABLED:GetBool() and tod and tod.CurrentParams or {}
 	local exposure = C.grade_exposure or 0
 	local contrast = C.grade_contrast or 1
 	local saturation = C.grade_saturation or 1
-	local graded = not (math.abs(exposure) < EPSILON and math.abs(contrast - 1) < EPSILON and math.abs(saturation - 1) < EPSILON
+	local active = not (math.abs(exposure) < EPSILON and math.abs(contrast - 1) < EPSILON and math.abs(saturation - 1) < EPSILON
 		and neutral(C.grade_white) and neutral(C.grade_shadows) and neutral(C.grade_highlights))
 	local sharpness = SHARPEN:GetFloat()
-	if not graded and sharpness <= 0 then return end
+	if not active and sharpness <= 0 then return end
 
 	local wr, wg, wb = balanced(C.grade_white, 2 ^ exposure)
 	local sr, sg, sb = balanced(C.grade_shadows)
@@ -72,14 +78,42 @@ local function draw()
 	render.DrawScreenQuad()
 end
 
+local running = false
+
+local function wrapper(gm, ...)
+	if grade.original then grade.original(gm, ...) end
+	if running then draw() end
+end
+
+local function wrap()
+	local gm = GAMEMODE
+	if not gm or grade.gm == gm then return end
+	grade.gm, grade.original, grade.wrapper = gm, gm.RenderScreenspaceEffects, wrapper
+	gm.RenderScreenspaceEffects = wrapper
+end
+
+local function fallback()
+	wrap()
+	if not graded then draw() end
+	graded = false
+end
+
 local function stop()
+	running = false
 	hook.Remove("PostDrawEffects", "ms_grade")
+	local gm = grade.gm
+	if gm and gm.RenderScreenspaceEffects == grade.wrapper then
+		gm.RenderScreenspaceEffects = grade.original
+		grade.gm, grade.original, grade.wrapper = nil, nil, nil
+	end
 end
 
 local function start()
 	stop()
 	build()
-	hook.Add("PostDrawEffects", "ms_grade", draw)
+	running = true
+	wrap()
+	hook.Add("PostDrawEffects", "ms_grade", fallback)
 end
 
 shaderpack.Toggle("ms_grade", nil, { PS, VS }, start, stop)()
