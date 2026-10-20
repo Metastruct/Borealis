@@ -692,7 +692,7 @@ local function pacPart(fn)
 end
 
 local function pacHidden(part)
-	if not part:IsValid() or part.Alpha < 1 or part.Size == 0 then return true end
+	if not part:IsValid() or (part.Alpha or 1) < 1 or part.Size == 0 then return true end
 	if part.ClassName == "entity" then return false end
 
 	return part.NoDraw or part.loading or not part.Enabled or part.draw_hidden or part:IsHiddenCached()
