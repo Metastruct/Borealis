@@ -447,7 +447,7 @@ local innerSetRenderTarget = render.SetRenderTarget
 local innerPushRenderTarget = render.PushRenderTarget
 local innerPopRenderTarget = render.PopRenderTarget
 local depthShaders = setmetatable({}, { __mode = "k" })
-local depthTarget
+local depthTarget, depthFlags
 local onDepth, materialWrites = false, false
 
 local function setWrites(on)
@@ -506,6 +506,7 @@ local function depthDrawModel(ent, flags)
 		return innerDrawModel(ent, flags)
 	end
 
+	flags = flags or depthFlags
 	setWrites(true)
 
 	local plan = not ent.GetRenderMesh and planOf(ent)
@@ -538,7 +539,7 @@ local function depthDraw(self, flags)
 
 	local prevDrawModel, prevSetMaterial = entityMeta.DrawModel, render.SetMaterial
 	local prevSetTarget, prevPushTarget, prevPopTarget = render.SetRenderTarget, render.PushRenderTarget, render.PopRenderTarget
-	local prevTarget, prevOnDepth, prevMaterialWrites = depthTarget, onDepth, materialWrites
+	local prevTarget, prevFlags, prevOnDepth, prevMaterialWrites = depthTarget, depthFlags, onDepth, materialWrites
 	if prevDrawModel ~= depthDrawModel then
 		innerDrawModel = prevDrawModel
 		innerSetMaterial = prevSetMaterial
@@ -554,7 +555,7 @@ local function depthDraw(self, flags)
 	render.PopRenderTarget = depthPopRenderTarget
 
 	local target = render.GetRenderTarget()
-	depthTarget = target and target:GetName()
+	depthTarget, depthFlags = target and target:GetName(), flags
 	onDepth, materialWrites = depthTarget ~= nil, false
 	applyWrites()
 
@@ -565,7 +566,7 @@ local function depthDraw(self, flags)
 	render.SetRenderTarget = prevSetTarget
 	render.PushRenderTarget = prevPushTarget
 	render.PopRenderTarget = prevPopTarget
-	depthTarget, onDepth, materialWrites = prevTarget, prevOnDepth, prevMaterialWrites
+	depthTarget, depthFlags, onDepth, materialWrites = prevTarget, prevFlags, prevOnDepth, prevMaterialWrites
 	applyWrites()
 	render.MaterialOverrideByIndex()
 	if not ok then

@@ -108,7 +108,7 @@ sampler CoverSpans : register(s6);
 #define SSR_REFINE 5
 #define SSR_START 8.0
 #define SSR_MAX 6000.0
-#define SSR_MIN_THICKNESS 16.0
+#define SSR_MIN_THICKNESS 40.0
 #define SSR_THICKNESS_RATIO 0.03
 #define FOG_DENSITY_MAX 0.001
 #define FOG_FALLOFF_MAX 1000.0
@@ -267,7 +267,7 @@ float4 puddleReflection(float3 p, float3 dir, float3 fallback, float2 halfTexel,
 
 		float raw = tex2Dlod(Depth, float4(q.xy + halfTexel, 0.0, 0.0)).r;
 		float sceneZ = raw * DEPTH_SCALE;
-		if (!IsSkyDepth(raw) && sceneZ < q.z && q.z - sceneZ < t - tPrev)
+		if (!IsSkyDepth(raw) && sceneZ < q.z && q.z - sceneZ < max(t - tPrev, max(SSR_MIN_THICKNESS, sceneZ * SSR_THICKNESS_RATIO)))
 		{
 			float tNear = tPrev;
 			float tFar = t;
