@@ -89,20 +89,12 @@ if SERVER then
 end
 
 if CLIENT then
-	P.bloom_darken = 0
-	P.bloom_multiply = 0
-	P.bloom_width = 1
-	P.bloom_height = 1
-	P.bloom_passes = 1
-	P.bloom_saturation = 1
-	P.bloom_color = Vector(1, 1, 1)
-	P.color_add = Vector(0, 0, 0)
-	P.color_multiply = Vector(0, 0, 0)
-	P.color_brightness = 0
-	P.color_contrast = 1
-	P.color_saturation = 1
-	P.sharpen_contrast = 0
-	P.sharpen_distance = 0
+	P.grade_exposure = 0
+	P.grade_contrast = 1
+	P.grade_saturation = 1
+	P.grade_white = Vector(1, 1, 1)
+	P.grade_shadows = Vector(1, 1, 1)
+	P.grade_highlights = Vector(1, 1, 1)
 	P.star_intensity = 0
 	P.moon_size = 1
 	P.moon_angles = Angle(0, 0, 0)
@@ -405,38 +397,6 @@ if CLIENT then
 			end)
 		end
 	end
-
-	local enable = CreateClientConVar("tod_pp", "1")
-	local DrawColorModify = DrawColorModify
-
-	hook.Add("RenderScreenspaceEffects", "tod_pp", function()
-		if not enable:GetBool() then return end
-		-- hack
-		-- DrawColorModify may exist after this script is ran
-		DrawColorModify = DrawColorModify or _G.DrawColorModify
-
-		if C.sharpen_contrast ~= 0 or C.sharpen_distance ~= 0 then
-			DrawSharpen(C.sharpen_contrast, C.sharpen_distance)
-		end
-
-		if C.color_add ~= vector_origin or C.color_multiply ~= vector_origin or C.color_brightness ~= 0 or C.color_contrast ~= 1 or C.color_saturation ~= 1 then
-			local params = {}
-			params["$pp_colour_addr"] = C.color_multiply.r
-			params["$pp_colour_addg"] = C.color_multiply.g
-			params["$pp_colour_addb"] = C.color_multiply.b
-			params["$pp_colour_brightness"] = C.color_brightness
-			params["$pp_colour_contrast"] = C.color_contrast
-			params["$pp_colour_colour"] = C.color_saturation
-			params["$pp_colour_mulr"] = C.color_add.r
-			params["$pp_colour_mulg"] = C.color_add.g
-			params["$pp_colour_mulb"] = C.color_add.b
-			DrawColorModify(params)
-		end
-
-		if C.bloom_darken ~= 1 or C.bloom_multiply ~= 0 then
-			DrawBloom(C.bloom_darken, C.bloom_multiply, C.bloom_width, C.bloom_height, C.bloom_passes, C.bloom_saturation, C.bloom_color.r, C.bloom_color.g, C.bloom_color.b)
-		end
-	end)
 
 	local function SetupFog(scale)
 		if C.STOP_STEALING_FOG_CONTROLS then return end
