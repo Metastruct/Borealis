@@ -26,6 +26,7 @@ local FILES = {
 	"liquids/sh_lava_splash",
 	"sky/sh_vcloud_shadows",
 	"lighting/sh_ssao",
+	"lighting/sh_grade",
 	"core/cl_bench",
 }
 

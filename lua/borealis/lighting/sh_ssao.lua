@@ -106,7 +106,7 @@ shaderpack.Toggle("ms_ssao", ENABLED, { PS, BLEND_PS, VS, QUAD_VS }, start, stop
 list.Set("PostProcess", "Ambient Occlusion", {
 	icon = "gui/postprocess/base.png",
 	convar = "cl_draw_ssao",
-	category = "Shaderpack",
+	category = "Borealis",
 	cpanel = function(panel)
 		panel:Help("Darkens creases and contact points that ambient light cannot reach.")
 		panel:CheckBox("Enable", "cl_draw_ssao")
