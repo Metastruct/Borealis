@@ -65,6 +65,8 @@ local function resetRect()
 	rect.x1, rect.y1, rect.x2, rect.y2 = math.huge, math.huge, -math.huge, -math.huge
 end
 
+resetRect()
+
 local function growRect(ent)
 	if rect.full then return end
 
@@ -178,6 +180,7 @@ local function restoreScene(rt)
 end
 
 local function renderBlur(entry)
+	local target = render.GetRenderTarget()
 	render.CopyRenderTargetToTexture(rt_Store)
 
 	if entry.Additive then
@@ -206,6 +209,7 @@ local function renderBlur(entry)
 
 	render.CopyRenderTargetToTexture(rt_Blur)
 	render.BlurRenderTarget(rt_Blur, entry.BlurX, entry.BlurY, 1)
+	render.SetRenderTarget(target)
 	restoreScene(rt_Store)
 
 	render.SetStencilEnable(true)
