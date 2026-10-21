@@ -1,38 +1,38 @@
 #include "include/common.hlsl"
 #include "include/slices.hlsl"
+#include "include/cover_spans.hlsl"
 
 const float4 Constants0 : register(c0);
 const float4 Constants1 : register(c1);
 const float4 Constants2 : register(c2);
-const float4 Constants3 : register(c3);
+const float4 Extra0 : register(c11);
 
 sampler Frame : register(s0);
 sampler Depth : register(s1);
-sampler3D Shape : register(s2);
-sampler3D Detail : register(s3);
+sampler ShadowMap : register(s2);
+sampler CoverSpans : register(s3);
 
 #define EYE       Constants0.xyz
-#define TIME      Constants0.w
+#define STRENGTH  Constants0.w
 #define FWD       Constants1.xyz
 #define BASE_Z    Constants1.w
 #define SUN_DIR   Constants2.xyz
-#define COVERAGE  Constants2.w
-#define STRENGTH  Constants3.w
+
+#define MAP_ORIGIN Extra0.xy
+#define MAP_INV    Extra0.z
+#define SPANS_ON   Extra0.w
 
 #define FADE_START 9000.0
 #define FADE_END 20000.0
 
-#define MIN_SUN_Z 0.02
+#define MIN_SUN_Z 0.03
+#define MAP_EDGE 0.05
 
-#define SHADOW_COL float3(0.60, 0.65, 0.76)
+#define SUN_PROBE 48.0
+#define PROBE_BELOW 32.0
 
-#define DENSITY 0.0005
-#define SLAB_STEPS 4
-
-#define SHAPE_BLEND
-#define SINGLE_SMALL_LATTICE
-
-#include "include/cloud_volume.hlsl"
+#define SHADOW_COL float3(0.35, 0.40, 0.52)
+#define OPACITY 3.0
 
 struct PS_IN
 {
@@ -40,34 +40,6 @@ struct PS_IN
 	float3 wpos  : TEXCOORD1;
 	float4 spos  : TEXCOORD2;
 };
-
-float slabShade(float3 p, float sz)
-{
-	float t0 = (BASE_Z - p.z) / sz;
-	float t1 = (BASE_Z + THICK - p.z) / sz;
-	t0 = max(t0, 0.0);
-	if (t1 <= t0)
-	{
-		return 0.0;
-	}
-
-	float cover = coverAt(p + SUN_DIR * (t0 + t1) * 0.5);
-	t1 = min(t1, (BASE_Z + THICK * columnTop - p.z) / sz);
-	if (t1 <= t0)
-	{
-		return 0.0;
-	}
-
-	float ds = (t1 - t0) / SLAB_STEPS;
-	float tau = 0.0;
-	for (int k = 0; k < SLAB_STEPS; k++)
-	{
-		float3 q = p + SUN_DIR * (t0 + ((float)k + 0.5) * ds);
-		tau += cloudDensity(q, heightFraction(q), ERODE, cover);
-	}
-
-	return 1.0 - exp(-tau * ds * DENSITY);
-}
 
 float4 main(PS_IN i) : COLOR
 {
@@ -95,11 +67,13 @@ float4 main(PS_IN i) : COLOR
 		return float4(scene, 1.0);
 	}
 
-	float shade = slabShade(EYE + ray * t, max(SUN_DIR.z, MIN_SUN_Z)) * STRENGTH * fade;
-
-	if (i.color.b > 0.25)
+	float3 p = EYE + ray * t;
+	float2 m = (p.xy + SUN_DIR.xy / max(SUN_DIR.z, MIN_SUN_Z) * max(BASE_Z - p.z, 0.0) - MAP_ORIGIN) * MAP_INV + 0.5;
+	float2 edge = saturate(min(m, 1.0 - m) / MAP_EDGE);
+	float shade = (1.0 - pow(tex2Dlod(ShadowMap, float4(m, 0.0, 0.0)).r, OPACITY)) * edge.x * edge.y * STRENGTH * fade;
+	[branch] if (shade > 0.0 && SPANS_ON > 0.5)
 	{
-		return float4(shade.xxx, 1.0);
+		shade *= CoverSpansOpen(CoverSpans, p + SUN_DIR * SUN_PROBE, PROBE_BELOW);
 	}
 
 	return float4(scene * lerp(float3(1.0, 1.0, 1.0), SHADOW_COL, shade), 1.0);

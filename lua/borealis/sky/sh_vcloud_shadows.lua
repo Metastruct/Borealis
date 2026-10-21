@@ -1,29 +1,44 @@
 local PS, VS = "vcloud_shadows_ps30", "fog_vs30"
+local MAP_PS, MAP_VS = "vcloudshadowmap_ps30", "aurora_vs30"
 
 if SERVER then
-	shaderpack.AddResources({ VS, PS }, { "materials/shaderpack/procsky/cloudshape.vtf", "materials/shaderpack/procsky/clouddetail.vtf" })
+	shaderpack.AddResources({ VS, PS, MAP_PS, MAP_VS }, { "materials/shaderpack/procsky/cloudshape.vtf", "materials/shaderpack/procsky/clouddetail.vtf" })
 
 	return
 end
 
-local procsky, vclouds, depthslices = shaderpack.procsky, shaderpack.vclouds, shaderpack.depthslices
-
-local STRENGTH = 2.0
+local procsky, vclouds, cover, depthslices = shaderpack.procsky, shaderpack.vclouds, shaderpack.cover, shaderpack.depthslices
 
 local MIN_ELEV, FADE_ELEV = 2, 10
+local MIN_SUN_Z = 0.03
 local ORDER = 5
 local TIME_WRAP = 3600
 
-local MAT
+local MAP_SIZE = 512
+local MAP_EXTENT = 48000
+local MAP_BAKE_EVERY = 4
+local MAP_BAKE_PHASE = 2
+
+local MAT, MAP_MAT, shadowMap
 local materialSerial = 0
+local mapExtra = Matrix()
+local mapX, mapY = 0, 0
+local mapReady = false
 
 local function build()
 	materialSerial = materialSerial + 1
-	MAT = CreateShaderMaterial("ms_vcloud_shadows_" .. os.time() .. "_" .. materialSerial, {
+	local suffix = os.time() .. "_" .. materialSerial
+
+	shadowMap = GetRenderTargetEx("ms_vcloudshadow_" .. MAP_SIZE, MAP_SIZE, MAP_SIZE, RT_SIZE_LITERAL, MATERIAL_RT_DEPTH_NONE, 12, 0, IMAGE_FORMAT_RGBA16161616F)
+	if not shaderpack.UsableRT(shadowMap, MAP_SIZE, MAP_SIZE) then
+		shadowMap = nil
+
+		return false
+	end
+
+	MAT = CreateShaderMaterial("ms_vcloud_shadows_" .. suffix, {
 		["$pixshader"] = PS,
 		["$vertexshader"] = VS,
-		["$texture2"] = "shaderpack/procsky/cloudshape",
-		["$texture3"] = "shaderpack/procsky/clouddetail",
 		["$linearread_basetexture"] = 0,
 		["$linearread_texture1"] = 1,
 		["$linearread_texture2"] = 1,
@@ -35,8 +50,24 @@ local function build()
 		["$c0_x"] = 0, ["$c0_y"] = 0, ["$c0_z"] = 0, ["$c0_w"] = 0,
 		["$c1_x"] = 0, ["$c1_y"] = 0, ["$c1_z"] = 0, ["$c1_w"] = 0,
 		["$c2_x"] = 0, ["$c2_y"] = 0, ["$c2_z"] = 1, ["$c2_w"] = 0,
+	}, "screenspace_general_8tex")
+	MAT:SetTexture("$texture2", shadowMap)
+
+	MAP_MAT = CreateShaderMaterial("ms_vcloudshadowmap_" .. suffix, {
+		["$pixshader"] = MAP_PS,
+		["$vertexshader"] = MAP_VS,
+		["$texture2"] = "shaderpack/procsky/cloudshape",
+		["$texture3"] = "shaderpack/procsky/clouddetail",
+		["$linearread_texture2"] = 1,
+		["$linearread_texture3"] = 1,
+		["$alpha_blend"] = 0,
+		["$additive"] = 0,
+		["$c0_x"] = 0, ["$c0_y"] = 0, ["$c0_z"] = MAP_EXTENT, ["$c0_w"] = 0,
+		["$c1_x"] = 0, ["$c1_y"] = 0, ["$c1_z"] = 1, ["$c1_w"] = 0,
+		["$c2_x"] = 0, ["$c2_y"] = MAP_SIZE, ["$c2_z"] = 0, ["$c2_w"] = 0,
 		["$c3_x"] = 0, ["$c3_y"] = 0, ["$c3_z"] = 0, ["$c3_w"] = 0,
 	})
+	mapReady = false
 
 	return true
 end
@@ -65,7 +96,7 @@ local function update()
 		return
 	end
 
-	local z, cover = vclouds.GetLayer()
+	local z, cov = vclouds.GetLayer()
 	if not z then
 		active = false
 
@@ -73,37 +104,72 @@ local function update()
 	end
 
 	local sun, elev = sunInfo()
-	local overcast = shaderpack.Overcast()
-	local g = STRENGTH * math.Clamp((elev - MIN_ELEV) / FADE_ELEV, 0, 1) * (1 - overcast)
+	local g = math.Clamp((elev - MIN_ELEV) / FADE_ELEV, 0, 1) * (1 - shaderpack.Overcast())
 	if g <= 0.001 then
 		active = false
 
 		return
 	end
 
-	layerZ, coverage, gain, sunDir = z, cover, g, sun
+	layerZ, coverage, gain, sunDir = z, cov, g, sun
 	active = true
+end
+
+local setConstant = shaderpack.SetConstant
+local lastEye
+
+local function bakeMap()
+	if not active then return end
+	if not MAT and not build() then return end
+	if mapReady and FrameNumber() % MAP_BAKE_EVERY ~= MAP_BAKE_PHASE then return end
+
+	local eye = lastEye or EyePos()
+	local texel = MAP_EXTENT / MAP_SIZE
+	local lift = math.max(layerZ - eye.z, 0) / math.max(sunDir.z, MIN_SUN_Z)
+	mapX = math.Round((eye.x + sunDir.x * lift) / texel) * texel
+	mapY = math.Round((eye.y + sunDir.y * lift) / texel) * texel
+
+	setConstant(MAP_MAT, "$c0", mapX, mapY, nil, CurTime() % TIME_WRAP)
+	setConstant(MAP_MAT, "$c1", sunDir.x, sunDir.y, sunDir.z, layerZ)
+	setConstant(MAP_MAT, "$c2", coverage)
+	setConstant(MAP_MAT, "$c3", eye.x, eye.y, eye.z)
+
+	render.PushRenderTarget(shadowMap)
+	render.OverrideAlphaWriteEnable(true, true)
+	render.SetMaterial(MAP_MAT)
+	render.DrawScreenQuad()
+	render.OverrideAlphaWriteEnable(false)
+	render.PopRenderTarget()
+	mapReady = true
 end
 
 local quadColor = Color(255, 255, 0, 255)
 
 local function draw()
-	if not active then return end
-
-	if not MAT and not build() then return end
+	if not active or not mapReady then return end
 
 	local eye = EyePos()
+	lastEye = eye
 	local fwd = EyeAngles():Forward()
-	shaderpack.SetConstant(MAT, "$c0", eye.x, eye.y, eye.z, CurTime() % TIME_WRAP)
-	shaderpack.SetConstant(MAT, "$c1", fwd.x, fwd.y, fwd.z, layerZ)
-	shaderpack.SetConstant(MAT, "$c2", sunDir.x, sunDir.y, sunDir.z, coverage)
-	MAT:SetFloat("$c3_w", gain)
+	local spans = cover and cover.Spans()
+	setConstant(MAT, "$c0", eye.x, eye.y, eye.z, gain)
+	setConstant(MAT, "$c1", fwd.x, fwd.y, fwd.z, layerZ)
+	setConstant(MAT, "$c2", sunDir.x, sunDir.y, sunDir.z)
+	MAT:SetTexture("$texture3", spans or shadowMap)
+	mapExtra:SetUnpacked(
+		mapX, mapY, 1 / MAP_EXTENT, spans and 1 or 0,
+		0, 0, 0, 0,
+		0, 0, 0, 0,
+		0, 0, 0, 0
+	)
+	MAT:SetMatrix("$viewprojmat", mapExtra)
 	quadColor.b = depthslices.Samples()
 	depthslices.Composite(MAT, quadColor)
 end
 
 local function stop()
 	hook.Remove("Think", "ms_vcloud_shadows")
+	hook.Remove("PreRender", "ms_vcloud_shadows")
 	depthslices.RemoveEffect("ms_vcloud_shadows")
 	active = false
 end
@@ -112,7 +178,8 @@ local function start()
 	stop()
 	MAT = nil
 	hook.Add("Think", "ms_vcloud_shadows", update)
+	hook.Add("PreRender", "ms_vcloud_shadows", bakeMap)
 	depthslices.AddEffect("ms_vcloud_shadows", ORDER, draw, false, function() return active end)
 end
 
-shaderpack.Toggle("ms_vcloud_shadows", nil, { PS, VS }, start, stop)()
+shaderpack.Toggle("ms_vcloud_shadows", nil, { PS, VS, MAP_PS, MAP_VS }, start, stop)()
