@@ -276,11 +276,14 @@ if CLIENT then
 	]==]
 
 	function CreateShaderMaterial(name, opts, shader)
-		local key_values = util.KeyValuesToTable(shader_mat, false, true)
+		local key_values = {}
+		for k, v in pairs(util.KeyValuesToTable(shader_mat, false, true)) do
+			key_values[k:lower()] = v
+		end
 
 		if opts then
 			for k, v in pairs(opts) do
-				key_values[k] = v
+				key_values[k:lower()] = v
 			end
 		end
 
