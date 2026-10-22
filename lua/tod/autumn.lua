@@ -1,6 +1,7 @@
 local DIR = "tod_autumn"
 local TINT = Vector(1.7, 1.35, 0.85)
 local KEEP = 0.25
+local SCALE = 0.5
 local LAYERS = { "$basetexture", "$basetexture2" }
 
 tod.autumn = tod.autumn or { originals = {} }
@@ -58,7 +59,7 @@ local greyMat = CreateMaterial("tod_autumn_grey", "g_colourmodify", {
 })
 
 local function bakeGrass(tex, path)
-	local w, h = tex:Width(), tex:Height()
+	local w, h = math.max(1, math.floor(tex:Width() * SCALE)), math.max(1, math.floor(tex:Height() * SCALE))
 	local a, b = renderTarget("tod_autumn_a", w, h), renderTarget("tod_autumn_b", w, h)
 	srcMat:SetTexture("$basetexture", tex)
 	keepMat:SetTexture("$basetexture", tex)
@@ -97,7 +98,7 @@ local function grassJobs()
 			for _, key in ipairs(LAYERS) do
 				local saved = state.originals[path]
 				local tex = saved and saved[key] or mat:GetTexture(key)
-				if tex and not tex:IsError() and tex:GetName():lower():find("grass", 1, true) then
+				if tex and not tex:IsError() and tex:GetName():lower():find("grass", 1, true) and not tex:GetName():lower():find(DIR, 1, true) then
 					state.originals[path] = saved or {}
 					state.originals[path][key] = tex
 
@@ -146,7 +147,7 @@ local function start()
 			return
 		end
 
-		local tex = baked(job.tex:GetName() .. "_" .. util.CRC(tostring(TINT) .. KEEP), "jpg", "mips smooth noclamp", bakeGrass, job.tex)
+		local tex = baked(job.tex:GetName() .. "_" .. util.CRC(tostring(TINT) .. KEEP .. SCALE), "jpg", "mips smooth noclamp", bakeGrass, job.tex)
 		autumnTextures[job.tex:GetName():lower()] = tex
 		for _, layer in ipairs(job.layers) do
 			layer.mat:SetTexture(layer.key, tex)
