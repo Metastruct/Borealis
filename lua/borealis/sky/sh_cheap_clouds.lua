@@ -21,7 +21,7 @@ local function wanted()
 	return level() or shaderpack.Overcast() >= 0.01
 end
 
-local LUT_W, LUT_H = 2048, 1024
+local LUT_W, LUT_H = 1024, 512
 local BANDS = 16
 local BAKE_EVERY = 4
 local CLOUD_SCALE = 3
@@ -39,16 +39,24 @@ local function deckHeight(lvl, overcast)
 end
 
 local setConstant = shaderpack.SetConstant
+local startMesh
 
 local function startShader()
-	local luts = {}
-	for i, name in ipairs({ "a", "b", "c" }) do
-		local rt = GetRenderTargetEx("ms_cloudlut_" .. name .. "_" .. LUT_W .. "x" .. LUT_H, LUT_W, LUT_H, RT_SIZE_LITERAL, MATERIAL_RT_DEPTH_NONE, 8, 0, IMAGE_FORMAT_RGBA16161616F)
-		if not rt or rt:IsError() or rt:Width() ~= LUT_W then return false end
-		render.PushRenderTarget(rt)
-		render.Clear(0, 0, 0, 0)
-		render.PopRenderTarget()
-		luts[i] = { rt = rt, origin = Vector(), mid = 0, side = 1 }
+	local luts
+
+	local function allocLuts()
+		local list = {}
+		for i, name in ipairs({ "a", "b", "c" }) do
+			local rt = GetRenderTargetEx("ms_cloudlut_" .. name .. "_" .. LUT_W .. "x" .. LUT_H, LUT_W, LUT_H, RT_SIZE_LITERAL, MATERIAL_RT_DEPTH_NONE, 8, 0, IMAGE_FORMAT_RGBA16161616F)
+			if not rt or rt:IsError() or rt:Width() ~= LUT_W then return false end
+			render.PushRenderTarget(rt)
+			render.Clear(0, 0, 0, 0)
+			render.PopRenderTarget()
+			list[i] = { rt = rt, origin = Vector(), mid = 0, side = 1 }
+		end
+
+		luts = list
+		return true
 	end
 
 	local BAKE = CreateShaderMaterial("ms_cloudbake_" .. os.time(), {
@@ -154,6 +162,14 @@ local function startShader()
 			return
 		end
 
+		if not luts and not allocLuts() then
+			hook.Remove("PreDrawTranslucentRenderables", Tag)
+			hook.Remove("PreRender", Tag)
+			skyboxer.RemoveHook("e_buildclouds")
+			startMesh()
+			return
+		end
+
 		local lvl = level()
 		if not ready or lvl ~= anchorLevel then
 			if eyeFrame < 0 then eye:Set(EyePos()) end
@@ -211,7 +227,7 @@ local function startShader()
 	return true
 end
 
-local function startMesh()
+function startMesh()
 	local sz = 8192 * 8 * 4
 	local q = sz * (1 / (8192 * 2 * 4))
 	local mesh = Mesh()
