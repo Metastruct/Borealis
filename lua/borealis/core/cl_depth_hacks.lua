@@ -137,7 +137,7 @@ local wrappers = opacity.wrappers
 local function wrap(prev)
 	local function draw(self, flags)
 		local plan = depth[self]
-		if plan and bit.band(flags, STUDIO_SSAODEPTHTEXTURE) ~= 0 then
+		if plan and flags and bit.band(flags,STUDIO_SSAODEPTHTEXTURE) ~= 0 then
 			for i, dw in pairs(plan) do
 				render.MaterialOverrideByIndex(i, dw)
 			end
