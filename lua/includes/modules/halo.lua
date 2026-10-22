@@ -7,7 +7,6 @@ local FLAGS = bit.bor(STUDIO_RENDER, STUDIO_SKIP_DECALS or 0)
 local MAX_WIDTH = 15
 local GROUPS_PER_PASS = 6
 local CODE_BASE, CODE_STEP = 225, 5
-local CLAMP_POINT = 1 + 4 + 8
 local RETRY = 5
 
 local mat_Copy = CreateMaterial("halo_copy", "UnlitGeneric", {
@@ -250,7 +249,8 @@ end
 local function shaderReady(w, h)
 	master = master or GetConVar("cl_shaderpack")
 	if not master or not master:GetBool() or not CreateShaderMaterial then return false end
-	if OUTLINE_MAT and MASK:Width() == w and MASK:Height() == h then return true end
+	if rt_Store:Width() ~= w or rt_Store:Height() ~= h or rt_Blur:Width() ~= w or rt_Blur:Height() ~= h then return false end
+	if OUTLINE_MAT then return true end
 	if RealTime() < retryAt then return false end
 	retryAt = RealTime() + RETRY
 
@@ -258,11 +258,7 @@ local function shaderReady(w, h)
 		if not file.Exists("shaders/fxc/" .. name .. ".vcs", "GAME") then return false end
 	end
 
-	local size = w .. "x" .. h
-	local mask = GetRenderTargetEx("halo_mask_" .. size, w, h, RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE, CLAMP_POINT, 0, IMAGE_FORMAT_RGBA8888)
-	local rows = GetRenderTargetEx("halo_rows_" .. size, w, h, RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE, CLAMP_POINT, 0, IMAGE_FORMAT_RGBA8888)
-	if mask:IsError() or rows:IsError() or mask:Width() ~= w or rows:Width() ~= w then return false end
-
+	local mask, rows = rt_Store, rt_Blur
 	serial = serial + 1
 	local stamp = os.time() .. "_" .. serial
 	local rowsParams = constants()
