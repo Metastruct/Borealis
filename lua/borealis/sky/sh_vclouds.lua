@@ -1,8 +1,9 @@
 local PS, VS = "vclouds_ps30", "fog_vs30"
 local LIGHT_PS, LIGHT_VS = "vcloudlight_ps30", "aurora_vs30"
+local SHAPE, DETAIL = "shaderpack/procsky/cloudshape", "shaderpack/procsky/clouddetail"
 
 if SERVER then
-	shaderpack.AddResources({ VS, PS, LIGHT_PS, LIGHT_VS }, { "materials/shaderpack/procsky/cloudshape.vtf", "materials/shaderpack/procsky/clouddetail.vtf" })
+	shaderpack.AddResources({ VS, PS, LIGHT_PS, LIGHT_VS }, { SHAPE, DETAIL })
 
 	return
 end
@@ -56,8 +57,8 @@ local function build()
 	MAT = CreateShaderMaterial("ms_vclouds_" .. suffix, {
 		["$pixshader"] = PS,
 		["$vertexshader"] = VS,
-		["$texture2"] = "shaderpack/procsky/cloudshape",
-		["$texture3"] = "shaderpack/procsky/clouddetail",
+		["$texture2"] = SHAPE,
+		["$texture3"] = DETAIL,
 		["$linearread_basetexture"] = 0,
 		["$linearread_texture1"] = 1,
 		["$linearread_texture2"] = 1,
@@ -77,8 +78,8 @@ local function build()
 	LIGHT_MAT = CreateShaderMaterial("ms_vcloudlight_" .. suffix, {
 		["$pixshader"] = LIGHT_PS,
 		["$vertexshader"] = LIGHT_VS,
-		["$texture2"] = "shaderpack/procsky/cloudshape",
-		["$texture3"] = "shaderpack/procsky/clouddetail",
+		["$texture2"] = SHAPE,
+		["$texture3"] = DETAIL,
 		["$linearread_texture2"] = 1,
 		["$linearread_texture3"] = 1,
 		["$alpha_blend"] = 0,
@@ -259,4 +260,4 @@ local function start()
 	depthslices.AddEffect("ms_vclouds", ORDER, draw, true, function() return active end)
 end
 
-shaderpack.Toggle("ms_vclouds", ENABLED, { PS, VS, LIGHT_PS, LIGHT_VS }, start, stop)()
+shaderpack.Toggle("ms_vclouds", ENABLED, { PS, VS, LIGHT_PS, LIGHT_VS }, start, stop, { SHAPE, DETAIL })()

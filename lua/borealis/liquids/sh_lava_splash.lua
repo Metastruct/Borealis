@@ -1,8 +1,9 @@
 local PS, VS = "lavasplash_ps30", "fog_vs30"
 local NET = "ms_lava_splash"
+local NOISE_TEXTURE = "shaderpack/procsky/fognoise"
 
 if SERVER then
-	shaderpack.AddResources({ VS, PS }, { "materials/shaderpack/procsky/fognoise.vtf" })
+	shaderpack.AddResources({ VS, PS }, { NOISE_TEXTURE })
 	util.AddNetworkString(NET)
 
 	local lava = shaderpack.lava or {}
@@ -34,7 +35,6 @@ local ORDER = 0.65
 local GLOW_MAT = "sprites/light_glow02_add"
 local SMOKE_MAT = "particle/particle_smokegrenade"
 local LAVA_TEXTURE = "metastruct_4/rock_lava01a"
-local NOISE_TEXTURE = "shaderpack/procsky/fognoise"
 local SPLASH_SOUND = "^ambient/water/water_splash%d%.wav$"
 local SPLASH_MATS = { "effects/splash1", "effects/splash2", "effects/splash3", "effects/splash4", "effects/splashwake1", "effects/splashwake3", "effects/splashwake4" }
 local SIZZLES = { "ambient/levels/canals/toxic_slime_sizzle2.wav", "ambient/levels/canals/toxic_slime_sizzle3.wav", "ambient/levels/canals/toxic_slime_sizzle4.wav" }
@@ -551,4 +551,4 @@ local function start()
 	active = true
 end
 
-shaderpack.AfterWorld("ms_lava_splash", shaderpack.Toggle("ms_lava_splash", GetConVar("cl_draw_lava"), { PS, VS }, start, stop))
+shaderpack.AfterWorld("ms_lava_splash", shaderpack.Toggle("ms_lava_splash", GetConVar("cl_draw_lava"), { PS, VS }, start, stop, { NOISE_TEXTURE }))

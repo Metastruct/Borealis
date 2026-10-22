@@ -1,12 +1,7 @@
 local TEXTURES = { "shaderpack/leaves/leaf1", "shaderpack/leaves/leaf2", "shaderpack/leaves/leaf3" }
 
 if SERVER then
-	local files = {}
-	for i, tex in ipairs(TEXTURES) do
-		files[i] = "materials/" .. tex .. ".vtf"
-	end
-
-	shaderpack.AddResources({}, files)
+	shaderpack.AddResources({}, TEXTURES)
 
 	return
 end
@@ -291,7 +286,6 @@ end
 local function start()
 	stop()
 	if not AUTUMN then return end
-	if not file.Exists("materials/" .. TEXTURES[1] .. ".vtf", "GAME") then return end
 
 	for shape, tex in ipairs(TEXTURES) do
 		leafMats[shape] = leafMats[shape] or CreateMaterial("ms_leaf" .. shape, "UnlitGeneric", {
@@ -309,4 +303,4 @@ local function start()
 	depthslices.AddEffect("ms_leaves", ORDER, drawLeaves)
 end
 
-shaderpack.AfterWorld("ms_leaves", shaderpack.Toggle("ms_leaves", ENABLED, {}, start, stop))
+shaderpack.AfterWorld("ms_leaves", shaderpack.Toggle("ms_leaves", ENABLED, {}, start, stop, TEXTURES))

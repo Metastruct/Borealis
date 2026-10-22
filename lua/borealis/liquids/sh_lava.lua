@@ -1,8 +1,9 @@
 local PS, VS = "lava_ps30", "fog_vs30"
 local AREA_TRIGGER, AREA_MINS, AREA_MAXS, AREA_DELAY = "volcano", "ms_lava_area_mins", "ms_lava_area_maxs", 5
+local NOISE = "shaderpack/procsky/fognoise"
 
 if SERVER then
-	shaderpack.AddResources({ VS, PS }, { "materials/shaderpack/procsky/fognoise.vtf" })
+	shaderpack.AddResources({ VS, PS }, { NOISE })
 
 	local function publishArea()
 		local trigger = ms and ms.GetTrigger and ms.GetTrigger(AREA_TRIGGER)
@@ -458,7 +459,7 @@ local function build()
 	MAT = CreateShaderMaterial("ms_lava_" .. os.time() .. "_" .. materialSerial, {
 		["$pixshader"] = PS,
 		["$vertexshader"] = VS,
-		["$texture3"] = "shaderpack/procsky/fognoise",
+		["$texture3"] = NOISE,
 		["$linearread_basetexture"] = 0,
 		["$linearread_texture1"] = 1,
 		["$linearread_texture2"] = 1,
@@ -680,4 +681,4 @@ local function start()
 	hook.Add("Think", "ms_lava_bake", bakeStep)
 end
 
-shaderpack.AfterWorld("ms_lava", shaderpack.Toggle("ms_lava", ENABLED, { PS, VS }, start, stop))
+shaderpack.AfterWorld("ms_lava", shaderpack.Toggle("ms_lava", ENABLED, { PS, VS }, start, stop, { NOISE }))

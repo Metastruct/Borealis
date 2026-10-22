@@ -1,5 +1,7 @@
+local SHAPE, DETAIL = "shaderpack/procsky/cloudshape", "shaderpack/procsky/clouddetail"
+
 if SERVER then
-	shaderpack.AddResources({ "cloudbake_ps30", "cloudlut_ps30" })
+	shaderpack.AddResources({ "cloudbake_ps30", "cloudlut_ps30" }, { SHAPE, DETAIL })
 
 	return
 end
@@ -62,8 +64,8 @@ local function startShader()
 	local BAKE = CreateShaderMaterial("ms_cloudbake_" .. os.time(), {
 		["$pixshader"] = "cloudbake_ps30",
 		["$vertexshader"] = "aurora_vs30",
-		["$texture2"] = "shaderpack/procsky/cloudshape",
-		["$texture3"] = "shaderpack/procsky/clouddetail",
+		["$texture2"] = SHAPE,
+		["$texture3"] = DETAIL,
 		["$linearread_texture2"] = 1,
 		["$linearread_texture3"] = 1,
 		["$alpha_blend"] = 0,
@@ -325,7 +327,7 @@ end
 local function start()
 	if not shaderpack.WhenMounted(Tag, { "cloudbake_ps30", "cloudlut_ps30", "aurora_vs30" }, function()
 		if not startShader() then startMesh() end
-	end) then
+	end, { SHAPE, DETAIL }) then
 		startMesh()
 	end
 end

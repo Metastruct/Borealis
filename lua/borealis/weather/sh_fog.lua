@@ -1,7 +1,8 @@
 local PS, VS = "fog_ps30", "fog_vs30"
+local NOISE = "shaderpack/procsky/fognoise"
 
 if SERVER then
-	shaderpack.AddResources({ VS, PS }, { "materials/shaderpack/procsky/fognoise.vtf" })
+	shaderpack.AddResources({ VS, PS }, { NOISE })
 
 	return
 end
@@ -31,7 +32,7 @@ local function build()
 	MAT = CreateShaderMaterial("ms_fog_" .. os.time() .. "_" .. materialSerial, {
 		["$pixshader"] = PS,
 		["$vertexshader"] = VS,
-		["$texture2"] = "shaderpack/procsky/fognoise",
+		["$texture2"] = NOISE,
 		["$linearread_basetexture"] = 0,
 		["$linearread_texture1"] = 1,
 		["$linearread_texture2"] = 1,
@@ -162,4 +163,4 @@ local function start()
 	depthslices.AddEffect("ms_fog", ORDER, draw, true, function() return active end)
 end
 
-shaderpack.Toggle("ms_fog", FOG_ENABLED, { PS, VS }, start, stop)()
+shaderpack.Toggle("ms_fog", FOG_ENABLED, { PS, VS }, start, stop, { NOISE })()

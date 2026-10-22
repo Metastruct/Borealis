@@ -1,8 +1,9 @@
 local PS, VS = "vcloud_shadows_ps30", "fog_vs30"
 local MAP_PS, MAP_VS = "vcloudshadowmap_ps30", "aurora_vs30"
+local SHAPE, DETAIL = "shaderpack/procsky/cloudshape", "shaderpack/procsky/clouddetail"
 
 if SERVER then
-	shaderpack.AddResources({ VS, PS, MAP_PS, MAP_VS }, { "materials/shaderpack/procsky/cloudshape.vtf", "materials/shaderpack/procsky/clouddetail.vtf" })
+	shaderpack.AddResources({ VS, PS, MAP_PS, MAP_VS }, { SHAPE, DETAIL })
 
 	return
 end
@@ -56,8 +57,8 @@ local function build()
 	MAP_MAT = CreateShaderMaterial("ms_vcloudshadowmap_" .. suffix, {
 		["$pixshader"] = MAP_PS,
 		["$vertexshader"] = MAP_VS,
-		["$texture2"] = "shaderpack/procsky/cloudshape",
-		["$texture3"] = "shaderpack/procsky/clouddetail",
+		["$texture2"] = SHAPE,
+		["$texture3"] = DETAIL,
 		["$linearread_texture2"] = 1,
 		["$linearread_texture3"] = 1,
 		["$alpha_blend"] = 0,
@@ -182,4 +183,4 @@ local function start()
 	depthslices.AddEffect("ms_vcloud_shadows", ORDER, draw, false, function() return active end)
 end
 
-shaderpack.Toggle("ms_vcloud_shadows", nil, { PS, VS, MAP_PS, MAP_VS }, start, stop)()
+shaderpack.Toggle("ms_vcloud_shadows", nil, { PS, VS, MAP_PS, MAP_VS }, start, stop, { SHAPE, DETAIL })()

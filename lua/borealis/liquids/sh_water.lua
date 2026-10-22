@@ -1,5 +1,7 @@
+local NOISE = "shaderpack/procsky/fognoise"
+
 if SERVER then
-	shaderpack.AddResources({ "water_vs30", "water_ps30", "underwater_ps30", "water_skyfill_ps30", "water_sun_ps30", "waterdepth_ps30" }, { "materials/shaderpack/procsky/fognoise.vtf" })
+	shaderpack.AddResources({ "water_vs30", "water_ps30", "underwater_ps30", "water_skyfill_ps30", "water_sun_ps30", "waterdepth_ps30" }, { NOISE })
 
 	return
 end
@@ -380,7 +382,7 @@ local function initialize()
 		["$alpha_blend"] = 0,
 		["$linearread_texture1"] = 1,
 		["$linearread_texture2"] = 1,
-		["$texture3"] = "shaderpack/procsky/fognoise",
+		["$texture3"] = NOISE,
 		["$linearread_texture3"] = 1,
 		["$c0_x"] = 0, ["$c0_y"] = 0, ["$c0_z"] = 0, ["$c0_w"] = 0,
 		["$c1_x"] = 0, ["$c1_y"] = 0, ["$c1_z"] = 0, ["$c1_w"] = 0,
@@ -398,7 +400,7 @@ local function initialize()
 	SUN_MAT = CreateShaderMaterial("water_sun_" .. suffix, {
 		["$pixshader"] = "water_sun_ps30",
 		["$vertexshader"] = vs,
-		["$texture1"] = "shaderpack/procsky/fognoise",
+		["$texture1"] = NOISE,
 		["$linearread_texture1"] = 1,
 		["$alpha_blend"] = 0,
 		["$additive"] = 1,
@@ -415,7 +417,7 @@ local function initialize()
 		["$writealpha"] = 1,
 		["$linearread_texture1"] = 1,
 		["$linearread_texture2"] = 1,
-		["$texture3"] = "shaderpack/procsky/fognoise",
+		["$texture3"] = NOISE,
 		["$linearread_texture3"] = 1,
 		["$linearread_texture4"] = 1,
 		["$linearread_texture5"] = 1,
@@ -819,4 +821,4 @@ local function start()
 	depthslices.AddEffect("ms_water", SURFACE_ORDER, drawSurfaceAbove, false, function() return depthWanted end)
 end
 
-shaderpack.AfterWorld("ms_water", shaderpack.Toggle("ms_water", WATER_ENABLED, SHADERS, start, stop))
+shaderpack.AfterWorld("ms_water", shaderpack.Toggle("ms_water", WATER_ENABLED, SHADERS, start, stop, { NOISE }))

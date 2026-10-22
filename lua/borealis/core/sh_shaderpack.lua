@@ -21,15 +21,15 @@ function shaderpack.VTFHeader(w, h, format, flags)
 end
 
 if SERVER then
-	function shaderpack.AddResources(shaders, files)
+	function shaderpack.AddResources(shaders, textures)
 		if resource.AddShader then
 			for _, name in ipairs(shaders) do
 				resource.AddShader(name)
 			end
 		end
 
-		for _, path in ipairs(files or {}) do
-			resource.AddFile(path)
+		for _, tex in ipairs(textures or {}) do
+			resource.AddFile("materials/" .. tex .. ".vtf")
 		end
 	end
 
@@ -37,8 +37,9 @@ if SERVER then
 end
 
 local mountedShaders = {}
+local presentTextures, missingTextures = {}, {}
 
-function shaderpack.Available(shaders)
+function shaderpack.Available(shaders, textures)
 	for _, name in ipairs(shaders) do
 		if not mountedShaders[name] then
 			if not file.Exists("shaders/fxc/" .. name .. ".vcs", "GAME") then return false end
@@ -46,12 +47,26 @@ function shaderpack.Available(shaders)
 		end
 	end
 
+	for _, tex in ipairs(textures or {}) do
+		if not presentTextures[tex] then
+			if not file.Exists("materials/" .. tex .. ".vtf", "GAME") then
+				if not missingTextures[tex] then
+					missingTextures[tex] = true
+					MsgN("shaderpack: materials/" .. tex .. ".vtf is missing, check cl_downloadfilter")
+				end
+
+				return false
+			end
+			presentTextures[tex] = true
+		end
+	end
+
 	return true
 end
 
-function shaderpack.WhenMounted(id, shaders, start)
+function shaderpack.WhenMounted(id, shaders, start, textures)
 	hook.Remove("ShaderMounted", id)
-	if shaderpack.Available(shaders) then
+	if shaderpack.Available(shaders, textures) then
 		start()
 		return true
 	end
@@ -59,7 +74,7 @@ function shaderpack.WhenMounted(id, shaders, start)
 	if HAS_SHADER_TO_GMA and not SHADER_MOUNTED then
 		hook.Add("ShaderMounted", id, function()
 			hook.Remove("ShaderMounted", id)
-			if shaderpack.Available(shaders) then
+			if shaderpack.Available(shaders, textures) then
 				start()
 			end
 		end)
@@ -76,7 +91,7 @@ function shaderpack.Enabled()
 	return MASTER:GetBool()
 end
 
-function shaderpack.Toggle(id, convar, shaders, start, stop)
+function shaderpack.Toggle(id, convar, shaders, start, stop, textures)
 	local toggles = shaderpack.toggles
 
 	local function apply()
@@ -91,7 +106,7 @@ function shaderpack.Toggle(id, convar, shaders, start, stop)
 			return
 		end
 
-		shaderpack.WhenMounted(id, shaders, start)
+		shaderpack.WhenMounted(id, shaders, start, textures)
 	end
 
 	if convar then
