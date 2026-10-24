@@ -41,7 +41,6 @@ local function deckHeight(lvl, overcast)
 end
 
 local setConstant = shaderpack.SetConstant
-local startMesh
 
 local function startShader()
 	local luts
@@ -168,7 +167,6 @@ local function startShader()
 			hook.Remove("PreDrawTranslucentRenderables", Tag)
 			hook.Remove("PreRender", Tag)
 			skyboxer.RemoveHook("e_buildclouds")
-			startMesh()
 			return
 		end
 
@@ -222,120 +220,17 @@ local function startShader()
 
 	hook.Add("PreDrawTranslucentRenderables", Tag, cacheFog)
 	hook.Add("PreRender", Tag, bake)
-	skyboxer.RemoveHook("d_" .. Tag)
 	skyboxer.RemoveHook("e_buildclouds")
 	skyboxer.AddHook("e_buildclouds", drawClouds)
-
-	return true
-end
-
-function startMesh()
-	local sz = 8192 * 8 * 4
-	local q = sz * (1 / (8192 * 2 * 4))
-	local mesh = Mesh()
-
-	mesh:BuildFromTriangles({
-		{ pos = sz * Vector(0.5, 0.5, 0), u = q, v = q, normal = Vector(0, 0, 1) },
-		{ pos = sz * Vector(0.5, -0.5, 0), u = q, v = 0, normal = Vector(0, 0, 1) },
-		{ pos = sz * Vector(-0.5, -0.5, 0), u = 0, v = 0, normal = Vector(0, 0, 1) },
-		{ pos = sz * Vector(-0.5, -0.5, 0), u = -q, v = -q, normal = Vector(0, 0, 1) },
-		{ pos = sz * Vector(-0.5, 0.5, 0), u = -q, v = 0, normal = Vector(0, 0, 1) },
-		{ pos = sz * Vector(0.5, 0.5, 0), u = 0, v = 0, normal = Vector(0, 0, 1) },
-	})
-
-	local function cloudMaterial(name, rate)
-		return CreateMaterial(name, "VertexLitGeneric", {
-			["$basetexture"] = "shadertest/cloud",
-			["$translucent"] = 1,
-			["$alpha"] = 0.2,
-			Proxies = {
-				TextureScroll = {
-					texturescrollvar = "$baseTextureTransform",
-					texturescrollrate = rate,
-					texturescrollangle = 0,
-				},
-			},
-		})
-	end
-
-	local mat1 = cloudMaterial(Tag, 0.01)
-	local mat2 = cloudMaterial(Tag .. "2", 0.03)
-
-	local t = {
-		model = "models/props_junk/sawblade001a.mdl",
-		angle = Angle(0, 0, 0),
-		pos = Vector(0, 0, -4000)
-	}
-
-	local clm
-	local off = Vector(0, 0, -1048)
-	local rotate_1 = Angle(0, 45, 0)
-	local rotate_2 = Angle(180, 0, 0)
-	local vector_origin = Vector(0, 0, 0)
-	local translate_1 = Vector(2111, 1400, 475)
-	local translate_2 = Vector(-1123, -1223, 900)
-	local translate_3 = Vector(3123, 4123, 600)
-	local off2 = Vector(0, 0, 2000)
-	local off3 = Vector(0, 0, 4024)
-	local mat = Matrix()
-	local off_off2 = off + off2
-
-	local function drawMesh()
-		if not level() then return end
-
-		local trans = EyePos()
-		trans:Mul(-1)
-		trans:Add(off)
-		trans:Add(off3)
-		mat:Identity()
-		mat:SetTranslation(trans)
-		mat:Rotate(rotate_2)
-		clm = clm and clm:IsValid() and clm or ClientsideModel(t.model, RENDERGROUP_OTHER)
-		clm:SetPos(off_off2)
-		render.SetBlend(0)
-		render.Model(t, clm)
-		render.SetBlend(1)
-		render.SetMaterial(mat1)
-
-		cam.Start3D(vector_origin, EyeAngles(), nil, nil, nil, nil, nil, 256, 8192 * 2 * 2 * 2 * 2)
-		cam.PushModelMatrix(mat)
-		mesh:Draw()
-		cam.PopModelMatrix()
-		mat:Translate(translate_1)
-		cam.PushModelMatrix(mat)
-		mesh:Draw()
-		cam.PopModelMatrix()
-		mat:Rotate(rotate_1)
-		render.SetMaterial(mat2)
-
-		mat:Translate(translate_2)
-		cam.PushModelMatrix(mat)
-		mesh:Draw()
-		cam.PopModelMatrix()
-		mat:Translate(translate_3)
-		cam.PushModelMatrix(mat)
-		mesh:Draw()
-		cam.PopModelMatrix()
-		cam.End3D()
-		render.ClearDepth()
-	end
-
-	skyboxer.RemoveHook("d_" .. Tag)
-	skyboxer.AddHook("d_" .. Tag, drawMesh)
 end
 
 local function start()
-	if not shaderpack.WhenMounted(Tag, { "cloudbake_ps30", "cloudlut_ps30", "aurora_vs30" }, function()
-		if not startShader() then startMesh() end
-	end, { SHAPE, DETAIL }) then
-		startMesh()
-	end
+	shaderpack.WhenMounted(Tag, { "cloudbake_ps30", "cloudlut_ps30", "aurora_vs30" }, startShader, { SHAPE, DETAIL })
 end
 
 local function stop()
 	hook.Remove("PreDrawTranslucentRenderables", Tag)
 	hook.Remove("PreRender", Tag)
-	skyboxer.RemoveHook("d_" .. Tag)
 	skyboxer.RemoveHook("e_buildclouds")
 end
 
