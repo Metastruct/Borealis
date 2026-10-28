@@ -8,8 +8,7 @@ local foliage, wind = shaderpack.foliage, shaderpack.wind
 local GRASS_ENABLED = CreateClientConVar("cl_draw_grass", "0", true, false, "draw grass tufts on grass surfaces")
 local GRASS_DISTANCE = CreateClientConVar("cl_draw_grass_distance", "3072", true, false, "grass draw distance in units", 1024, 16384)
 
-local month = tonumber(os.date("%m")) or 0
-local WINTER = month >= 12 or month <= 2
+local WINTER = shaderpack.Season() == "winter"
 local AUTUMN = false
 local DENSITY, HEIGHT, DRYNESS, ROOT_COLOR, TIP_COLOR, DRY_COLOR
 
@@ -113,4 +112,8 @@ hook.Add("TOD_Autumn", "ms_grass", function()
 	end
 end)
 
-shaderpack.AfterWorld("ms_grass", apply)
+shaderpack.AfterWorld("ms_grass", function()
+	setSeason(shaderpack.Season() == "winter", AUTUMN)
+	layer.height = HEIGHT
+	apply()
+end)

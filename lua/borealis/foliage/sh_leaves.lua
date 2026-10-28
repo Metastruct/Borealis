@@ -11,7 +11,6 @@ shaderpack.leaves = leaves
 local depthslices, wind = shaderpack.depthslices, shaderpack.wind
 
 local ENABLED = CreateClientConVar("cl_draw_leaves", "1", true, false, "draw falling and fallen leaves in autumn")
-local AUTUMN = os.date("%m") == "10"
 
 local LEAF_COLORS = {
 	Color(214, 104, 28),
@@ -285,7 +284,7 @@ end
 
 local function start()
 	stop()
-	if not AUTUMN then return end
+	if shaderpack.Season() ~= "autumn" then return end
 
 	for shape, tex in ipairs(TEXTURES) do
 		leafMats[shape] = leafMats[shape] or CreateMaterial("ms_leaf" .. shape, "UnlitGeneric", {

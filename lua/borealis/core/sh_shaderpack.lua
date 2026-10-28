@@ -178,6 +178,16 @@ function shaderpack.SunDir()
 	return Vector(0, 0, 1)
 end
 
+function shaderpack.Season()
+	if tod and tod.GetSeason then return tod.GetSeason() end
+
+	local month = tonumber(os.date("%m")) or 0
+	if month >= 12 or month <= 2 then return "winter" end
+	if month == 10 then return "autumn" end
+
+	return "summer"
+end
+
 function shaderpack.Elevation(dir)
 	return math.deg(math.asin(math.Clamp(dir.z, -1, 1)))
 end
