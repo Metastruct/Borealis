@@ -183,7 +183,7 @@ function shaderpack.Season()
 
 	local month = tonumber(os.date("%m")) or 0
 	if month >= 12 or month <= 2 then return "winter" end
-	if month == 10 then return "autumn" end
+	if month == 10 or month == 11 then return "autumn" end
 
 	return "summer"
 end
