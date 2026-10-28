@@ -1083,35 +1083,50 @@ if SERVER then
 	AddCSLuaFile("tod/default_cycle.lua")
 end
 
+tod.season_cvar = CreateConVar("sv_tod_season", "", bit.bor(FCVAR_REPLICATED, FCVAR_ARCHIVE), "forces the season on the next map load: winter, autumn or summer, empty for current season")
+
+local SEASONS = {winter = true, autumn = true, summer = true}
+
+function tod.GetSeason()
+	local forced = tod.season_cvar:GetString():lower()
+	if SEASONS[forced] then return forced end
+
+	local month = tonumber(os.date("%m")) or -1
+	if month >= 12 or month <= 2 then return "winter" end
+	if month == 10 or month == 11 then return "autumn" end
+
+	return "summer"
+end
+
+if SERVER then
+	function tod.ForceSeason(season)
+		season = season and season:lower() or ""
+		if season ~= "" and not SEASONS[season] then return false end
+
+		RunConsoleCommand("sv_tod_season", season)
+
+		return true
+	end
+end
 -- weather
 do
 	include("tod/fog.lua")
 
 	if SERVER then
 		AddCSLuaFile("tod/fog.lua")
+		AddCSLuaFile("tod/snow.lua")
+		AddCSLuaFile("tod/rain.lua")
+		AddCSLuaFile("tod/autumn.lua")
 	end
 
-	local month = tonumber(os.date("%m")) or -1
-
-	if month >= 12 or month <= 2 then
+	local season = tod.GetSeason()
+	if season == "winter" then
 		include("tod/snow.lua")
-
-		if SERVER then
-			AddCSLuaFile("tod/snow.lua")
-		end
 	else
 		include("tod/rain.lua")
-
-		if SERVER then
-			AddCSLuaFile("tod/rain.lua")
-		end
 	end
 
-	if month == 10 then
-		if SERVER then
-			AddCSLuaFile("tod/autumn.lua")
-		else
-			include("tod/autumn.lua")
-		end
+	if season == "autumn" and CLIENT then
+		include("tod/autumn.lua")
 	end
 end
