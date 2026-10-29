@@ -14,6 +14,7 @@ local FILES = {
 	"sky/sh_cheap_clouds",
 	"sky/sh_aurora",
 	"liquids/sh_water",
+	"liquids/sh_ice",
 	"foliage/cl_foliage",
 	"foliage/sh_grass",
 	"foliage/sh_seagrass",

@@ -22,7 +22,37 @@ sampler CoverTex : register(s5);
 #define FOG_DENSITY Constants11.z
 #define FOG_FALLOFF Constants11.w
 #define FOG_BASE    Constants12.x
+#define FROZEN      (Constants12.y > 0.5)
 #define FOG_RANGE   5000.0
+
+#define ICE_CRACK_BIG 260.0
+#define ICE_CRACK_FINE 90.0
+#define ICE_CRACK_WIDTH 1.2
+#define ICE_FINE_STRENGTH 0.5
+#define ICE_GROOVE 0.25
+#define ICE_WARP_TILE 900.0
+#define ICE_WARP 90.0
+#define ICE_CRACK_MASK_TILE 2600.0
+#define ICE_CLOUD_TILE 1300.0
+#define ICE_CLOUD_MIN 0.3
+#define ICE_CLOUD_MAX 0.8
+#define ICE_SCATTER 0.5
+#define ICE_TINT float3(0.75, 0.88, 0.95)
+#define ICE_WIND float2(0.9397, 0.3420)
+#define ICE_WIND2 float2(0.7660, 0.6428)
+#define ICE_DRIFT_ALONG 3000.0
+#define ICE_DRIFT_ACROSS 700.0
+#define ICE_GRAIN_TILE 450.0
+#define ICE_COVER_TILE 7000.0
+#define ICE_FROST_SPARSE 0.72
+#define ICE_FROST_DENSE 0.38
+#define ICE_FROST_SOFT 0.2
+#define ICE_FROST_MAX 0.85
+#define ICE_SHORE_DEPTH 24.0
+#define ICE_ALBEDO 0.85
+#define ICE_AMBIENT 0.7
+#define ICE_SUN float3(1.0, 0.96, 0.9)
+#define ICE_CRACK_WHITE 0.4
 #define FOG_AMBIENT 0.6
 
 #define COVER_COLUMN 24.0
@@ -58,6 +88,7 @@ float2 ClipToUV(float4 pixel) {
 #include "include/sky_lut.hlsl"
 #include "include/rain_ripples.hlsl"
 #include "include/fog_layer.hlsl"
+#include "include/ice.hlsl"
 
 float RainExposure(float3 pos, float3 eye) {
     float2 col = floor(pos.xy / COVER_COLUMN);
@@ -124,10 +155,33 @@ float4 main(PS_IN i) : COLOR
 
     float3 viewDir = normalize(i.wpos - EYE_POS);
     float2 slope = WaveSlope(NormalMap, Noise, p, TIME);
+    float crack = 0.0;
+    float cloud = 0.0;
+    float frost = 0.0;
+    [branch] if (FROZEN)
+    {
+        float2 warp = float2(IceNoise(Noise, p, ICE_WARP_TILE, 0.15), IceNoise(Noise, p, ICE_WARP_TILE, 0.85)) - 0.5;
+        float3 big = IceCracks(p + warp * ICE_WARP, ICE_CRACK_BIG);
+        float3 fine = IceCracks(p + 37.0 + warp * ICE_WARP * 0.4, ICE_CRACK_FINE);
+        float bigMask = smoothstep(0.45, 0.6, IceNoise(Noise, p, ICE_CRACK_MASK_TILE, 0.3));
+        float fineMask = smoothstep(0.5, 0.62, IceNoise(Noise, p, ICE_CRACK_MASK_TILE, 0.55));
+        float bigLine = (1.0 - smoothstep(0.0, ICE_CRACK_WIDTH, big.x)) * bigMask;
+        float fineLine = (1.0 - smoothstep(0.0, ICE_CRACK_WIDTH * 0.6, fine.x)) * ICE_FINE_STRENGTH * fineMask;
+        crack = max(bigLine, fineLine);
+        slope = (big.yz * bigLine + fine.yz * fineLine) * ICE_GROOVE;
+        cloud = IceNoise(Noise, p, ICE_CLOUD_TILE, 0.4);
+        float2 drift = float2(dot(p, ICE_WIND) / ICE_DRIFT_ALONG, dot(p, float2(-ICE_WIND.y, ICE_WIND.x)) / ICE_DRIFT_ACROSS);
+        float2 drift2 = float2(dot(p, ICE_WIND2) / (ICE_DRIFT_ALONG * ICE_GOLDEN), dot(p, float2(-ICE_WIND2.y, ICE_WIND2.x)) / (ICE_DRIFT_ACROSS * ICE_GOLDEN));
+        float streak = saturate(0.5 + (tex3Dlod(Noise, float4(drift, 0.7, 0.0)).r + tex3Dlod(Noise, float4(drift2 + 0.53, 0.12, 0.0)).r - 1.0) * 0.7);
+        float grain = IceNoise(Noise, p, ICE_GRAIN_TILE, 0.2);
+        float coverage = IceNoise(Noise, p, ICE_COVER_TILE, 0.9);
+        float threshold = lerp(ICE_FROST_SPARSE, ICE_FROST_DENSE, smoothstep(0.3, 0.7, coverage));
+        frost = smoothstep(threshold, threshold + ICE_FROST_SOFT, streak + (grain - 0.5) * 0.3) * ICE_FROST_MAX;
+    }
 
     float rainNear = RainNear(length(i.wpos - EYE_POS));
     float rain = 0.0;
-    [branch] if (RAIN > 0.0)
+    [branch] if (RAIN > 0.0 && !FROZEN)
     {
         rain = RAIN * RainExposure(i.wpos, EYE_POS);
         [branch] if (rain * rainNear > 0.0)
@@ -162,11 +216,18 @@ float4 main(PS_IN i) : COLOR
         }
 
         float3 seabedPos = EYE_POS + (i.wpos - EYE_POS) * (depth / i.spos.w);
-        float caustics = CausticLight(NormalMap, seabedPos, EYE_POS, i.wpos.z, SUN_DIR, TIME);
         bool seabedSky = abs(depth - DEPTH_SCALE) < SKY_DEPTH_TOLERANCE;
-        frame.rgb *= seabedSky ? 1.0 : lerp(1.0, caustics, SUNLIT);
+        float caustics = CausticLight(NormalMap, seabedPos, EYE_POS, i.wpos.z, SUN_DIR, TIME);
+        frame.rgb *= seabedSky || FROZEN ? 1.0 : lerp(1.0, caustics, SUNLIT);
 
         transmitted = WaterAttenuate(frame.rgb, thickness * MURK, skyScatter);
+        [branch] if (FROZEN)
+        {
+            float3 skyLight = lerp(HORIZON_COLOR, ZENITH_COLOR, 0.5) * ICE_AMBIENT + ICE_SUN * SUNLIT * saturate(SUN_DIR.z * 10.0) * saturate(SUN_DIR.z);
+            float3 scatter = skyLight * ICE_ALBEDO * ICE_SCATTER;
+            transmitted = lerp(transmitted * ICE_TINT, scatter, lerp(ICE_CLOUD_MIN, ICE_CLOUD_MAX, cloud));
+            frost = max(frost, 1.0 - saturate((i.wpos.z - seabedPos.z) / ICE_SHORE_DEPTH));
+        }
 
         float cosTheta = saturate(dot(-viewDir, normal));
         f = (F0 + (1 - F0) * pow(1 - cosTheta, 5)) * saturate((i.wpos.z - seabedPos.z) / SHORE_FADE);
@@ -255,9 +316,17 @@ float4 main(PS_IN i) : COLOR
     if (!FROM_BELOW && hit)
         f *= 1.0 - RainHeavy(rain) * (1.0 - rainNear) * RAIN_HEAVY_FAR_BLUR;
 
-    float3 color = lerp(transmitted, hitColor, f);
+    float3 color = lerp(transmitted, hitColor, f * (1.0 - frost));
     if (!FROM_BELOW)
-        color += SUN_COLOR * spec * f * sunUp * SUNLIT * skyClear * (hit ? 0.0 : 1.0);
+        color += SUN_COLOR * spec * f * (1.0 - frost) * sunUp * SUNLIT * skyClear * (hit ? 0.0 : 1.0);
+
+    [branch] if (FROZEN)
+    {
+        float3 light = lerp(HORIZON_COLOR, ZENITH_COLOR, 0.5) * ICE_AMBIENT + ICE_SUN * SUNLIT * sunUp * saturate(dot(normal, SUN_DIR));
+        float3 white = light * ICE_ALBEDO;
+        color = lerp(color, white, crack * ICE_CRACK_WHITE);
+        color = lerp(color, white, frost);
+    }
 
     return float4(color, ExactDepthAlpha(i.spos.w));
 }

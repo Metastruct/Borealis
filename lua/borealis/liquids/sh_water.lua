@@ -13,14 +13,10 @@ local procsky, bspdata, depthslices, cover = shaderpack.procsky, shaderpack.bspd
 
 require("skyboxer")
 
-local SURF_WARP = 0x8
-local TOP_FACING = 0.99
 local MURK_REF_FOG_END, MURK_MIN, MURK_MAX = 1000, 0.25, 4
 
 local WATER_ENABLED = CreateClientConVar("cl_draw_water", "1", true, false, "draw the custom water surface and underwater effects")
 
-local byte = string.byte
-local u16, i16, i32, f32 = bspdata.U16, bspdata.I16, bspdata.I32, bspdata.F32
 
 local function bodyKey(name)
 	name = name:lower():gsub("^maps/[^/]+/", "")
@@ -60,100 +56,34 @@ local function readSunMaterials()
 end
 
 local function readSurfaceWaterBrushes()
-	local f, lump = bspdata.OpenLumps()
-	if not f then return {} end
-
-	local PLANES, TEXDATA, VERTS = lump(1), lump(2), lump(3)
-	local TEXINFO, FACES = lump(6), lump(7)
-	local LEAFS, _, leafVersion = lump(10)
-	local EDGES, SURFEDGES, MODELS = lump(12), lump(13), lump(14)
-	local LEAFFACES = lump(16)
-	local STRDATA, STRTAB = lump(43), lump(44)
-	f:Close()
-
 	local vis = bspdata.LoadVis()
-	local leafSize = leafVersion == 0 and 56 or 32
-	local faceClusters = {}
-	for leaf = 0, #LEAFS / leafSize - 1 do
-		local cluster = vis and vis.leafCluster[leaf] or -1
-		if cluster >= 0 then
-			local lp = leaf * leafSize + 1
-			local first, count = u16(LEAFS, lp + 20), u16(LEAFS, lp + 22)
-			for n = first, first + count - 1 do
-				local fi = u16(LEAFFACES, n * 2 + 1)
-				faceClusters[fi] = faceClusters[fi] or {}
-				faceClusters[fi][cluster] = true
-			end
-		end
-	end
-
 	local function visibleClusters(pos)
 		if not vis then return end
 
 		return bspdata.PVS(bspdata.ClusterAt(pos.x, pos.y, pos.z))
 	end
 
-	local function matName(td)
-		local id = i32(TEXDATA, td * 32 + 13)
-		local ofs = i32(STRTAB, id * 4 + 1)
-		local e = STRDATA:find("\0", ofs + 1, true)
-
-		return STRDATA:sub(ofs + 1, (e or 1) - 1)
-	end
-
 	local groups = {}
-	for mi = 0, #MODELS / 48 - 1 do
-		local mp = mi * 48 + 1
-		local firstface, numfaces = i32(MODELS, mp + 40), i32(MODELS, mp + 44)
+	for _, face in ipairs(bspdata.WaterFaces(true)) do
+		local name = face.name
+		local key = string.format("%s|%.5f|%.5f|%.5f|%.5f|%d", bodyKey(name), face.su, face.ou, face.sv, face.ov, math.Round(face.dist))
+		local g = groups[key]
+		if not g then
+			g = { body = bodyKey(name), materials = {name}, model = face.model, su = face.su, ou = face.ou, sv = face.sv, ov = face.ov, verts = {}, clusters = {} }
+			groups[key] = g
+		else
+			g.materials[#g.materials + 1] = name
+		end
 
-		for fi = firstface, firstface + numfaces - 1 do
-			local p = fi * 56 + 1
-			local ti = i16(FACES, p + 10)
-			if ti >= 0 and i16(FACES, p + 12) < 0 then
-				local tp = ti * 72 + 1
-				if bit.band(i32(TEXINFO, tp + 64), SURF_WARP) ~= 0 then
-					local pp = u16(FACES, p) * 20 + 1
-					local nz, dist = f32(PLANES, pp + 8), f32(PLANES, pp + 12)
-					if byte(FACES, p + 2) ~= 0 then nz, dist = -nz, -dist end
+		for cluster in pairs(face.clusters) do
+			g.clusters[cluster] = true
+		end
 
-					local name = matName(i32(TEXINFO, tp + 68)):lower()
-					if nz > TOP_FACING and not (name:find("_beneath", 1, true) or name:find("under", 1, true)) then
-						local td = i32(TEXINFO, tp + 68)
-						local tw, th = i32(TEXDATA, td * 32 + 17), i32(TEXDATA, td * 32 + 21)
-						local su, ou = f32(TEXINFO, tp) / tw, f32(TEXINFO, tp + 12) / tw
-						local sv, ov = f32(TEXINFO, tp + 20) / th, f32(TEXINFO, tp + 28) / th
-
-						local key = string.format("%s|%.5f|%.5f|%.5f|%.5f|%d", bodyKey(name), su, ou, sv, ov, math.Round(dist))
-						local g = groups[key]
-						if not g then
-							g = { body = bodyKey(name), materials = {name}, model = mi, su = su, ou = ou, sv = sv, ov = ov, verts = {}, clusters = {} }
-							groups[key] = g
-						else
-							g.materials[#g.materials + 1] = name
-						end
-
-						local firstedge, numedges = i32(FACES, p + 4), i16(FACES, p + 8)
-						local poly = {}
-						for n = 0, numedges - 1 do
-							local se = i32(SURFEDGES, (firstedge + n) * 4 + 1)
-							local vi = se >= 0 and u16(EDGES, se * 4 + 1) or u16(EDGES, -se * 4 + 3)
-							local vp = vi * 12 + 1
-							poly[#poly + 1] = Vector(f32(VERTS, vp), f32(VERTS, vp + 4), f32(VERTS, vp + 8))
-						end
-
-						for cluster in pairs(faceClusters[fi] or {}) do
-							g.clusters[cluster] = true
-						end
-
-						local t = g.verts
-						for n = 2, #poly - 1 do
-							t[#t + 1] = poly[1]
-							t[#t + 1] = poly[n]
-							t[#t + 1] = poly[n + 1]
-						end
-					end
-				end
-			end
+		local poly, t = face.poly, g.verts
+		for n = 2, #poly - 1 do
+			t[#t + 1] = poly[1]
+			t[#t + 1] = poly[n]
+			t[#t + 1] = poly[n + 1]
 		end
 	end
 
@@ -312,6 +242,8 @@ local function buildMeshes()
 
 	local groups, visibility = readSurfaceWaterBrushes()
 	visibleClusters = visibility or function() end
+	local ice = shaderpack.ice
+	local winter = ice and ice.Winter()
 
 	for key, g in pairs(groups) do
 		if #g.verts >= 3 then
@@ -323,6 +255,7 @@ local function buildMeshes()
 			local body = {
 				verts = g.verts, model = g.model, normalmap = normalmap, body = g.body, su = g.su, ou = g.ou, sv = g.sv, ov = g.ov,
 				murk = math.floor(murk / MURK_MAX * 255 + 0.5) / 255 * MURK_MAX, clusters = g.clusters, foreign = foreign,
+				frozen = winter and ice.Freezes(g.model, g.materials[1]) or false,
 			}
 			if g.model == 0 then writeBodyMesh(body) end
 			meshes[key] = body
@@ -595,7 +528,7 @@ local function drawSurface(eyePos, eyeUnderwater, writeDepth)
 	for _, g in pairs(meshes) do
 		if not bodyDrawable(g, pvs) then continue end
 
-		rainConstants:SetUnpacked(rain, g.openness, fogDensity, fogFalloff, fogBase, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+		rainConstants:SetUnpacked(rain, g.openness, fogDensity, fogFalloff, fogBase, g.frozen and 1 or 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
 		SURF_MAT:SetMatrix("$viewprojmat", rainConstants)
 		SURF_MAT:SetTexture("$texture2", g.normalmap)
 		local hr, hg, hb, zr, zg, zb = bodySkyColors(g)

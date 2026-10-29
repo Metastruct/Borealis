@@ -430,6 +430,87 @@ function bspdata.Candidates(triGrid, x0, y0, x1, y1)
 	return cand
 end
 
+local SURF_WARP = 0x8
+local WATER_TOP_FACING = 0.99
+
+function bspdata.WaterFaces(withClusters)
+	local f, lump = openLumps()
+	if not f then return {} end
+
+	local PLANES, TEXDATA, VERTS = lump(1), lump(2), lump(3)
+	local TEXINFO, FACES = lump(6), lump(7)
+	local LEAFS, _, leafVersion = lump(10)
+	local EDGES, SURFEDGES, MODELS = lump(12), lump(13), lump(14)
+	local LEAFFACES = lump(16)
+	local STRDATA, STRTAB = lump(43), lump(44)
+	f:Close()
+
+	local vis = withClusters and bspdata.LoadVis()
+	local leafSize = leafVersion == 0 and 56 or 32
+	local faceClusters = {}
+	for leaf = 0, vis and #LEAFS / leafSize - 1 or -1 do
+		local cluster = vis.leafCluster[leaf] or -1
+		if cluster >= 0 then
+			local lp = leaf * leafSize + 1
+			local first, count = u16(LEAFS, lp + 20), u16(LEAFS, lp + 22)
+			for n = first, first + count - 1 do
+				local fi = u16(LEAFFACES, n * 2 + 1)
+				faceClusters[fi] = faceClusters[fi] or {}
+				faceClusters[fi][cluster] = true
+			end
+		end
+	end
+
+	local function matName(td)
+		local id = i32(TEXDATA, td * 32 + 13)
+		local ofs = i32(STRTAB, id * 4 + 1)
+		local e = STRDATA:find("\0", ofs + 1, true)
+
+		return STRDATA:sub(ofs + 1, (e or 1) - 1)
+	end
+
+	local faces = {}
+	for mi = 0, #MODELS / 48 - 1 do
+		local mp = mi * 48 + 1
+		local firstface, numfaces = i32(MODELS, mp + 40), i32(MODELS, mp + 44)
+
+		for fi = firstface, firstface + numfaces - 1 do
+			local p = fi * 56 + 1
+			local ti = i16(FACES, p + 10)
+			if ti >= 0 and i16(FACES, p + 12) < 0 then
+				local tp = ti * 72 + 1
+				if bit.band(i32(TEXINFO, tp + 64), SURF_WARP) ~= 0 then
+					local pp = u16(FACES, p) * 20 + 1
+					local nz, dist = f32(PLANES, pp + 8), f32(PLANES, pp + 12)
+					if byte(FACES, p + 2) ~= 0 then nz, dist = -nz, -dist end
+
+					local name = matName(i32(TEXINFO, tp + 68)):lower()
+					if nz > WATER_TOP_FACING and not (name:find("_beneath", 1, true) or name:find("under", 1, true)) then
+						local td = i32(TEXINFO, tp + 68)
+						local tw, th = i32(TEXDATA, td * 32 + 17), i32(TEXDATA, td * 32 + 21)
+						local firstedge, numedges = i32(FACES, p + 4), i16(FACES, p + 8)
+						local poly = {}
+						for n = 0, numedges - 1 do
+							local se = i32(SURFEDGES, (firstedge + n) * 4 + 1)
+							local vi = se >= 0 and u16(EDGES, se * 4 + 1) or u16(EDGES, -se * 4 + 3)
+							local vp = vi * 12 + 1
+							poly[#poly + 1] = Vector(f32(VERTS, vp), f32(VERTS, vp + 4), f32(VERTS, vp + 8))
+						end
+
+						faces[#faces + 1] = {
+							model = mi, name = name, dist = dist, poly = poly, clusters = faceClusters[fi] or {},
+							su = f32(TEXINFO, tp) / tw, ou = f32(TEXINFO, tp + 12) / tw,
+							sv = f32(TEXINFO, tp + 20) / th, ov = f32(TEXINFO, tp + 28) / th,
+						}
+					end
+				end
+			end
+		end
+	end
+
+	return faces
+end
+
 local function lightLevel(value)
 	local r, g, b, brightness = (value or ""):match("(%S+)%s+(%S+)%s+(%S+)%s+(%S+)")
 	if not brightness then return 0 end
