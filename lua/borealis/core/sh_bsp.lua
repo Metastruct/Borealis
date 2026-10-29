@@ -429,3 +429,42 @@ function bspdata.Candidates(triGrid, x0, y0, x1, y1)
 
 	return cand
 end
+
+local function lightLevel(value)
+	local r, g, b, brightness = (value or ""):match("(%S+)%s+(%S+)%s+(%S+)%s+(%S+)")
+	if not brightness then return 0 end
+
+	return ((tonumber(r) / 255) ^ 2.2 + (tonumber(g) / 255) ^ 2.2 + (tonumber(b) / 255) ^ 2.2) / 3 * tonumber(brightness)
+end
+
+local bakedSun
+
+function bspdata.BakedSun()
+	if bakedSun then return bakedSun end
+
+	bakedSun = Vector()
+	local f, lump = openLumps()
+	if not f then return bakedSun end
+
+	local entities = lump(0)
+	f:Close()
+	for block in entities:gmatch("%b{}") do
+		if block:find("\"classname\" \"light_environment\"", 1, true) then
+			local function key(name)
+				return block:match("\"" .. name .. "\" \"([^\"]*)\"")
+			end
+
+			local angles = key("angles") or ""
+			local pitch = tonumber(key("pitch") or angles:match("(%S+)")) or 0
+			local yaw = tonumber(angles:match("%S+%s+(%S+)")) or 0
+			local sun, ambient = lightLevel(key("_light")), lightLevel(key("_ambient"))
+			if sun + ambient > 0 then
+				bakedSun = -Angle(-pitch, yaw, 0):Forward() * (sun / (sun + ambient))
+			end
+
+			break
+		end
+	end
+
+	return bakedSun
+end

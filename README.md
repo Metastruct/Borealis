@@ -117,6 +117,12 @@ Detection of things that are drawing into the translucent pass even though they 
 - **Fog** `cl_draw_fog`: a ray-marched height layer at order 20. tod's fog (ground layer) and rain (taller haze) profiles are blended by share. The base eases to the ground under the player plus 40 units, the colour is the engine fog colour.
 - **Rain and snow** `cl_draw_precipitations`: one quad per drop placed by the vertex shader from a template mesh, over a 3x3 grid of 512-unit tiles around the eye. The streak shader discards below the cover window's cut, so rain stops at roofs and doorways. Ripples are one quad per block of level ground, shaded as a height field mirroring the horizon colour. Constants are set once per frame and tile positions ride in the model matrix: with the threaded material system, per-draw constants land on the wrong draws.
 - **Wetness** `cl_draw_wetness`: darkens and glosses up-facing surfaces the rain reaches (cover window, far gloss map beyond it), with puddles on level ground using screen-space reflections and the procsky LUT as fallback. Wets toward tod's rain amount and dries slowly.
+- **Deep snow** `cl_draw_snowcover`: winter only. A 10-unit snow layer built from the BSP triangles tod turns to snow (`grass`, `mud`, `sand`, plus `snow`), so feet, wheels and props sink into it.
+  - Mesh: triangles are clipped to a 32-unit grid in 512-unit chunks, lifted along z, given welded vertex normals and skirts on open edges. Vertices under a roof or in water get no snow. Light is baked per vertex like foliage. It draws in `PostDrawOpaqueRenderables` and writes the engine depth pass with `waterdepth_ps30`.
+  - Trail map: a 1024² RGBA16F window of 2048 units around the eye, addressed toroidally (`frac(x, -y) / 2048`), so recentring only clears the strips that enter. Entities touching the snow are drawn from above with an ortho camera into a stamp RT, clipped at the snow top (Arkham Origins' capture), then `snowstamp_ps30` blurs them into the trail map with a MAX blend. Stationary entities are restamped once a second.
+  - Refill: once a second the trail map is decremented with a reverse-subtract blend, never resampled, so prints cannot drift. Full refill takes 20 minutes, 2 minutes under heavy snowfall. Surface colours are sRGB-decoded before blending, so the decrement is picked through `ToLinear`.
+  - `snowcover_ps30` raymarches the trail map down from the snow top (POM), outputs depth at the hit so sunk feet show inside their prints, and adds self-shadowing toward the baked sun, sky-tinted walls and glints. `screenspace_general` gets no engine fog, so the shader applies it.
+  - Prints only exist inside the window and only for entities in your PVS. Projected shadows and decals on the ground under the snow are hidden by it.
 
 ### Liquids
 
@@ -147,6 +153,7 @@ Detection of things that are drawing into the translucent pass even though they 
 - Hook callbacks that error are removed, and skyboxer's dispatcher dies with them. Wrap experimental code in `pcall`.
 - Keep module tables as `x = x or {}` under `shaderpack.*`; reassigning one on reload wipes live registrations.
 - Full-screen passes are expensive: measure before adding taps or march steps.
+- `render.DrawScreenQuadEx` takes screen coordinates even inside a pushed render target. To fill a rect of an RT, use `render.SetViewPort` and `render.DrawScreenQuad`.
 
 ## Data
 

@@ -22,6 +22,7 @@ local FILES = {
 	"weather/sh_precipitations",
 	"weather/sh_fog",
 	"weather/sh_wetness",
+	"weather/sh_snowcover",
 	"liquids/sh_lava",
 	"liquids/sh_lava_splash",
 	"sky/sh_vcloud_shadows",

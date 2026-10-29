@@ -199,41 +199,6 @@ local function skyColors()
 	return r, g, b, r, g, b
 end
 
-local bakedSun
-
-local function lightLevel(value)
-	local r, g, b, brightness = (value or ""):match("(%S+)%s+(%S+)%s+(%S+)%s+(%S+)")
-	if not brightness then return 0 end
-
-	return ((tonumber(r) / 255) ^ 2.2 + (tonumber(g) / 255) ^ 2.2 + (tonumber(b) / 255) ^ 2.2) / 3 * tonumber(brightness)
-end
-
-local function readBakedSun()
-	bakedSun = Vector()
-	local f, lump = bspdata.OpenLumps()
-	if not f then return end
-
-	local entities = lump(0)
-	f:Close()
-	for block in entities:gmatch("%b{}") do
-		if block:find("\"classname\" \"light_environment\"", 1, true) then
-			local function key(name)
-				return block:match("\"" .. name .. "\" \"([^\"]*)\"")
-			end
-
-			local angles = key("angles") or ""
-			local pitch = tonumber(key("pitch") or angles:match("(%S+)")) or 0
-			local yaw = tonumber(angles:match("%S+%s+(%S+)")) or 0
-			local sun, ambient = lightLevel(key("_light")), lightLevel(key("_ambient"))
-			if sun + ambient > 0 then
-				bakedSun = -Angle(-pitch, yaw, 0):Forward() * (sun / (sun + ambient))
-			end
-
-			return
-		end
-	end
-end
-
 local FOG_DENSITY_MAX, FOG_FALLOFF_MAX = 0.001, 1000
 local quadColor = Color(0, 0, 0, 255)
 local extra = Matrix()
@@ -245,7 +210,7 @@ local function draw()
 	if not coverRT or not farRT then return end
 
 	if not MAT then build() end
-	if not bakedSun then readBakedSun() end
+	local bakedSun = bspdata.BakedSun()
 
 	MAT:SetTexture("$texture2", coverRT)
 	MAT:SetTexture("$texture5", farRT)
