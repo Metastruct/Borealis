@@ -1,6 +1,6 @@
 AddCSLuaFile()
 
-local SHADERS = { "aurora_vs30", "aurora_ps30", "aurora_map_ps30", "nightsky_ps30" }
+local SHADERS = { "borealis_passthrough_vs30", "borealis_aurora_ps30", "borealis_aurora_map_ps30", "borealis_nightsky_ps30" }
 local NOISE, MILKYWAY = "shaderpack/aurora/noise", "shaderpack/aurora/milkyway"
 
 if SERVER then
@@ -36,7 +36,7 @@ local function start(PIXEL_SHADER, SKY_SHADER, MAP_SHADER)
 	local function shaderMaterial(name, pixelShader, constants)
 		local kv = {
 			["$pixshader"] = pixelShader,
-			["$vertexshader"] = "aurora_vs30",
+			["$vertexshader"] = "borealis_passthrough_vs30",
 			["$additive"] = 1,
 			["$alpha_blend"] = 0,
 		}
@@ -48,7 +48,7 @@ local function start(PIXEL_SHADER, SKY_SHADER, MAP_SHADER)
 		return CreateShaderMaterial(name .. "_" .. os.time(), kv)
 	end
 
-	local MAT = shaderMaterial("ms_aurora_sky", PIXEL_SHADER, {
+	local MAT = shaderMaterial("borealis_aurora_sky", PIXEL_SHADER, {
 		["$basetexture"] = NOISE,
 		["$linearread_texture1"] = 1,
 		["$c0_x"] = 1, ["$c0_y"] = 0,
@@ -61,7 +61,7 @@ local function start(PIXEL_SHADER, SKY_SHADER, MAP_SHADER)
 		["$c3_z"] = SHARPNESS, ["$c3_w"] = 0,
 	})
 
-	local SKY_MAT = shaderMaterial("ms_aurora_nightsky", SKY_SHADER, {
+	local SKY_MAT = shaderMaterial("borealis_aurora_nightsky", SKY_SHADER, {
 		["$basetexture"] = MILKYWAY,
 		["$c0_x"] = 1, ["$c0_y"] = 0,
 		["$c0_z"] = 0, ["$c0_w"] = 0,
@@ -73,7 +73,7 @@ local function start(PIXEL_SHADER, SKY_SHADER, MAP_SHADER)
 		["$c3_z"] = SKY_POLE.z, ["$c3_w"] = SKY_AIRGLOW,
 	})
 
-	local MAP_MAT = shaderMaterial("ms_aurora_map", MAP_SHADER, {
+	local MAP_MAT = shaderMaterial("borealis_aurora_map", MAP_SHADER, {
 		["$basetexture"] = NOISE,
 		["$additive"] = 0,
 		["$c0_x"] = 0, ["$c0_y"] = SCALE,
@@ -86,7 +86,7 @@ local function start(PIXEL_SHADER, SKY_SHADER, MAP_SHADER)
 
 	local function curtainTarget()
 		if not usableRT(curtainMap, MAP_SIZE, MAP_SIZE) then
-			curtainMap = GetRenderTargetEx("ms_aurora_curtains_" .. MAP_SIZE, MAP_SIZE, MAP_SIZE, RT_SIZE_LITERAL, MATERIAL_RT_DEPTH_NONE, 12, 0, IMAGE_FORMAT_RGBA16161616F)
+			curtainMap = GetRenderTargetEx("borealis_aurora_curtains_" .. MAP_SIZE, MAP_SIZE, MAP_SIZE, RT_SIZE_LITERAL, MATERIAL_RT_DEPTH_NONE, 12, 0, IMAGE_FORMAT_RGBA16161616F)
 			if not usableRT(curtainMap, MAP_SIZE, MAP_SIZE) then return nil end
 		end
 
@@ -240,9 +240,9 @@ local function start(PIXEL_SHADER, SKY_SHADER, MAP_SHADER)
 		render_DrawScreenQuad(true)
 	end
 
-	hook.Add("PreRender", "ms_aurora_curtains", renderCurtainMap)
+	hook.Add("PreRender", "borealis_aurora_curtains", renderCurtainMap)
 
-	hook.Remove("PostDraw2DSkyBox", "ms_aurora_sky")
+	hook.Remove("PostDraw2DSkyBox", "borealis_aurora_sky")
 	if skyboxer then
 		skyboxer.RemoveHook("b_aurora_nightsky")
 		skyboxer.RemoveHook("d_aurora_curtains")
@@ -253,7 +253,7 @@ local function start(PIXEL_SHADER, SKY_SHADER, MAP_SHADER)
 			drawAurora()
 		end)
 	else
-		hook.Add("PostDraw2DSkyBox", "ms_aurora_sky", function()
+		hook.Add("PostDraw2DSkyBox", "borealis_aurora_sky", function()
 			if not AURORA_ENABLED:GetBool() then return end
 			drawNightSky()
 			drawAurora()
@@ -262,14 +262,14 @@ local function start(PIXEL_SHADER, SKY_SHADER, MAP_SHADER)
 end
 
 local function stop()
-	hook.Remove("PreRender", "ms_aurora_curtains")
-	hook.Remove("PostDraw2DSkyBox", "ms_aurora_sky")
+	hook.Remove("PreRender", "borealis_aurora_curtains")
+	hook.Remove("PostDraw2DSkyBox", "borealis_aurora_sky")
 	if skyboxer then
 		skyboxer.RemoveHook("b_aurora_nightsky")
 		skyboxer.RemoveHook("d_aurora_curtains")
 	end
 end
 
-shaderpack.Toggle("ms_aurora_sky", nil, SHADERS, function()
-	start("aurora_ps30", "nightsky_ps30", "aurora_map_ps30")
+shaderpack.Toggle("borealis_aurora_sky", nil, SHADERS, function()
+	start("borealis_aurora_ps30", "borealis_nightsky_ps30", "borealis_aurora_map_ps30")
 end, stop, { NOISE, MILKYWAY })()

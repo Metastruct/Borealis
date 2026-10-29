@@ -1,5 +1,5 @@
-local PS, VS = "vcloud_shadows_ps30", "fog_vs30"
-local MAP_PS, MAP_VS = "vcloudshadowmap_ps30", "aurora_vs30"
+local PS, VS = "borealis_vcloud_shadows_ps30", "borealis_fog_vs30"
+local MAP_PS, MAP_VS = "borealis_vcloudshadowmap_ps30", "borealis_passthrough_vs30"
 local SHAPE, DETAIL = "shaderpack/procsky/cloudshape", "shaderpack/procsky/clouddetail"
 
 if SERVER then
@@ -30,20 +30,21 @@ local function build()
 	materialSerial = materialSerial + 1
 	local suffix = os.time() .. "_" .. materialSerial
 
-	shadowMap = GetRenderTargetEx("ms_vcloudshadow_" .. MAP_SIZE, MAP_SIZE, MAP_SIZE, RT_SIZE_LITERAL, MATERIAL_RT_DEPTH_NONE, 12, 0, IMAGE_FORMAT_RGBA16161616F)
+	shadowMap = GetRenderTargetEx("borealis_vcloudshadow_" .. MAP_SIZE, MAP_SIZE, MAP_SIZE, RT_SIZE_LITERAL, MATERIAL_RT_DEPTH_NONE, 12, 0, IMAGE_FORMAT_RGBA16161616F)
 	if not shaderpack.UsableRT(shadowMap, MAP_SIZE, MAP_SIZE) then
 		shadowMap = nil
 
 		return false
 	end
 
-	MAT = CreateShaderMaterial("ms_vcloud_shadows_" .. suffix, {
+	MAT = CreateShaderMaterial("borealis_vcloud_shadows_" .. suffix, {
 		["$pixshader"] = PS,
 		["$vertexshader"] = VS,
 		["$linearread_basetexture"] = 0,
 		["$linearread_texture1"] = 1,
 		["$linearread_texture2"] = 1,
 		["$linearread_texture3"] = 1,
+		["$linearread_texture4"] = 1,
 		["$linearwrite"] = 0,
 		["$additive"] = 0,
 		["$alpha_blend"] = 0,
@@ -54,7 +55,7 @@ local function build()
 	}, "screenspace_general_8tex")
 	MAT:SetTexture("$texture2", shadowMap)
 
-	MAP_MAT = CreateShaderMaterial("ms_vcloudshadowmap_" .. suffix, {
+	MAP_MAT = CreateShaderMaterial("borealis_vcloudshadowmap_" .. suffix, {
 		["$pixshader"] = MAP_PS,
 		["$vertexshader"] = MAP_VS,
 		["$texture2"] = SHAPE,
@@ -122,9 +123,11 @@ local lastEye
 local function bakeMap()
 	if not active then return end
 	if not MAT and not build() then return end
-	if mapReady and FrameNumber() % MAP_BAKE_EVERY ~= MAP_BAKE_PHASE then return end
 
 	local eye = lastEye or EyePos()
+	cover.UpdateExposure(eye)
+	if mapReady and FrameNumber() % MAP_BAKE_EVERY ~= MAP_BAKE_PHASE then return end
+
 	local texel = MAP_EXTENT / MAP_SIZE
 	local lift = math.max(layerZ - eye.z, 0) / math.max(sunDir.z, MIN_SUN_Z)
 	mapX = math.Round((eye.x + sunDir.x * lift) / texel) * texel
@@ -157,9 +160,11 @@ local function draw()
 	setConstant(MAT, "$c1", fwd.x, fwd.y, fwd.z, layerZ)
 	setConstant(MAT, "$c2", sunDir.x, sunDir.y, sunDir.z)
 	MAT:SetTexture("$texture3", spans or shadowMap)
+	local exposure, ex, ey, einv, ez = cover.Exposure()
+	MAT:SetTexture("$texture4", exposure or shadowMap)
 	mapExtra:SetUnpacked(
 		mapX, mapY, 1 / MAP_EXTENT, spans and 1 or 0,
-		0, 0, 0, 0,
+		ex or 0, ey or 0, einv or 0, ez or 0,
 		0, 0, 0, 0,
 		0, 0, 0, 0
 	)
@@ -169,18 +174,18 @@ local function draw()
 end
 
 local function stop()
-	hook.Remove("Think", "ms_vcloud_shadows")
-	hook.Remove("PreRender", "ms_vcloud_shadows")
-	depthslices.RemoveEffect("ms_vcloud_shadows")
+	hook.Remove("Think", "borealis_vcloud_shadows")
+	hook.Remove("PreRender", "borealis_vcloud_shadows")
+	depthslices.RemoveEffect("borealis_vcloud_shadows")
 	active = false
 end
 
 local function start()
 	stop()
 	MAT = nil
-	hook.Add("Think", "ms_vcloud_shadows", update)
-	hook.Add("PreRender", "ms_vcloud_shadows", bakeMap)
-	depthslices.AddEffect("ms_vcloud_shadows", ORDER, draw, false, function() return active end)
+	hook.Add("Think", "borealis_vcloud_shadows", update)
+	hook.Add("PreRender", "borealis_vcloud_shadows", bakeMap)
+	depthslices.AddEffect("borealis_vcloud_shadows", ORDER, draw, false, function() return active end)
 end
 
-shaderpack.Toggle("ms_vcloud_shadows", nil, { PS, VS, MAP_PS, MAP_VS }, start, stop, { SHAPE, DETAIL })()
+shaderpack.Toggle("borealis_vcloud_shadows", nil, { PS, VS, MAP_PS, MAP_VS, unpack(cover.EXPOSURE_SHADERS) }, start, stop, { SHAPE, DETAIL })()

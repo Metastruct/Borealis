@@ -1,5 +1,5 @@
-local PS, VS = "vclouds_ps30", "fog_vs30"
-local LIGHT_PS, LIGHT_VS = "vcloudlight_ps30", "aurora_vs30"
+local PS, VS = "borealis_vclouds_ps30", "borealis_fog_vs30"
+local LIGHT_PS, LIGHT_VS = "borealis_vcloudlight_ps30", "borealis_passthrough_vs30"
 local SHAPE, DETAIL = "shaderpack/procsky/cloudshape", "shaderpack/procsky/clouddetail"
 
 if SERVER then
@@ -48,13 +48,13 @@ local function build()
 	materialSerial = materialSerial + 1
 	local suffix = os.time() .. "_" .. materialSerial
 
-	lightMap = GetRenderTargetEx("ms_vcloudlight_" .. MAP_SIZE, MAP_SIZE, MAP_SIZE, RT_SIZE_LITERAL, MATERIAL_RT_DEPTH_NONE, 12, 0, IMAGE_FORMAT_RGBA16161616F)
+	lightMap = GetRenderTargetEx("borealis_vcloudlight_" .. MAP_SIZE, MAP_SIZE, MAP_SIZE, RT_SIZE_LITERAL, MATERIAL_RT_DEPTH_NONE, 12, 0, IMAGE_FORMAT_RGBA16161616F)
 	if not shaderpack.UsableRT(lightMap, MAP_SIZE, MAP_SIZE) then
 		lightMap = nil
 		return false
 	end
 
-	MAT = CreateShaderMaterial("ms_vclouds_" .. suffix, {
+	MAT = CreateShaderMaterial("borealis_vclouds_" .. suffix, {
 		["$pixshader"] = PS,
 		["$vertexshader"] = VS,
 		["$texture2"] = SHAPE,
@@ -75,7 +75,7 @@ local function build()
 	}, "screenspace_general_8tex")
 	MAT:SetTexture("$texture4", lightMap)
 
-	LIGHT_MAT = CreateShaderMaterial("ms_vcloudlight_" .. suffix, {
+	LIGHT_MAT = CreateShaderMaterial("borealis_vcloudlight_" .. suffix, {
 		["$pixshader"] = LIGHT_PS,
 		["$vertexshader"] = LIGHT_VS,
 		["$texture2"] = SHAPE,
@@ -245,10 +245,10 @@ local function draw()
 end
 
 local function stop()
-	hook.Remove("PreDrawTranslucentRenderables", "ms_vclouds")
-	hook.Remove("RenderScreenspaceEffects", "ms_vclouds")
-	hook.Remove("PreRender", "ms_vclouds")
-	depthslices.RemoveEffect("ms_vclouds")
+	hook.Remove("PreDrawTranslucentRenderables", "borealis_vclouds")
+	hook.Remove("RenderScreenspaceEffects", "borealis_vclouds")
+	hook.Remove("PreRender", "borealis_vclouds")
+	depthslices.RemoveEffect("borealis_vclouds")
 	active = false
 end
 
@@ -256,8 +256,8 @@ local function start()
 	stop()
 	active = true
 	mapReady = false
-	hook.Add("PreRender", "ms_vclouds", bakeLight)
-	depthslices.AddEffect("ms_vclouds", ORDER, draw, true, function() return active end)
+	hook.Add("PreRender", "borealis_vclouds", bakeLight)
+	depthslices.AddEffect("borealis_vclouds", ORDER, draw, true, function() return active end)
 end
 
-shaderpack.Toggle("ms_vclouds", ENABLED, { PS, VS, LIGHT_PS, LIGHT_VS }, start, stop, { SHAPE, DETAIL })()
+shaderpack.Toggle("borealis_vclouds", ENABLED, { PS, VS, LIGHT_PS, LIGHT_VS }, start, stop, { SHAPE, DETAIL })()

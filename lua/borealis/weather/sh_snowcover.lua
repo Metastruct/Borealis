@@ -1,4 +1,4 @@
-local PS, VS, DEPTH_PS, STAMP_PS = "snowcover_ps30", "water_vs30", "waterdepth_ps30", "snowstamp_ps30"
+local PS, VS, DEPTH_PS, STAMP_PS = "borealis_snowcover_ps30", "borealis_water_vs30", "borealis_waterdepth_ps30", "borealis_snowstamp_ps30"
 local NOISE = "shaderpack/procsky/fognoise"
 local SHADERS = { PS, VS, DEPTH_PS, STAMP_PS }
 
@@ -10,6 +10,14 @@ end
 
 local bspdata, depthslices, foliage = shaderpack.bspdata, shaderpack.depthslices, shaderpack.foliage
 local ENABLED = CreateClientConVar("cl_draw_snowcover", "1", true, false, "draw deep snow with footprints on snowy ground in winter")
+local snowcover = shaderpack.snowcover or {}
+shaderpack.snowcover = snowcover
+
+local paused = false
+
+function snowcover.SetPaused(state)
+	paused = state
+end
 
 local DEPTH = 10
 local CHUNK, CELL = 512, 32
@@ -446,7 +454,7 @@ local function think()
 		if not ok or (coroutine.status(loader) == "dead" and not res) then
 			ErrorNoHalt("[snowcover] off: " .. tostring(ok and why or res) .. "\n")
 			loader = nil
-			hook.Remove("Think", "ms_snowcover")
+			hook.Remove("Think", "borealis_snowcover")
 
 			return
 		end
@@ -694,7 +702,7 @@ local function capture()
 end
 
 local function prepare()
-	if not trailRT then return end
+	if not trailRT or paused then return end
 
 	local eye = EyePos()
 	recentre(eye)
@@ -723,7 +731,7 @@ end
 local visible = {}
 
 local function draw(depth, skybox, sky3d)
-	if not ready or depth or skybox or sky3d or render.GetRenderTarget() then return end
+	if paused or not ready or depth or skybox or sky3d or render.GetRenderTarget() then return end
 
 	local eye, fwd = EyePos(), EyeVector()
 	local ang = EyeAngles()
@@ -857,10 +865,10 @@ end
 local winterRemoved = false
 
 local function stop()
-	hook.Remove("Think", "ms_snowcover")
-	hook.Remove("PreRender", "ms_snowcover")
-	hook.Remove("PostDrawOpaqueRenderables", "ms_snowcover")
-	hook.Remove("ShouldDrawLocalPlayer", "ms_snowcover")
+	hook.Remove("Think", "borealis_snowcover")
+	hook.Remove("PreRender", "borealis_snowcover")
+	hook.Remove("PostDrawOpaqueRenderables", "borealis_snowcover")
+	hook.Remove("ShouldDrawLocalPlayer", "borealis_snowcover")
 	for _, ch in pairs(chunks) do
 		destroyChunk(ch)
 	end
@@ -874,8 +882,8 @@ local function start()
 	stop()
 	if winterRemoved or shaderpack.Season() ~= "winter" then return end
 
-	trailRT = GetRenderTargetEx("ms_snowcover_trail_" .. TRAIL_TEXELS, TRAIL_TEXELS, TRAIL_TEXELS, RT_SIZE_LITERAL, MATERIAL_RT_DEPTH_NONE, 0, 0, IMAGE_FORMAT_RGBA16161616F)
-	stampRT = GetRenderTargetEx("ms_snowcover_stamp_" .. TRAIL_TEXELS, TRAIL_TEXELS, TRAIL_TEXELS, RT_SIZE_LITERAL, MATERIAL_RT_DEPTH_NONE, 0, 0, IMAGE_FORMAT_RGBA8888)
+	trailRT = GetRenderTargetEx("borealis_snowcover_trail_" .. TRAIL_TEXELS, TRAIL_TEXELS, TRAIL_TEXELS, RT_SIZE_LITERAL, MATERIAL_RT_DEPTH_NONE, 0, 0, IMAGE_FORMAT_RGBA16161616F)
+	stampRT = GetRenderTargetEx("borealis_snowcover_stamp_" .. TRAIL_TEXELS, TRAIL_TEXELS, TRAIL_TEXELS, RT_SIZE_LITERAL, MATERIAL_RT_DEPTH_NONE, 0, 0, IMAGE_FORMAT_RGBA8888)
 	if not shaderpack.UsableRT(trailRT, TRAIL_TEXELS) or not shaderpack.UsableRT(stampRT, TRAIL_TEXELS) then
 		trailRT, stampRT = nil, nil
 
@@ -884,20 +892,20 @@ local function start()
 
 	materialSerial = materialSerial + 1
 	local suffix = os.time() .. "_" .. materialSerial
-	stampMat = CreateMaterial("ms_snowcover_stamp_" .. suffix, "UnlitGeneric", {
+	stampMat = CreateMaterial("borealis_snowcover_stamp_" .. suffix, "UnlitGeneric", {
 		["$basetexture"] = "color/white",
 		["$model"] = 1,
 		["$nocull"] = 1,
 		["$ignorez"] = 1,
 	})
-	blurMat = CreateShaderMaterial("ms_snowcover_blur_" .. suffix, {
+	blurMat = CreateShaderMaterial("borealis_snowcover_blur_" .. suffix, {
 		["$pixshader"] = STAMP_PS,
 		["$basetexture"] = stampRT:GetName(),
 		["$linearread_basetexture"] = 1,
 		["$linearwrite"] = 1,
 		["$alpha_blend"] = 0,
 	})
-	MAT = CreateShaderMaterial("ms_snowcover_" .. suffix, {
+	MAT = CreateShaderMaterial("borealis_snowcover_" .. suffix, {
 		["$pixshader"] = PS,
 		["$vertexshader"] = VS,
 		["$texture1"] = NOISE,
@@ -916,7 +924,7 @@ local function start()
 	}, "screenspace_general_8tex")
 	MAT:SetTexture("$basetexture", trailRT)
 	blurMat:SetTexture("$basetexture", stampRT)
-	DEPTH_MAT = CreateShaderMaterial("ms_snowcoverdepth_" .. suffix, {
+	DEPTH_MAT = CreateShaderMaterial("borealis_snowcoverdepth_" .. suffix, {
 		["$pixshader"] = DEPTH_PS,
 		["$vertexshader"] = VS,
 		["$alpha_blend"] = 0,
@@ -930,21 +938,21 @@ local function start()
 	end
 
 	loader = coroutine.create(load)
-	hook.Add("Think", "ms_snowcover", function()
+	hook.Add("Think", "borealis_snowcover", function()
 		think()
 		evict()
 	end)
-	hook.Add("PreRender", "ms_snowcover", prepare)
-	hook.Add("PostDrawOpaqueRenderables", "ms_snowcover", draw)
-	hook.Add("ShouldDrawLocalPlayer", "ms_snowcover", function()
+	hook.Add("PreRender", "borealis_snowcover", prepare)
+	hook.Add("PostDrawOpaqueRenderables", "borealis_snowcover", draw)
+	hook.Add("ShouldDrawLocalPlayer", "borealis_snowcover", function()
 		if capturing then return true end
 	end)
 end
 
-local apply = shaderpack.Toggle("ms_snowcover", ENABLED, SHADERS, start, stop, { NOISE })
-shaderpack.AfterWorld("ms_snowcover", apply)
+local apply = shaderpack.Toggle("borealis_snowcover", ENABLED, SHADERS, start, stop, { NOISE })
+shaderpack.AfterWorld("borealis_snowcover", apply)
 
-hook.Add("TOD_WinterRemoved", "ms_snowcover", function()
+hook.Add("TOD_WinterRemoved", "borealis_snowcover", function()
 	winterRemoved = true
 	stop()
 end)

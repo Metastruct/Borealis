@@ -1,4 +1,4 @@
-local PS, VS = "grade_ps30", "aurora_vs30"
+local PS, VS = "borealis_grade_ps30", "borealis_passthrough_vs30"
 
 if SERVER then
 	shaderpack.AddResources({ PS, VS })
@@ -22,7 +22,7 @@ local materialSerial = 0
 
 local function build()
 	materialSerial = materialSerial + 1
-	MAT = CreateShaderMaterial("ms_grade_" .. os.time() .. "_" .. materialSerial, {
+	MAT = CreateShaderMaterial("borealis_grade_" .. os.time() .. "_" .. materialSerial, {
 		["$pixshader"] = PS,
 		["$vertexshader"] = VS,
 		["$linearread_basetexture"] = 0,
@@ -100,7 +100,7 @@ end
 
 local function stop()
 	running = false
-	hook.Remove("PostDrawEffects", "ms_grade")
+	hook.Remove("PostDrawEffects", "borealis_grade")
 	local gm = grade.gm
 	if gm and gm.RenderScreenspaceEffects == grade.wrapper then
 		gm.RenderScreenspaceEffects = grade.original
@@ -113,10 +113,10 @@ local function start()
 	build()
 	running = true
 	wrap()
-	hook.Add("PostDrawEffects", "ms_grade", fallback)
+	hook.Add("PostDrawEffects", "borealis_grade", fallback)
 end
 
-shaderpack.Toggle("ms_grade", nil, { PS, VS }, start, stop)()
+shaderpack.Toggle("borealis_grade", nil, { PS, VS }, start, stop)()
 
 list.Set("PostProcess", "Colour Grading", {
 	icon = "gui/postprocess/base.png",

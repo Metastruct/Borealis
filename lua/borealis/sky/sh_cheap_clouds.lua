@@ -1,7 +1,7 @@
 local SHAPE, DETAIL = "shaderpack/procsky/cloudshape", "shaderpack/procsky/clouddetail"
 
 if SERVER then
-	shaderpack.AddResources({ "cloudbake_ps30", "cloudlut_ps30" }, { SHAPE, DETAIL })
+	shaderpack.AddResources({ "borealis_cloudbake_ps30", "borealis_cloudlut_ps30" }, { SHAPE, DETAIL })
 
 	return
 end
@@ -9,7 +9,7 @@ end
 require("skyboxer")
 
 local procsky, cover, vclouds = shaderpack.procsky, shaderpack.cover, shaderpack.vclouds
-local Tag = "ms_cheap_clouds"
+local Tag = "borealis_cheap_clouds"
 local ENABLED = CreateClientConVar("cl_draw_clouds", "1", true, false, "Draw cheap clouds in the skybox", 0, 1)
 
 local function level()
@@ -48,7 +48,7 @@ local function startShader()
 	local function allocLuts()
 		local list = {}
 		for i, name in ipairs({ "a", "b", "c" }) do
-			local rt = GetRenderTargetEx("ms_cloudlut_" .. name .. "_" .. LUT_W .. "x" .. LUT_H, LUT_W, LUT_H, RT_SIZE_LITERAL, MATERIAL_RT_DEPTH_NONE, 8, 0, IMAGE_FORMAT_RGBA16161616F)
+			local rt = GetRenderTargetEx("borealis_cloudlut_" .. name .. "_" .. LUT_W .. "x" .. LUT_H, LUT_W, LUT_H, RT_SIZE_LITERAL, MATERIAL_RT_DEPTH_NONE, 8, 0, IMAGE_FORMAT_RGBA16161616F)
 			if not rt or rt:IsError() or rt:Width() ~= LUT_W then return false end
 			render.PushRenderTarget(rt)
 			render.Clear(0, 0, 0, 0)
@@ -60,9 +60,9 @@ local function startShader()
 		return true
 	end
 
-	local BAKE = CreateShaderMaterial("ms_cloudbake_" .. os.time(), {
-		["$pixshader"] = "cloudbake_ps30",
-		["$vertexshader"] = "aurora_vs30",
+	local BAKE = CreateShaderMaterial("borealis_cloudbake_" .. os.time(), {
+		["$pixshader"] = "borealis_cloudbake_ps30",
+		["$vertexshader"] = "borealis_passthrough_vs30",
 		["$texture2"] = SHAPE,
 		["$texture3"] = DETAIL,
 		["$linearread_texture2"] = 1,
@@ -75,9 +75,9 @@ local function startShader()
 		["$c3_x"] = 0, ["$c3_y"] = 0, ["$c3_z"] = 0, ["$c3_w"] = 0,
 	})
 
-	local READ = CreateShaderMaterial("ms_cloudlut_" .. os.time(), {
-		["$pixshader"] = "cloudlut_ps30",
-		["$vertexshader"] = "aurora_vs30",
+	local READ = CreateShaderMaterial("borealis_cloudlut_" .. os.time(), {
+		["$pixshader"] = "borealis_cloudlut_ps30",
+		["$vertexshader"] = "borealis_passthrough_vs30",
 		["$linearread_texture1"] = 1,
 		["$linearwrite"] = 0,
 		["$additive"] = 0,
@@ -225,7 +225,7 @@ local function startShader()
 end
 
 local function start()
-	shaderpack.WhenMounted(Tag, { "cloudbake_ps30", "cloudlut_ps30", "aurora_vs30" }, startShader, { SHAPE, DETAIL })
+	shaderpack.WhenMounted(Tag, { "borealis_cloudbake_ps30", "borealis_cloudlut_ps30", "borealis_passthrough_vs30" }, startShader, { SHAPE, DETAIL })
 end
 
 local function stop()

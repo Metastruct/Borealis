@@ -18,7 +18,7 @@ local CYCLE = 4
 local HIDDEN_MIN, HIDDEN_MAX = Vector(0, 0, -100001), Vector(0, 0, -100000)
 local HOLDER_EXTENT = Vector(32768, 32768, 32768)
 
-local STATE_RESET = CreateMaterial("ms_opacity_alphatestreset", "UnlitGeneric", {
+local STATE_RESET = CreateMaterial("borealis_opacity_alphatestreset", "UnlitGeneric", {
 	["$basetexture"] = "color/white",
 	["$alphatest"] = 1,
 	["$alphatestreference"] = 0.001,
@@ -54,7 +54,7 @@ local function depthMaterial(name, mat, flags)
 		params["$alphatestreference"] = ref
 	end
 
-	local dw = CreateMaterial("ms_opacity_depth/" .. name, "DepthWrite", params)
+	local dw = CreateMaterial("borealis_opacity_depth/" .. name, "DepthWrite", params)
 	dw:SetTexture("$basetexture", tex)
 
 	return dw
@@ -190,7 +190,7 @@ local function overridable(ent)
 	return ent:EntIndex() > 0 and ent.Draw == nil and not ent:IsPlayer() and not ent:IsWeapon()
 end
 
-local DEPTH_QUAD = CreateMaterial("ms_opacity_depth_quad", "DepthWrite", {
+local DEPTH_QUAD = CreateMaterial("borealis_opacity_depth_quad", "DepthWrite", {
 	["$color_depth"] = 1,
 	["$nocull"] = 1,
 })
@@ -306,7 +306,7 @@ local function opaqueScreen(ent)
 	return monitor ~= nil and not monitor.translucent
 end
 
-local NO_DRAW = CreateMaterial("ms_opacity_nodraw", "UnlitGeneric", {
+local NO_DRAW = CreateMaterial("borealis_opacity_nodraw", "UnlitGeneric", {
 	["$basetexture"] = "color/white",
 	["$no_draw"] = 1,
 })
@@ -392,7 +392,7 @@ opacity.drawn = opacity.drawn or setmetatable({}, { __mode = "k" })
 opacity.drawWrappers = opacity.drawWrappers or setmetatable({}, { __mode = "k" })
 local drawn, drawWrappers = opacity.drawn, opacity.drawWrappers
 
-local DEPTH_SOLID = CreateMaterial("ms_opacity_depth_solid", "DepthWrite", { ["$color_depth"] = 1 })
+local DEPTH_SOLID = CreateMaterial("borealis_opacity_depth_solid", "DepthWrite", { ["$color_depth"] = 1 })
 local entityMeta = FindMetaTable("Entity")
 local innerDrawModel = entityMeta.DrawModel
 local modelPlans = {}
@@ -995,11 +995,11 @@ end
 
 local function alphaReady()
 	if not shaderpack.UsableRT(alphaRT, 1024, 1024) then
-		alphaRT = GetRenderTargetEx("ms_opacity_alpha", 1024, 1024, RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE, 0, 0, IMAGE_FORMAT_RGBA8888)
+		alphaRT = GetRenderTargetEx("borealis_opacity_alpha", 1024, 1024, RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE, 0, 0, IMAGE_FORMAT_RGBA8888)
 		return false
 	end
 
-	alphaProbe = alphaProbe or CreateMaterial("ms_opacity_alphaprobe", "UnlitGeneric", {
+	alphaProbe = alphaProbe or CreateMaterial("borealis_opacity_alphaprobe", "UnlitGeneric", {
 		["$basetexture"] = "color/white",
 		["$vertexalpha"] = 1,
 		["$translucent"] = 1,
@@ -1011,7 +1011,7 @@ end
 local function scanStep()
 	local name = worldQueue[#worldQueue]
 	if not name then
-		hook.Remove("PostRender", "ms_opacity_world")
+		hook.Remove("PostRender", "borealis_opacity_world")
 		saveCache()
 		return
 	end
@@ -1058,7 +1058,7 @@ local function scanWorld()
 	end
 
 	if worldQueue[1] then
-		hook.Add("PostRender", "ms_opacity_world", scanStep)
+		hook.Add("PostRender", "borealis_opacity_world", scanStep)
 	end
 end
 
@@ -1098,7 +1098,7 @@ end
 local function modelStep()
 	local name = modelQueue[#modelQueue]
 	if not name then
-		hook.Remove("PostRender", "ms_opacity_models")
+		hook.Remove("PostRender", "borealis_opacity_models")
 		saveModelCache()
 		return
 	end
@@ -1138,7 +1138,7 @@ function queueModel(name, mat)
 
 	modelQueued[name] = true
 	modelQueue[#modelQueue + 1] = name
-	hook.Add("PostRender", "ms_opacity_models", modelStep)
+	hook.Add("PostRender", "borealis_opacity_models", modelStep)
 
 	return false
 end
@@ -1169,12 +1169,12 @@ local function entered(ent, transmit)
 end
 
 local function stop()
-	hook.Remove("Think", "ms_opacity")
-	hook.Remove("NotifyShouldTransmit", "ms_opacity")
-	hook.Remove("NetworkEntityCreated", "ms_opacity")
-	hook.Remove("PostRender", "ms_opacity_world")
-	hook.Remove("InitPostEntity", "ms_opacity_world")
-	hook.Remove("PostRender", "ms_opacity_models")
+	hook.Remove("Think", "borealis_opacity")
+	hook.Remove("NotifyShouldTransmit", "borealis_opacity")
+	hook.Remove("NetworkEntityCreated", "borealis_opacity")
+	hook.Remove("PostRender", "borealis_opacity_world")
+	hook.Remove("InitPostEntity", "borealis_opacity_world")
+	hook.Remove("PostRender", "borealis_opacity_models")
 	worldQueue = {}
 	restoreWorld()
 	saveModelCache()
@@ -1255,10 +1255,10 @@ end
 local function start()
 	updateHolder()
 	queue, cursor = {}, 1
-	hook.Add("Think", "ms_opacity", step)
-	hook.Add("NotifyShouldTransmit", "ms_opacity", entered)
-	hook.Add("NetworkEntityCreated", "ms_opacity", update)
-	shaderpack.AfterWorld("ms_opacity_world", scanWorld)
+	hook.Add("Think", "borealis_opacity", step)
+	hook.Add("NotifyShouldTransmit", "borealis_opacity", entered)
+	hook.Add("NetworkEntityCreated", "borealis_opacity", update)
+	shaderpack.AfterWorld("borealis_opacity_world", scanWorld)
 end
 
-shaderpack.Toggle("ms_opacity", nil, {}, start, stop)()
+shaderpack.Toggle("borealis_opacity", nil, {}, start, stop)()

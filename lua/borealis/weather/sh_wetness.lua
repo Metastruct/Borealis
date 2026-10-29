@@ -1,4 +1,4 @@
-local PS, VS = "wet_ps30", "fog_vs30"
+local PS, VS = "borealis_wet_ps30", "borealis_fog_vs30"
 local NOISE = "shaderpack/procsky/fognoise"
 
 if SERVER then
@@ -37,7 +37,7 @@ local materialSerial = 0
 
 local function build()
 	materialSerial = materialSerial + 1
-	MAT = CreateShaderMaterial("ms_wetness_" .. os.time() .. "_" .. materialSerial, {
+	MAT = CreateShaderMaterial("borealis_wetness_" .. os.time() .. "_" .. materialSerial, {
 		["$pixshader"] = PS,
 		["$vertexshader"] = VS,
 		["$texture3"] = NOISE,
@@ -121,7 +121,7 @@ end
 
 local function updateFar(eye)
 	if not farRT then
-		farRT = GetRenderTargetEx("ms_wet_gloss_" .. FAR_COLUMNS, FAR_COLUMNS, FAR_COLUMNS, RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE, 0, 0, IMAGE_FORMAT_RGBA8888)
+		farRT = GetRenderTargetEx("borealis_wet_gloss_" .. FAR_COLUMNS, FAR_COLUMNS, FAR_COLUMNS, RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE, 0, 0, IMAGE_FORMAT_RGBA8888)
 		if not shaderpack.UsableRT(farRT, FAR_COLUMNS) then
 			farRT = nil
 
@@ -251,9 +251,9 @@ local function draw()
 end
 
 local function stop()
-	hook.Remove("Think", "ms_wetness")
-	hook.Remove("PreRender", "ms_wetness")
-	depthslices.RemoveEffect("ms_wetness")
+	hook.Remove("Think", "borealis_wetness")
+	hook.Remove("PreRender", "borealis_wetness")
+	depthslices.RemoveEffect("borealis_wetness")
 	active = false
 end
 
@@ -270,15 +270,15 @@ local function start()
 	stop()
 	MAT = nil
 	freeze()
-	hook.Add("Think", "ms_wetness", think)
-	hook.Add("PreRender", "ms_wetness", prepare)
-	depthslices.AddEffect("ms_wetness", ORDER, draw, false, function() return active end)
+	hook.Add("Think", "borealis_wetness", think)
+	hook.Add("PreRender", "borealis_wetness", prepare)
+	depthslices.AddEffect("borealis_wetness", ORDER, draw, false, function() return active end)
 end
 
-shaderpack.Toggle("ms_wetness", ENABLED, { PS, VS }, start, stop, { NOISE })()
-shaderpack.AfterWorld("ms_wetness", freeze)
+shaderpack.Toggle("borealis_wetness", ENABLED, { PS, VS }, start, stop, { NOISE })()
+shaderpack.AfterWorld("borealis_wetness", freeze)
 
-hook.Add("TOD_WinterRemoved", "ms_wetness", function()
+hook.Add("TOD_WinterRemoved", "borealis_wetness", function()
 	winterRemoved = true
 	frozen = false
 end)

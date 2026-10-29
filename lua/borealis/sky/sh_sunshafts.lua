@@ -1,4 +1,4 @@
-local SHADERS = { "sunshafts_ps30", "aurora_vs30" }
+local SHADERS = { "borealis_sunshafts_ps30", "borealis_passthrough_vs30" }
 
 if SERVER then
 	shaderpack.AddResources(SHADERS)
@@ -21,8 +21,8 @@ local W, H, maskRT, blurA, blurB, BLUR1, BLUR2, COMPOSITE
 
 local function blurMaterial(name, src, falloff)
 	local mat = CreateShaderMaterial(name .. "_" .. W .. "x" .. H, {
-		["$pixshader"] = "sunshafts_ps30",
-		["$vertexshader"] = "aurora_vs30",
+		["$pixshader"] = "borealis_sunshafts_ps30",
+		["$vertexshader"] = "borealis_passthrough_vs30",
 		["$additive"] = 0,
 		["$alpha_blend"] = 0,
 		["$linearwrite"] = 0,
@@ -40,16 +40,16 @@ local usableRT = shaderpack.UsableRT
 local function build()
 	local w, h = ScrW(), ScrH()
 	local bw, bh = math.floor(w * SCALE), math.floor(h * SCALE)
-	local mask = GetRenderTargetEx("ms_sunshafts_mask_" .. bw .. "x" .. bh, bw, bh, RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE, CLAMP, 0, IMAGE_FORMAT_RGBA8888)
-	local a = GetRenderTargetEx("ms_sunshafts_a_" .. bw .. "x" .. bh, bw, bh, RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE, CLAMP, 0, IMAGE_FORMAT_RGBA8888)
-	local b = GetRenderTargetEx("ms_sunshafts_b_" .. bw .. "x" .. bh, bw, bh, RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE, CLAMP, 0, IMAGE_FORMAT_RGBA8888)
+	local mask = GetRenderTargetEx("borealis_sunshafts_mask_" .. bw .. "x" .. bh, bw, bh, RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE, CLAMP, 0, IMAGE_FORMAT_RGBA8888)
+	local a = GetRenderTargetEx("borealis_sunshafts_a_" .. bw .. "x" .. bh, bw, bh, RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE, CLAMP, 0, IMAGE_FORMAT_RGBA8888)
+	local b = GetRenderTargetEx("borealis_sunshafts_b_" .. bw .. "x" .. bh, bw, bh, RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE, CLAMP, 0, IMAGE_FORMAT_RGBA8888)
 	if not (usableRT(mask, bw, bh) and usableRT(a, bw, bh) and usableRT(b, bw, bh)) then return false end
 
 	W, H = w, h
 	maskRT, blurA, blurB = mask, a, b
-	BLUR1 = blurMaterial("ms_sunshafts_blur1", maskRT, 1)
-	BLUR2 = blurMaterial("ms_sunshafts_blur2", blurA, 0)
-	COMPOSITE = CreateMaterial("ms_sunshafts_composite_" .. W .. "x" .. H, "UnlitGeneric", {
+	BLUR1 = blurMaterial("borealis_sunshafts_blur1", maskRT, 1)
+	BLUR2 = blurMaterial("borealis_sunshafts_blur2", blurA, 0)
+	COMPOSITE = CreateMaterial("borealis_sunshafts_composite_" .. W .. "x" .. H, "UnlitGeneric", {
 		["$basetexture"] = "color/white",
 		["$additive"] = 1,
 		["$vertexcolor"] = 1,
@@ -166,16 +166,16 @@ local function drawShafts()
 end
 
 local function stop()
-	hook.Remove("PostDrawTranslucentRenderables", "ms_sunshafts")
-	hook.Remove("RenderScreenspaceEffects", "ms_sunshafts")
+	hook.Remove("PostDrawTranslucentRenderables", "borealis_sunshafts")
+	hook.Remove("RenderScreenspaceEffects", "borealis_sunshafts")
 	maskValid = false
 end
 
 local function start()
 	stop()
 	W, H = nil, nil
-	hook.Add("PostDrawTranslucentRenderables", "ms_sunshafts", drawMask)
-	hook.Add("RenderScreenspaceEffects", "ms_sunshafts", drawShafts)
+	hook.Add("PostDrawTranslucentRenderables", "borealis_sunshafts", drawMask)
+	hook.Add("RenderScreenspaceEffects", "borealis_sunshafts", drawShafts)
 end
 
-shaderpack.Toggle("ms_sunshafts", SHAFTS_ENABLED, SHADERS, start, stop)()
+shaderpack.Toggle("borealis_sunshafts", SHAFTS_ENABLED, SHADERS, start, stop)()

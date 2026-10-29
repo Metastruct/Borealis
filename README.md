@@ -33,7 +33,7 @@ Relevant documentation and help pages:
 
 On Windows, use `compile.ps1`:
 ```powershell
-.\compile.ps1 -GmodDir "C:\path\to\GarrysMod" -Names ssao_ps30,sky_ps30 -Compiler "C:\path\to\ShaderCompile.exe"
+.\compile.ps1 -GmodDir "C:\path\to\GarrysMod" -Names borealis_ssao_ps30,borealis_sky_ps30 -Compiler "C:\path\to\ShaderCompile.exe"
 ```
 Add `-Stamp` for the timestamped name.
 
@@ -58,7 +58,7 @@ Shared depth for full-screen composites.
 > This is expensive, so make sure you need it before using it.
 - `AddEffect(name, order, draw, refog, needsDepth)`: order is a distance, lower draws first and is farther.
 - Effects must leave frame alpha alone, or the next effect reads their output as slice codes. Use `KeepAlpha` / `Composite`.
-- Refog: glow render modes draw after `PostDrawTranslucentRenderables`. In `PreDrawViewModels` the frame is recaptured, changed pixels are marked in the stencil with a depth marker (`depthmark_ps30`), and refog effects draw again over them. Most of its cost is the second slice capture.
+- Refog: glow render modes draw after `PostDrawTranslucentRenderables`. In `PreDrawViewModels` the frame is recaptured, changed pixels are marked in the stencil with a depth marker (`borealis_depthmark_ps30`), and refog effects draw again over them. Most of its cost is the second slice capture.
 
 ### sh_cover
 
@@ -91,20 +91,20 @@ Detection of things that are drawing into the translucent pass even though they 
 `lua/includes/modules/halo.lua` replaces GMod's halo library, same API (`halo.Add`, `halo.Render`, `halo.RenderedEntity`, `PreDrawHalos`).
 
 - Entities are drawn through their own path: `RenderOverride`, `ENT:Draw` / `DrawTranslucent`, `SWEP:DrawWorldModel`, PAC3 parts, clientside and bonemerged children (prop2mesh meshes, held weapons). Stock halo only called `DrawModel`, so those were missing. Entities checking `halo.RenderedEntity() == self` can still draw a plain model.
-- Each group gets a stencil id, the ids become codes 230 to 255 in frame alpha (an 8x MSAA edge blend tops out at 223, so it never reads as a group), then `halo_rows_ps30` and `halo_ps30` draw a crisp outline from an exact distance, `max(blurx, blury)` pixels wide (max 15). Up to 6 groups per pass. Frame RGB is never copied or restored.
+- Each group gets a stencil id, the ids become codes 230 to 255 in frame alpha (an 8x MSAA edge blend tops out at 223, so it never reads as a group), then `borealis_halo_rows_ps30` and `borealis_halo_ps30` draw a crisp outline from an exact distance, `max(blurx, blury)` pixels wide (max 15). Up to 6 groups per pass. Frame RGB is never copied or restored.
 - Passes are scissored to the screen rect of the drawn entities' render bounds, full screen when a corner is behind the camera or PAC3 is involved. Content drawn outside an entity's render bounds gets no outline.
 - Without the shaders (ToGL, `cl_shaderpack 0`) it falls back to the stock blur glow, still with the new entity drawing.
 - `core/sv_halo` registers the shaders. The loader keeps `sv_` files on the server and `cl_` files on the client.
 
 ### cl_bench
 
-`ms_shaderpack_bench` Needs `fps_max 0` and vsync off. Literally the benchmark of the shaderpack.
+`borealis_shaderpack_bench` Needs `fps_max 0` and vsync off. Literally the benchmark of the shaderpack.
 
 ## Effects
 
 ### Sky
 
-- **procsky** `cl_draw_procsky`: single-scattering atmosphere (Rayleigh, Mie, ozone) rendered into a 256x128 LUT 5 times a second; `sky_ps30` reads it and adds the sun disc. The same model runs in Lua for the fog colour (horizon averaged over 8 azimuths), the cloud lighting and sky colours other effects read (`procsky.GetLights`, `GetCloudLighting`, `GetSkyColors`, `GetLut`). It overrides `SetupWorldFog` with tod's range and the horizon colour.
+- **procsky** `cl_draw_procsky`: single-scattering atmosphere (Rayleigh, Mie, ozone) rendered into a 256x128 LUT 5 times a second; `borealis_sky_ps30` reads it and adds the sun disc. The same model runs in Lua for the fog colour (horizon averaged over 8 azimuths), the cloud lighting and sky colours other effects read (`procsky.GetLights`, `GetCloudLighting`, `GetSkyColors`, `GetLut`). It overrides `SetupWorldFog` with tod's range and the horizon colour.
 - **Theme** `procsky.SetTheme`: seasonal look, every key optional: `moonVisible`, `clouds`, `auroraHue`, `stars`, `airglow`, `fogScale`, `tintMul`, `tint`, `overcast`, `overcastBrightness`. Rain and snow set `overcast`.
 - **Night sky and auroras** `cl_draw_auroras`: procedural stars, a milky way from `materials/shaderpack/aurora/milkyway.vtf` (baked offline, changing `SKY_POLE` needs a rebake) and horizon airglow. Stars fade in once the sun is 3 degrees below the horizon. Aurora curtains render into a 1024 map in `PreRender` and show only in deep night (21:30 to 02:30 at full).
 - **Sun shafts** `cl_draw_sunshafts`: after the translucent pass, a near quad sets frame alpha 0 and a far quad depth-tested against the world sets alpha 1 where sky shows. The frame is blurred toward the sun twice at half resolution and added in the sun's colour. Needs HDR (a frame with alpha). Off under overcast.
@@ -118,17 +118,17 @@ Detection of things that are drawing into the translucent pass even though they 
 - **Rain and snow** `cl_draw_precipitations`: one quad per drop placed by the vertex shader from a template mesh, over a 3x3 grid of 512-unit tiles around the eye. The streak shader discards below the cover window's cut, so rain stops at roofs and doorways. Ripples are one quad per block of level ground, shaded as a height field mirroring the horizon colour. Constants are set once per frame and tile positions ride in the model matrix: with the threaded material system, per-draw constants land on the wrong draws.
 - **Wetness** `cl_draw_wetness`: darkens and glosses up-facing surfaces the rain reaches (cover window, far gloss map beyond it), with puddles on level ground using screen-space reflections and the procsky LUT as fallback. Wets toward tod's rain amount and dries slowly.
 - **Deep snow** `cl_draw_snowcover`: winter only. A 10-unit snow layer built from the BSP triangles tod turns to snow (`grass`, `mud`, `sand`, plus `snow`), so feet, wheels and props sink into it.
-  - Mesh: triangles are clipped to a 32-unit grid in 512-unit chunks, lifted along z, given welded vertex normals and skirts on open edges. Vertices under a roof or in water get no snow. Light is baked per vertex like foliage. It draws in `PostDrawOpaqueRenderables` and writes the engine depth pass with `waterdepth_ps30`.
-  - Trail map: a 1024² RGBA16F window of 2048 units around the eye, addressed toroidally (`frac(x, -y) / 2048`), so recentring only clears the strips that enter. Entities touching the snow are drawn from above with an ortho camera into a stamp RT, clipped at the snow top (Arkham Origins' capture), then `snowstamp_ps30` blurs them into the trail map with a MAX blend. Stationary entities are restamped once a second.
+  - Mesh: triangles are clipped to a 32-unit grid in 512-unit chunks, lifted along z, given welded vertex normals and skirts on open edges. Vertices under a roof or in water get no snow. Light is baked per vertex like foliage. It draws in `PostDrawOpaqueRenderables` and writes the engine depth pass with `borealis_waterdepth_ps30`.
+  - Trail map: a 1024² RGBA16F window of 2048 units around the eye, addressed toroidally (`frac(x, -y) / 2048`), so recentring only clears the strips that enter. Entities touching the snow are drawn from above with an ortho camera into a stamp RT, clipped at the snow top (Arkham Origins' capture), then `borealis_snowstamp_ps30` blurs them into the trail map with a MAX blend. Stationary entities are restamped once a second.
   - Refill: once a second the trail map is decremented with a reverse-subtract blend, never resampled, so prints cannot drift. Full refill takes 20 minutes, 2 minutes under heavy snowfall. Surface colours are sRGB-decoded before blending, so the decrement is picked through `ToLinear`.
-  - `snowcover_ps30` raymarches the trail map down from the snow top (POM), outputs depth at the hit so sunk feet show inside their prints, and adds self-shadowing toward the baked sun, sky-tinted walls and glints. `screenspace_general` gets no engine fog, so the shader applies it.
+  - `borealis_snowcover_ps30` raymarches the trail map down from the snow top (POM), outputs depth at the hit so sunk feet show inside their prints, and adds self-shadowing toward the baked sun, sky-tinted walls and glints. `screenspace_general` gets no engine fog, so the shader applies it.
   - Prints only exist inside the window and only for entities in your PVS. Projected shadows and decals on the ground under the snow are hidden by it.
 
 ### Liquids
 
 - **Water** `cl_draw_water`: replaces engine water on surface water brushes. The engine materials are forced cheap, nearly transparent and fogless; borealis draws its own surface meshes at order 1 (waves, reflections, per-body murk and sky openness) and a full-screen underwater pass with a sky fill and the sun seen from below. Other liquids are left to the engine. `surfacewater.CausticSource` exposes the surface for caustics.
 - **Lava** `cl_draw_lava`: light, heat shimmer, edge glow and embers around m3's magma cave pools. A 256x256 mask is baked once on the client into `data/shaderpack/lava`. Draws only within 1500 units of a pool.
-- **Lava splashes**: crowns, spatters and drops on lava. Bullet splashes come from the client's water splash sounds; props and players need the server half (`lava.Splash`, net `ms_lava_splash`).
+- **Lava splashes**: crowns, spatters and drops on lava. Bullet splashes come from the client's water splash sounds; props and players need the server half (`lava.Splash`, net `borealis_lava_splash`).
 
 ### Foliage
 

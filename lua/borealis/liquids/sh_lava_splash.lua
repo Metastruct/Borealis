@@ -1,5 +1,5 @@
-local PS, VS = "lavasplash_ps30", "fog_vs30"
-local NET = "ms_lava_splash"
+local PS, VS = "borealis_lavasplash_ps30", "borealis_fog_vs30"
+local NET = "borealis_lava_splash"
 local NOISE_TEXTURE = "shaderpack/procsky/fognoise"
 
 if SERVER then
@@ -69,7 +69,7 @@ local active = false
 local IMPACT_MAT, CROWN_MAT, SPATTER_MAT, GLOW
 
 local function build()
-	IMPACT_MAT = CreateShaderMaterial("ms_lavasplash_" .. os.time(), {
+	IMPACT_MAT = CreateShaderMaterial("borealis_lavasplash_" .. os.time(), {
 		["$pixshader"] = PS,
 		["$vertexshader"] = VS,
 		["$texture1"] = NOISE_TEXTURE,
@@ -81,7 +81,7 @@ local function build()
 		["$c0_x"] = 0, ["$c0_y"] = 0, ["$c0_z"] = 0, ["$c0_w"] = 0,
 		["$c1_x"] = 0, ["$c1_y"] = 0, ["$c1_z"] = 0, ["$c1_w"] = 0,
 	})
-	CROWN_MAT = CreateMaterial("ms_lava_crown", "UnlitGeneric", {
+	CROWN_MAT = CreateMaterial("borealis_lava_crown", "UnlitGeneric", {
 		["$basetexture"] = LAVA_TEXTURE,
 		["$vertexcolor"] = 1,
 		["$vertexalpha"] = 1,
@@ -89,7 +89,7 @@ local function build()
 		["$nocull"] = 1,
 	})
 	CROWN_MAT:SetVector("$color", CROWN_BOOST)
-	GLOW = CreateMaterial("ms_lava_glow", "UnlitGeneric", {
+	GLOW = CreateMaterial("borealis_lava_glow", "UnlitGeneric", {
 		["$basetexture"] = Material(GLOW_MAT):GetString("$basetexture") or "sprites/light_glow02",
 		["$additive"] = 1,
 		["$vertexcolor"] = 1,
@@ -527,9 +527,9 @@ net.Receive(NET, function()
 end)
 
 local function stop()
-	hook.Remove("Think", "ms_lava_splash")
-	hook.Remove("EntityEmitSound", "ms_lava_splash")
-	depthslices.RemoveEffect("ms_lava_splash")
+	hook.Remove("Think", "borealis_lava_splash")
+	hook.Remove("EntityEmitSound", "borealis_lava_splash")
+	depthslices.RemoveEffect("borealis_lava_splash")
 	hideSplashes(false)
 	if emitter then
 		emitter:Finish()
@@ -545,10 +545,10 @@ local function start()
 	stop()
 	build()
 	emitter = ParticleEmitter(EyePos())
-	hook.Add("Think", "ms_lava_splash", think)
-	hook.Add("EntityEmitSound", "ms_lava_splash", emitSound)
-	depthslices.AddEffect("ms_lava_splash", ORDER, draw)
+	hook.Add("Think", "borealis_lava_splash", think)
+	hook.Add("EntityEmitSound", "borealis_lava_splash", emitSound)
+	depthslices.AddEffect("borealis_lava_splash", ORDER, draw)
 	active = true
 end
 
-shaderpack.AfterWorld("ms_lava_splash", shaderpack.Toggle("ms_lava_splash", GetConVar("cl_draw_lava"), { PS, VS }, start, stop, { NOISE_TEXTURE }))
+shaderpack.AfterWorld("borealis_lava_splash", shaderpack.Toggle("borealis_lava_splash", GetConVar("cl_draw_lava"), { PS, VS }, start, stop, { NOISE_TEXTURE }))

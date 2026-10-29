@@ -35,7 +35,7 @@ local SPAN_SLOTS = 4
 local SPAN_TILE = 64
 local SPAN_TRACE_INSET = 2
 local SPAN_DIR = "shaderpack/cover"
-local SPAN_NET = "ms_cover_spans"
+local SPAN_NET = "borealis_cover_spans"
 local SPAN_CHUNK = 32000
 local SPAN_RATE = 131072
 local SPAN_VTF_FLAGS = 0x1 + 0x4 + 0x8 + 0x100 + 0x200
@@ -43,8 +43,13 @@ local SPAN_VTF_FORMAT = 25
 local SKY_FLAGS = bit.bor(SURF_SKY, SURF_SKY2D)
 local IGNORED_FLAGS = bit.bor(SURF_TRIGGER, SURF_HINT, SURF_SKIP)
 local MSG_KEY, MSG_CHUNK = 0, 1
+local EXPOSURE_PS, EXPOSURE_VS = "borealis_coverexposure_ps30", "borealis_passthrough_vs30"
+local EXPOSURE_SIZE, EXPOSURE_EXTENT = 256, 4096
+local EXPOSURE_DROP, EXPOSURE_SNAP = 384, 64
+local EXPOSURE_EVERY = 4
 
 cover.COLUMN, cover.COLUMNS, cover.Z_MIN, cover.Z_RANGE = COLUMN, COLUMNS, Z_MIN, Z_RANGE
+cover.EXPOSURE_SHADERS = { EXPOSURE_PS, EXPOSURE_VS }
 cover.GLOSS = GLOSS
 cover.listeners = cover.listeners or {}
 
@@ -326,6 +331,7 @@ end
 
 if SERVER then
 	util.AddNetworkString(SPAN_NET)
+	shaderpack.AddResources(cover.EXPOSURE_SHADERS)
 
 	local key, blob
 	local waiting, sends = {}, {}
@@ -428,7 +434,7 @@ local levels, levelFrame, levelResult = {}, -1, nil
 local searchCell, searchTop
 
 local function loadSpans(key)
-	local mat = CreateMaterial("ms_cover_spans_" .. key, "UnlitGeneric", { ["$basetexture"] = "../data/" .. SPAN_DIR .. "/" .. key })
+	local mat = CreateMaterial("borealis_cover_spans_" .. key, "UnlitGeneric", { ["$basetexture"] = "../data/" .. SPAN_DIR .. "/" .. key })
 	local tex = mat:GetTexture("$basetexture")
 	spanTexture = tex and not tex:IsError() and tex or nil
 	spanData = spanTexture and file.Read(spanPath(key, "vtf"), "DATA") or nil
@@ -882,7 +888,7 @@ local function updateColumns(eye)
 end
 
 local function build()
-	coverRT = coverRT or GetRenderTargetEx("ms_rain_cover_" .. COLUMNS, COLUMNS, COLUMNS, RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE, 1, 0, IMAGE_FORMAT_RGBA8888)
+	coverRT = coverRT or GetRenderTargetEx("borealis_rain_cover_" .. COLUMNS, COLUMNS, COLUMNS, RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE, 1, 0, IMAGE_FORMAT_RGBA8888)
 	if not shaderpack.UsableRT(coverRT, COLUMNS) then
 		coverRT = nil
 
@@ -936,4 +942,64 @@ function cover.CutAt(x, y)
 	if owner[cx % COLUMNS * COLUMNS + cy % COLUMNS] ~= key then return nil end
 
 	return cuts[key]
+end
+
+local exposureRT, exposureMat
+local exposureFrame, exposureReady = -1, false
+local exposureX, exposureY, exposureZ = 0, 0, 0
+local exposureSerial = 0
+
+local function buildExposure()
+	exposureRT = GetRenderTargetEx("borealis_cover_exposure_" .. EXPOSURE_SIZE, EXPOSURE_SIZE, EXPOSURE_SIZE, RT_SIZE_LITERAL, MATERIAL_RT_DEPTH_NONE, 12, 0, IMAGE_FORMAT_RGBA16161616F)
+	if not shaderpack.UsableRT(exposureRT, EXPOSURE_SIZE, EXPOSURE_SIZE) then
+		exposureRT = nil
+
+		return false
+	end
+
+	exposureSerial = exposureSerial + 1
+	exposureMat = CreateShaderMaterial("borealis_cover_exposure_" .. os.time() .. "_" .. exposureSerial, {
+		["$pixshader"] = EXPOSURE_PS,
+		["$vertexshader"] = EXPOSURE_VS,
+		["$linearread_texture2"] = 1,
+		["$alpha_blend"] = 0,
+		["$additive"] = 0,
+		["$c0_x"] = 0, ["$c0_y"] = 0, ["$c0_z"] = EXPOSURE_EXTENT, ["$c0_w"] = EXPOSURE_SIZE,
+		["$c1_x"] = 0, ["$c1_y"] = 0, ["$c1_z"] = 0, ["$c1_w"] = 0,
+	})
+	exposureReady = false
+
+	return true
+end
+
+function cover.UpdateExposure(eye)
+	local frame = FrameNumber()
+	if frame == exposureFrame then return end
+	exposureFrame = frame
+	if not spanTexture or not shaderpack.Available(cover.EXPOSURE_SHADERS) then return end
+	if not exposureMat and not buildExposure() then return end
+	if exposureReady and frame % EXPOSURE_EVERY ~= 0 then return end
+
+	local texel = EXPOSURE_EXTENT / EXPOSURE_SIZE
+	exposureX = math.Round(eye.x / texel) * texel
+	exposureY = math.Round(eye.y / texel) * texel
+	exposureZ = math.Round(eye.z / EXPOSURE_SNAP) * EXPOSURE_SNAP - EXPOSURE_DROP
+
+	exposureMat:SetTexture("$texture2", spanTexture)
+	shaderpack.SetConstant(exposureMat, "$c0", exposureX, exposureY)
+	shaderpack.SetConstant(exposureMat, "$c1", exposureZ)
+
+	render.PushRenderTarget(exposureRT)
+	render.OverrideAlphaWriteEnable(true, true)
+	render.SetMaterial(exposureMat)
+	render.DrawScreenQuad()
+	render.OverrideAlphaWriteEnable(false)
+	render.PopRenderTarget()
+	exposureReady = true
+end
+
+function cover.Exposure()
+	if not exposureReady then return end
+
+	return exposureRT, exposureX, exposureY, 1 / EXPOSURE_EXTENT, exposureZ
 end

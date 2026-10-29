@@ -1,4 +1,4 @@
-local PS, BLEND_PS, VS, QUAD_VS = "ssao_ps30", "ssao_blend_ps30", "fog_vs30", "aurora_vs30"
+local PS, BLEND_PS, VS, QUAD_VS = "borealis_ssao_ps30", "borealis_ssao_blend_ps30", "borealis_fog_vs30", "borealis_passthrough_vs30"
 
 if SERVER then
 	shaderpack.AddResources({ PS, BLEND_PS, VS, QUAD_VS })
@@ -27,7 +27,7 @@ local materialSerial = 0
 local function build()
 	materialSerial = materialSerial + 1
 	local stamp = os.time() .. "_" .. materialSerial
-	AO_MAT = CreateShaderMaterial("ms_ssao_" .. stamp, {
+	AO_MAT = CreateShaderMaterial("borealis_ssao_" .. stamp, {
 		["$pixshader"] = PS,
 		["$vertexshader"] = QUAD_VS,
 		["$linearread_basetexture"] = 1,
@@ -37,7 +37,7 @@ local function build()
 		["$c1_x"] = 0, ["$c1_y"] = 0, ["$c1_z"] = 0, ["$c1_w"] = 0,
 		["$c2_x"] = 0, ["$c2_y"] = 0, ["$c2_z"] = 0, ["$c2_w"] = 0,
 	})
-	BLEND_MAT = CreateShaderMaterial("ms_ssao_blend_" .. stamp, {
+	BLEND_MAT = CreateShaderMaterial("borealis_ssao_blend_" .. stamp, {
 		["$pixshader"] = BLEND_PS,
 		["$vertexshader"] = VS,
 		["$linearread_basetexture"] = 0,
@@ -56,7 +56,7 @@ end
 local function target(w, h)
 	if usableRT(AO_RT, w, h) then return AO_RT end
 
-	local rt = GetRenderTargetEx("ms_ssao_" .. w .. "x" .. h, w, h, RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE, CLAMP, 0, IMAGE_FORMAT_RGBA16161616F)
+	local rt = GetRenderTargetEx("borealis_ssao_" .. w .. "x" .. h, w, h, RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE, CLAMP, 0, IMAGE_FORMAT_RGBA16161616F)
 	if not usableRT(rt, w, h) then return end
 	AO_RT = rt
 
@@ -92,16 +92,16 @@ local function draw()
 end
 
 local function stop()
-	depthslices.RemoveEffect("ms_ssao")
+	depthslices.RemoveEffect("borealis_ssao")
 end
 
 local function start()
 	stop()
 	build()
-	depthslices.AddEffect("ms_ssao", ORDER, draw, false, function() return true end)
+	depthslices.AddEffect("borealis_ssao", ORDER, draw, false, function() return true end)
 end
 
-shaderpack.Toggle("ms_ssao", ENABLED, { PS, BLEND_PS, VS, QUAD_VS }, start, stop)()
+shaderpack.Toggle("borealis_ssao", ENABLED, { PS, BLEND_PS, VS, QUAD_VS }, start, stop)()
 
 list.Set("PostProcess", "Ambient Occlusion", {
 	icon = "gui/postprocess/base.png",

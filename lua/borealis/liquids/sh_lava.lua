@@ -1,5 +1,5 @@
-local PS, VS = "lava_ps30", "fog_vs30"
-local AREA_TRIGGER, AREA_MINS, AREA_MAXS, AREA_DELAY = "volcano", "ms_lava_area_mins", "ms_lava_area_maxs", 5
+local PS, VS = "borealis_lava_ps30", "borealis_fog_vs30"
+local AREA_TRIGGER, AREA_MINS, AREA_MAXS, AREA_DELAY = "volcano", "borealis_lava_area_mins", "borealis_lava_area_maxs", 5
 local NOISE = "shaderpack/procsky/fognoise"
 
 if SERVER then
@@ -14,7 +14,7 @@ if SERVER then
 		SetGlobal2Vector(AREA_MAXS, maxs)
 	end
 
-	hook.Add("InitPostEntity", "ms_lava_area", function()
+	hook.Add("InitPostEntity", "borealis_lava_area", function()
 		timer.Simple(AREA_DELAY, publishArea)
 	end)
 
@@ -445,7 +445,7 @@ local function loadMask(vtf)
 
 	local key = game.GetMap() .. "_" .. os.time()
 	file.Write(MASK_DIR .. "/" .. key .. ".vtf", vtf)
-	local mat = CreateMaterial("ms_lava_mask_" .. key, "UnlitGeneric", { ["$basetexture"] = "../data/" .. MASK_DIR .. "/" .. key })
+	local mat = CreateMaterial("borealis_lava_mask_" .. key, "UnlitGeneric", { ["$basetexture"] = "../data/" .. MASK_DIR .. "/" .. key })
 	local tex = mat:GetTexture("$basetexture")
 
 	return tex and not tex:IsError() and tex or nil
@@ -456,7 +456,7 @@ local materialSerial = 0
 
 local function build()
 	materialSerial = materialSerial + 1
-	MAT = CreateShaderMaterial("ms_lava_" .. os.time() .. "_" .. materialSerial, {
+	MAT = CreateShaderMaterial("borealis_lava_" .. os.time() .. "_" .. materialSerial, {
 		["$pixshader"] = PS,
 		["$vertexshader"] = VS,
 		["$texture3"] = NOISE,
@@ -619,10 +619,10 @@ local function draw()
 end
 
 local function stop()
-	hook.Remove("Think", "ms_lava")
-	hook.Remove("Think", "ms_lava_bake")
+	hook.Remove("Think", "borealis_lava")
+	hook.Remove("Think", "borealis_lava_bake")
 	lava.baking = nil
-	depthslices.RemoveEffect("ms_lava")
+	depthslices.RemoveEffect("borealis_lava")
 	if lava.emitter then
 		lava.emitter:Finish()
 		lava.emitter = nil
@@ -635,8 +635,8 @@ local function activate()
 	if not lava.mask then return end
 
 	lava.emitter = ParticleEmitter(EyePos())
-	hook.Add("Think", "ms_lava", think)
-	depthslices.AddEffect("ms_lava", ORDER, draw, true, function() return fade > 0.001 end)
+	hook.Add("Think", "borealis_lava", think)
+	depthslices.AddEffect("borealis_lava", ORDER, draw, true, function() return fade > 0.001 end)
 end
 
 local function bakeAll()
@@ -661,7 +661,7 @@ local function bakeStep()
 	end
 
 	if coroutine.status(co) == "dead" then
-		hook.Remove("Think", "ms_lava_bake")
+		hook.Remove("Think", "borealis_lava_bake")
 		lava.baking = nil
 		if ok then activate() end
 	end
@@ -678,7 +678,7 @@ local function start()
 	end
 
 	lava.baking = coroutine.create(bakeAll)
-	hook.Add("Think", "ms_lava_bake", bakeStep)
+	hook.Add("Think", "borealis_lava_bake", bakeStep)
 end
 
-shaderpack.AfterWorld("ms_lava", shaderpack.Toggle("ms_lava", ENABLED, { PS, VS }, start, stop, { NOISE }))
+shaderpack.AfterWorld("borealis_lava", shaderpack.Toggle("borealis_lava", ENABLED, { PS, VS }, start, stop, { NOISE }))

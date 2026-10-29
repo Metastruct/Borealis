@@ -1,5 +1,5 @@
 if SERVER then
-	shaderpack.AddResources({ "grass_vs30", "grass_ps30", "grassdepth_ps30" })
+	shaderpack.AddResources({ "borealis_grass_vs30", "borealis_grass_ps30", "borealis_grassdepth_ps30" })
 
 	return
 end
@@ -77,7 +77,7 @@ end
 
 local layer = foliage.Layer({
 	name = "grass",
-	pixelShader = "grass_ps30", vertexShader = "grass_vs30", depthShader = "grassdepth_ps30",
+	pixelShader = "borealis_grass_ps30", vertexShader = "borealis_grass_vs30", depthShader = "borealis_grassdepth_ps30",
 	classify = foliage.SurfaceClassifier({ grass = true }, { "grass" }), minNormalZ = MAX_SLOPE_Z,
 	spacing = 18, jitter = 8, quadW = 26, quadH = QUAD_H,
 	sway = QUAD_H * 1.4 * LEAN_MAX,
@@ -91,19 +91,19 @@ end
 
 setDistance()
 
-local apply = shaderpack.Toggle("ms_grass", GRASS_ENABLED, { "grass_ps30", "grass_vs30" }, function() layer:Start() end, function() layer:Stop() end)
+local apply = shaderpack.Toggle("borealis_grass", GRASS_ENABLED, { "borealis_grass_ps30", "borealis_grass_vs30" }, function() layer:Start() end, function() layer:Stop() end)
 
-cvars.RemoveChangeCallback("cl_draw_grass_distance", "ms_grass")
-cvars.AddChangeCallback("cl_draw_grass_distance", setDistance, "ms_grass")
+cvars.RemoveChangeCallback("cl_draw_grass_distance", "borealis_grass")
+cvars.AddChangeCallback("cl_draw_grass_distance", setDistance, "borealis_grass")
 
-hook.Add("TOD_WinterRemoved", "ms_grass", function()
+hook.Add("TOD_WinterRemoved", "borealis_grass", function()
 	if not WINTER then return end
 	setSeason(false, AUTUMN)
 	layer.height = HEIGHT
 	apply()
 end)
 
-hook.Add("TOD_Autumn", "ms_grass", function()
+hook.Add("TOD_Autumn", "borealis_grass", function()
 	if WINTER or AUTUMN then return end
 	setSeason(false, true)
 	if layer.mat then
@@ -112,7 +112,7 @@ hook.Add("TOD_Autumn", "ms_grass", function()
 	end
 end)
 
-shaderpack.AfterWorld("ms_grass", function()
+shaderpack.AfterWorld("borealis_grass", function()
 	setSeason(shaderpack.Season() == "winter", AUTUMN)
 	layer.height = HEIGHT
 	apply()

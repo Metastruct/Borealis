@@ -1,7 +1,7 @@
 local NOISE = "shaderpack/procsky/fognoise"
 
 if SERVER then
-	shaderpack.AddResources({ "water_vs30", "water_ps30", "underwater_ps30", "water_skyfill_ps30", "water_sun_ps30", "waterdepth_ps30" }, { NOISE })
+	shaderpack.AddResources({ "borealis_water_vs30", "borealis_water_ps30", "borealis_underwater_ps30", "borealis_water_skyfill_ps30", "borealis_water_sun_ps30", "borealis_waterdepth_ps30" }, { NOISE })
 
 	return
 end
@@ -302,15 +302,15 @@ local UNDER_MAT
 local SKY_MAT
 local SUN_MAT
 
-local SHADERS = { "water_vs30", "water_ps30", "underwater_ps30", "water_skyfill_ps30", "water_sun_ps30" }
+local SHADERS = { "borealis_water_vs30", "borealis_water_ps30", "borealis_underwater_ps30", "borealis_water_skyfill_ps30", "borealis_water_sun_ps30" }
 local materialSerial = 0
 
 local function initialize()
 	materialSerial = materialSerial + 1
 	local suffix = os.time() .. "_" .. materialSerial
-	local px, vs = "water_ps30", "water_vs30"
+	local px, vs = "borealis_water_ps30", "borealis_water_vs30"
 	UNDER_MAT = CreateShaderMaterial("water_underwater_" .. suffix, {
-		["$pixshader"] = "underwater_ps30",
+		["$pixshader"] = "borealis_underwater_ps30",
 		["$vertexshader"] = vs,
 		["$alpha_blend"] = 0,
 		["$linearread_texture1"] = 1,
@@ -324,14 +324,14 @@ local function initialize()
 	})
 
 	SKY_MAT = CreateShaderMaterial("water_skyfill_" .. suffix, {
-		["$pixshader"] = "water_skyfill_ps30",
+		["$pixshader"] = "borealis_water_skyfill_ps30",
 		["$vertexshader"] = vs,
 		["$alpha_blend"] = 0,
 		["$ignorez"] = 0,
 	})
 
 	SUN_MAT = CreateShaderMaterial("water_sun_" .. suffix, {
-		["$pixshader"] = "water_sun_ps30",
+		["$pixshader"] = "borealis_water_sun_ps30",
 		["$vertexshader"] = vs,
 		["$texture1"] = NOISE,
 		["$linearread_texture1"] = 1,
@@ -360,8 +360,8 @@ local function initialize()
 		["$c3_x"] = 0, ["$c3_y"] = 0, ["$c3_z"] = 0, ["$c3_w"] = 0,
 	}, "screenspace_general_8tex")
 
-	DEPTH_MAT = shaderpack.Available({ "waterdepth_ps30" }) and CreateShaderMaterial("water_depth_" .. suffix, {
-		["$pixshader"] = "waterdepth_ps30",
+	DEPTH_MAT = shaderpack.Available({ "borealis_waterdepth_ps30" }) and CreateShaderMaterial("water_depth_" .. suffix, {
+		["$pixshader"] = "borealis_waterdepth_ps30",
 		["$vertexshader"] = vs,
 		["$alpha_blend"] = 0,
 	}) or nil
@@ -580,7 +580,7 @@ local skyTarget
 local function renderSkyTarget()
 	local w, h = ScrW(), ScrH()
 	if not usableRT(skyTarget, w, h) then
-		skyTarget = GetRenderTarget("ms_water_sky_" .. w .. "x" .. h, w, h)
+		skyTarget = GetRenderTarget("borealis_water_sky_" .. w .. "x" .. h, w, h)
 		if not usableRT(skyTarget, w, h) then return end
 	end
 
@@ -737,9 +737,9 @@ local function drawTranslucent(bDepth, bSkybox, bSkybox3D)
 end
 
 local function stop()
-	hook.Remove("PostDrawOpaqueRenderables", "ms_water")
-	hook.Remove("PostDrawTranslucentRenderables", "ms_water_underwater")
-	depthslices.RemoveEffect("ms_water")
+	hook.Remove("PostDrawOpaqueRenderables", "borealis_water")
+	hook.Remove("PostDrawTranslucentRenderables", "borealis_water_underwater")
+	depthslices.RemoveEffect("borealis_water")
 	hideSun(false)
 	dropMeshes()
 	restoreWaterMaterials()
@@ -748,10 +748,10 @@ end
 local function start()
 	stop()
 	initialize()
-	hook.Add("PostDrawOpaqueRenderables", "ms_water", drawOpaque)
-	hook.Add("PostDrawTranslucentRenderables", "ms_water_underwater", drawTranslucent)
+	hook.Add("PostDrawOpaqueRenderables", "borealis_water", drawOpaque)
+	hook.Add("PostDrawTranslucentRenderables", "borealis_water_underwater", drawTranslucent)
 	depthWanted = true
-	depthslices.AddEffect("ms_water", SURFACE_ORDER, drawSurfaceAbove, false, function() return depthWanted end)
+	depthslices.AddEffect("borealis_water", SURFACE_ORDER, drawSurfaceAbove, false, function() return depthWanted end)
 end
 
-shaderpack.AfterWorld("ms_water", shaderpack.Toggle("ms_water", WATER_ENABLED, SHADERS, start, stop, { NOISE }))
+shaderpack.AfterWorld("borealis_water", shaderpack.Toggle("borealis_water", WATER_ENABLED, SHADERS, start, stop, { NOISE }))

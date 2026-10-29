@@ -1,6 +1,6 @@
 module("halo", package.seeall)
 
-local ROWS_PS, OUTLINE_PS, QUAD_VS = "halo_rows_ps30", "halo_ps30", "aurora_vs30"
+local ROWS_PS, OUTLINE_PS, QUAD_VS = "borealis_halo_rows_ps30", "borealis_halo_ps30", "borealis_passthrough_vs30"
 local SHADERS = { ROWS_PS, OUTLINE_PS, QUAD_VS }
 
 local FLAGS = bit.bor(STUDIO_RENDER, STUDIO_SKIP_DECALS or 0)

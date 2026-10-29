@@ -37,8 +37,8 @@ local LIQUID = bit.bor(CONTENTS_WATER, CONTENTS_SLIME)
 local leafMats = {}
 
 local function stop()
-	hook.Remove("Think", "ms_leaves")
-	depthslices.RemoveEffect("ms_leaves")
+	hook.Remove("Think", "borealis_leaves")
+	depthslices.RemoveEffect("borealis_leaves")
 
 	for _, cell in pairs(leaves.cells or {}) do
 		for _, leaf in ipairs(cell.leaves or {}) do
@@ -287,7 +287,7 @@ local function start()
 	if shaderpack.Season() ~= "autumn" then return end
 
 	for shape, tex in ipairs(TEXTURES) do
-		leafMats[shape] = leafMats[shape] or CreateMaterial("ms_leaf" .. shape, "UnlitGeneric", {
+		leafMats[shape] = leafMats[shape] or CreateMaterial("borealis_leaf" .. shape, "UnlitGeneric", {
 			["$basetexture"] = tex,
 			["$vertexcolor"] = 1,
 			["$alphatest"] = 1,
@@ -298,8 +298,8 @@ local function start()
 	leaves.emitter = ParticleEmitter(EyePos(), true)
 	leaves.emitter:SetNoDraw(true)
 	leaves.cells = {}
-	hook.Add("Think", "ms_leaves", think)
-	depthslices.AddEffect("ms_leaves", ORDER, drawLeaves)
+	hook.Add("Think", "borealis_leaves", think)
+	depthslices.AddEffect("borealis_leaves", ORDER, drawLeaves)
 end
 
-shaderpack.AfterWorld("ms_leaves", shaderpack.Toggle("ms_leaves", ENABLED, {}, start, stop, TEXTURES))
+shaderpack.AfterWorld("borealis_leaves", shaderpack.Toggle("borealis_leaves", ENABLED, {}, start, stop, TEXTURES))

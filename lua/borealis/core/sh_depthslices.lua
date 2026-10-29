@@ -1,4 +1,4 @@
-local MARK_PS, MARK_VS = "depthmark_ps30", "fog_vs30"
+local MARK_PS, MARK_VS = "borealis_depthmark_ps30", "borealis_fog_vs30"
 
 if SERVER then
 	shaderpack.AddResources({ MARK_VS, MARK_PS })
@@ -220,11 +220,11 @@ local function markReady()
 
 	if not shaderpack.Available({ MARK_PS, MARK_VS }) then return false end
 
-	local codes = GetRenderTargetEx("ms_depthslices_codes_" .. w .. "x" .. h, w, h, RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE, CLAMP, 0, IMAGE_FORMAT_RGBA8888)
+	local codes = GetRenderTargetEx("borealis_depthslices_codes_" .. w .. "x" .. h, w, h, RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE, CLAMP, 0, IMAGE_FORMAT_RGBA8888)
 	if not usableRT(codes, w, h) then return false end
 
 	CODES = codes
-	MARK = CreateShaderMaterial("ms_depthslices_mark_" .. w .. "x" .. h .. "_" .. os.time(), {
+	MARK = CreateShaderMaterial("borealis_depthslices_mark_" .. w .. "x" .. h .. "_" .. os.time(), {
 		["$pixshader"] = MARK_PS,
 		["$vertexshader"] = MARK_VS,
 		["$basetexture"] = codes:GetName(),
@@ -285,7 +285,7 @@ local function refog()
 	render.SetStencilEnable(false)
 end
 
-hook.Add("NeedsDepthPass", "ms_depthslices", function()
+hook.Add("NeedsDepthPass", "borealis_depthslices", function()
 	local t = depthslices.effects
 	for i = 1, #t do
 		local needsDepth = t[i].needsDepth
@@ -293,7 +293,7 @@ hook.Add("NeedsDepthPass", "ms_depthslices", function()
 	end
 end)
 
-hook.Add("PreDrawTranslucentRenderables", "ms_depthslices_effects", function(bDepth, bSkybox, b3DSky)
+hook.Add("PreDrawTranslucentRenderables", "borealis_depthslices_effects", function(bDepth, bSkybox, b3DSky)
 	if bDepth or bSkybox or b3DSky or render.GetRenderTarget() then return end
 	depthslices.Invalidate()
 	holdView()
@@ -312,14 +312,14 @@ hook.Add("PreDrawTranslucentRenderables", "ms_depthslices_effects", function(bDe
 	end
 end)
 
-hook.Add("PostDrawTranslucentRenderables", "ms_depthslices_restore", function(bDepth, bSkybox, b3DSky)
+hook.Add("PostDrawTranslucentRenderables", "borealis_depthslices_restore", function(bDepth, bSkybox, b3DSky)
 	if bDepth or bSkybox or b3DSky then return end
 	if dirtyFrame ~= FrameNumber() then return end
 
 	fillAlpha(ALPHA1)
 end)
 
-hook.Add("PreDrawViewModels", "ms_depthslices_refog", function()
+hook.Add("PreDrawViewModels", "borealis_depthslices_refog", function()
 	if refogFrame ~= FrameNumber() or render.GetRenderTarget() then return end
 	refogFrame = -1
 	holdView()

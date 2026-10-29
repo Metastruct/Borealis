@@ -1,4 +1,4 @@
-local PS, VS = "fog_ps30", "fog_vs30"
+local PS, VS = "borealis_fog_ps30", "borealis_fog_vs30"
 local NOISE = "shaderpack/procsky/fognoise"
 
 if SERVER then
@@ -29,7 +29,7 @@ local materialSerial = 0
 
 local function build()
 	materialSerial = materialSerial + 1
-	MAT = CreateShaderMaterial("ms_fog_" .. os.time() .. "_" .. materialSerial, {
+	MAT = CreateShaderMaterial("borealis_fog_" .. os.time() .. "_" .. materialSerial, {
 		["$pixshader"] = PS,
 		["$vertexshader"] = VS,
 		["$texture2"] = NOISE,
@@ -38,6 +38,7 @@ local function build()
 		["$linearread_texture2"] = 1,
 		["$linearread_texture3"] = 1,
 		["$linearread_texture4"] = 1,
+		["$linearread_texture5"] = 1,
 		["$linearwrite"] = 0,
 		["$additive"] = 0,
 		["$alpha_blend"] = 0,
@@ -106,7 +107,9 @@ end
 
 local function prepare()
 	if active then
-		cover.Update(EyePos())
+		local eye = EyePos()
+		cover.Update(eye)
+		cover.UpdateExposure(eye)
 	end
 end
 
@@ -127,6 +130,12 @@ local function draw()
 	local spans = cover.Spans()
 	MAT:SetTexture("$texture4", spans or coverRT)
 	extra:SetField(1, 1, spans and 1 or 0)
+	local exposure, ex, ey, einv, ez = cover.Exposure()
+	MAT:SetTexture("$texture5", exposure or coverRT)
+	extra:SetField(2, 1, ex or 0)
+	extra:SetField(2, 2, ey or 0)
+	extra:SetField(2, 3, einv or 0)
+	extra:SetField(2, 4, ez or 0)
 	MAT:SetMatrix("$viewprojmat", extra)
 
 	local eye = EyePos()
@@ -146,10 +155,10 @@ local function draw()
 end
 
 local function stop()
-	hook.Remove("Think", "ms_fog")
-	hook.Remove("PreRender", "ms_fog")
-	hook.Remove("PreDrawTranslucentRenderables", "ms_fog")
-	depthslices.RemoveEffect("ms_fog")
+	hook.Remove("Think", "borealis_fog")
+	hook.Remove("PreRender", "borealis_fog")
+	hook.Remove("PreDrawTranslucentRenderables", "borealis_fog")
+	depthslices.RemoveEffect("borealis_fog")
 	active = false
 	if tod and tod.SetVolumetricFog then
 		tod.SetVolumetricFog(nil)
@@ -158,9 +167,9 @@ end
 
 local function start()
 	stop()
-	hook.Add("Think", "ms_fog", think)
-	hook.Add("PreRender", "ms_fog", prepare)
-	depthslices.AddEffect("ms_fog", ORDER, draw, true, function() return active end)
+	hook.Add("Think", "borealis_fog", think)
+	hook.Add("PreRender", "borealis_fog", prepare)
+	depthslices.AddEffect("borealis_fog", ORDER, draw, true, function() return active end)
 end
 
-shaderpack.Toggle("ms_fog", FOG_ENABLED, { PS, VS }, start, stop, { NOISE })()
+shaderpack.Toggle("borealis_fog", FOG_ENABLED, { PS, VS, unpack(cover.EXPOSURE_SHADERS) }, start, stop, { NOISE })()

@@ -1,4 +1,4 @@
-local SHADERS = { "sky_ps30", "skylut_ps30", "aurora_vs30" }
+local SHADERS = { "borealis_sky_ps30", "borealis_skylut_ps30", "borealis_passthrough_vs30" }
 
 if SERVER then
 	shaderpack.AddResources(SHADERS)
@@ -324,7 +324,7 @@ local LUT_W, LUT_H = 256, 128
 local function renderLut()
 	if not lutDirty then return end
 	if not lut then
-		local rt = GetRenderTargetEx("ms_procsky_lut_" .. LUT_W .. "x" .. LUT_H, LUT_W, LUT_H, RT_SIZE_LITERAL, MATERIAL_RT_DEPTH_NONE, 8, 0, IMAGE_FORMAT_RGBA16161616F)
+		local rt = GetRenderTargetEx("borealis_procsky_lut_" .. LUT_W .. "x" .. LUT_H, LUT_W, LUT_H, RT_SIZE_LITERAL, MATERIAL_RT_DEPTH_NONE, 8, 0, IMAGE_FORMAT_RGBA16161616F)
 		if not rt or rt:IsError() or rt:Width() ~= LUT_W then return end
 		lut = rt
 		MAT:SetTexture("$basetexture", lut)
@@ -380,9 +380,9 @@ end
 local function stop()
 	active = false
 	skyboxer.RemoveHook("a_procsky")
-	hook.Remove("PreRender", "ms_procsky")
-	hook.Remove("SetupWorldFog", "ms_procsky")
-	hook.Remove("SetupSkyboxFog", "ms_procsky")
+	hook.Remove("PreRender", "borealis_procsky")
+	hook.Remove("SetupWorldFog", "borealis_procsky")
+	hook.Remove("SetupSkyboxFog", "borealis_procsky")
 	if tod and tod.CurrentParams then
 		tod.CurrentParams.STOP_STEALING_FOG_CONTROLS = nil
 	end
@@ -390,9 +390,9 @@ end
 
 local function start()
 	stop()
-	MAT = MAT or CreateShaderMaterial("ms_procsky_" .. os.time(), {
-		["$pixshader"] = "sky_ps30",
-		["$vertexshader"] = "aurora_vs30",
+	MAT = MAT or CreateShaderMaterial("borealis_procsky_" .. os.time(), {
+		["$pixshader"] = "borealis_sky_ps30",
+		["$vertexshader"] = "borealis_passthrough_vs30",
 		["$additive"] = 0,
 		["$alpha_blend"] = 0,
 		["$c0_x"] = 1, ["$c0_y"] = 0, ["$c0_z"] = 0, ["$c0_w"] = 1,
@@ -401,9 +401,9 @@ local function start()
 		["$c3_x"] = 0, ["$c3_y"] = 0, ["$c3_z"] = 0, ["$c3_w"] = 0,
 	})
 
-	LUT_MAT = LUT_MAT or CreateShaderMaterial("ms_procsky_lut_" .. os.time(), {
-		["$pixshader"] = "skylut_ps30",
-		["$vertexshader"] = "aurora_vs30",
+	LUT_MAT = LUT_MAT or CreateShaderMaterial("borealis_procsky_lut_" .. os.time(), {
+		["$pixshader"] = "borealis_skylut_ps30",
+		["$vertexshader"] = "borealis_passthrough_vs30",
 		["$additive"] = 0,
 		["$alpha_blend"] = 0,
 		["$c0_x"] = 0, ["$c0_y"] = 0, ["$c0_z"] = 1, ["$c0_w"] = LUT_W,
@@ -413,19 +413,19 @@ local function start()
 
 	updateState()
 	active = true
-	hook.Add("PreRender", "ms_procsky", renderLut)
+	hook.Add("PreRender", "borealis_procsky", renderLut)
 	skyboxer.AddHook("a_procsky", drawSky)
-	hook.Add("SetupWorldFog", "ms_procsky", setupFog)
-	hook.Add("SetupSkyboxFog", "ms_procsky", setupFog)
+	hook.Add("SetupWorldFog", "borealis_procsky", setupFog)
+	hook.Add("SetupSkyboxFog", "borealis_procsky", setupFog)
 	if tod and tod.CurrentParams then
 		tod.CurrentParams.STOP_STEALING_FOG_CONTROLS = true
 	end
 end
 
-local apply = shaderpack.Toggle("ms_procsky", SKY_ENABLED, SHADERS, start, stop)
+local apply = shaderpack.Toggle("borealis_procsky", SKY_ENABLED, SHADERS, start, stop)
 
-hook.Add("Think", "ms_procsky", think)
-hook.Add("RenderScreenspaceEffects", "ms_procsky_tint", function()
+hook.Add("Think", "borealis_procsky", think)
+hook.Add("RenderScreenspaceEffects", "borealis_procsky_tint", function()
 	local tint = shaderpack.Enabled() and procsky.theme.tint
 	if tint then
 		DrawColorModify(tint)

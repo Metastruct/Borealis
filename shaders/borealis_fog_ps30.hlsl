@@ -11,8 +11,10 @@ sampler Depth : register(s1);
 sampler3D Noise : register(s2);
 sampler CoverTex : register(s3);
 sampler CoverSpans : register(s4);
+sampler Exposure : register(s5);
 
 const float4 Constants11 : register(c11);
+const float4 Constants12 : register(c12);
 
 #define EYE      Constants0.xyz
 #define DENSITY  Constants0.w
@@ -23,6 +25,7 @@ const float4 Constants11 : register(c11);
 #define FOG_COL  Constants3.xyz
 #define FALLOFF  Constants3.w
 #define SPANS_ON Constants11.x
+#define EXPOSURE_FRAME Constants12
 
 #define STEPS 24
 #define MAX_RANGE 5000.0
@@ -40,6 +43,10 @@ const float4 Constants11 : register(c11);
 #define COVER_REACH 30.0
 #define Z_MIN -16384.0
 #define Z_RANGE 32768.0
+#define EXPOSED_MIN 0.2
+#define EXPOSED_MAX 0.6
+#define ROOFED_MIN 0.3
+#define ROOFED_MAX 0.55
 
 struct PS_IN
 {
@@ -78,6 +85,20 @@ bool sheltered(float3 p, float2 eyeCol)
 	}
 
 	return covered;
+}
+
+float exposure(float3 p, float2 eyeCol)
+{
+	bool roofed = sheltered(p, eyeCol);
+	float open = roofed ? 0.0 : 1.0;
+	[branch] if (EXPOSURE_FRAME.z > 0.0)
+	{
+		float2 baked = CoverExposureAt(Exposure, p, EXPOSURE_FRAME);
+		float e = roofed ? smoothstep(ROOFED_MIN, ROOFED_MAX, baked.x) : smoothstep(EXPOSED_MIN, EXPOSED_MAX, baked.x);
+		open = lerp(open, e, baked.y);
+	}
+
+	return open;
 }
 
 float4 main(PS_IN i) : COLOR
@@ -140,14 +161,15 @@ float4 main(PS_IN i) : COLOR
 			break;
 		}
 
-		[branch] if (!sheltered(p, eyeCol))
+		float open = exposure(p, eyeCol);
+		[branch] if (open > 0.0)
 		{
 			float nStr = i.color.g * saturate(1.0 - t / NOISE_FADE);
-			float m = 1.0;
+			float m = open;
 			[branch] if (nStr > 0.0)
 			{
 				float n = tex3Dlod(Noise, float4(p * NOISE_SCALE - WIND * TIME, 0.0)).r;
-				m = lerp(1.0, saturate((n - 0.25) * 2.2), nStr);
+				m *= lerp(1.0, saturate((n - 0.25) * 2.2), nStr);
 			}
 
 			float a = 1.0 - exp(-DENSITY * h * m * ds);

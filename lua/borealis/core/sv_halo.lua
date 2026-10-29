@@ -1,1 +1,1 @@
-shaderpack.AddResources({ "halo_rows_ps30", "halo_ps30", "aurora_vs30" })
+shaderpack.AddResources({ "borealis_halo_rows_ps30", "borealis_halo_ps30", "borealis_passthrough_vs30" })

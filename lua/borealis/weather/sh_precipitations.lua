@@ -1,7 +1,7 @@
-local VS = "rain_vs30"
-local SPLASH_PS = "rainsplash_ps30"
-local DROP_PS, DROP_VS = "raindrop_ps30", "raindrop_vs30"
-local SNOW_PS, SNOW_VS = "snow_ps30", "snow_vs30"
+local VS = "borealis_rain_vs30"
+local SPLASH_PS = "borealis_rainsplash_ps30"
+local DROP_PS, DROP_VS = "borealis_raindrop_ps30", "borealis_raindrop_vs30"
+local SNOW_PS, SNOW_VS = "borealis_snow_ps30", "borealis_snow_vs30"
 local SHADERS = { VS, SPLASH_PS, DROP_VS, DROP_PS, SNOW_VS, SNOW_PS }
 
 if SERVER then
@@ -491,10 +491,10 @@ local function draw(bDepth, _, b3DSky)
 end
 
 local function stop()
-	cover.Unlisten("ms_precipitations")
-	surfacewater.above.ms_precipitations = nil
-	hook.Remove("PreRender", "ms_precipitations")
-	hook.Remove("PostDrawTranslucentRenderables", "ms_precipitations")
+	cover.Unlisten("borealis_precipitations")
+	surfacewater.above.borealis_precipitations = nil
+	hook.Remove("PreRender", "borealis_precipitations")
+	hook.Remove("PostDrawTranslucentRenderables", "borealis_precipitations")
 	dropSplashes()
 	for i = #dropChunks, 1, -1 do
 		dropChunks[i].mesh:Destroy()
@@ -527,11 +527,11 @@ end
 
 function build()
 	fieldZ = nil
-	DROP_MAT = material("ms_raindrop", DROP_PS, DROP_VS)
+	DROP_MAT = material("borealis_raindrop", DROP_PS, DROP_VS)
 	DROP_MAT:SetTexture("$basetexture", cover.Texture())
-	SPLASH_MAT = material("ms_rainsplash", SPLASH_PS)
+	SPLASH_MAT = material("borealis_rainsplash", SPLASH_PS)
 	setConstant(SPLASH_MAT, "$c1", nil, SPLASH_FADE_START, SPLASH_FADE_END)
-	SNOW_MAT = material("ms_snow", SNOW_PS, SNOW_VS)
+	SNOW_MAT = material("borealis_snow", SNOW_PS, SNOW_VS)
 	SNOW_MAT:SetTexture("$basetexture", cover.Texture())
 end
 
@@ -554,10 +554,10 @@ local function start()
 	stop()
 	SPLASH_MAT, DROP_MAT, SNOW_MAT = nil, nil, nil
 	ripplesDirty = true
-	cover.Listen("ms_precipitations", onColumn, onReset)
-	surfacewater.above.ms_precipitations = drawWeather
-	hook.Add("PreRender", "ms_precipitations", prepare)
-	hook.Add("PostDrawTranslucentRenderables", "ms_precipitations", draw)
+	cover.Listen("borealis_precipitations", onColumn, onReset)
+	surfacewater.above.borealis_precipitations = drawWeather
+	hook.Add("PreRender", "borealis_precipitations", prepare)
+	hook.Add("PostDrawTranslucentRenderables", "borealis_precipitations", draw)
 end
 
-shaderpack.Toggle("ms_precipitations", ENABLED, SHADERS, start, stop)()
+shaderpack.Toggle("borealis_precipitations", ENABLED, SHADERS, start, stop)()

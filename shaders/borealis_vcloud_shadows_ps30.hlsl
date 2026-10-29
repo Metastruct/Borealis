@@ -6,11 +6,13 @@ const float4 Constants0 : register(c0);
 const float4 Constants1 : register(c1);
 const float4 Constants2 : register(c2);
 const float4 Extra0 : register(c11);
+const float4 Extra1 : register(c12);
 
 sampler Frame : register(s0);
 sampler Depth : register(s1);
 sampler ShadowMap : register(s2);
 sampler CoverSpans : register(s3);
+sampler Exposure : register(s4);
 
 #define EYE       Constants0.xyz
 #define STRENGTH  Constants0.w
@@ -21,6 +23,7 @@ sampler CoverSpans : register(s3);
 #define MAP_ORIGIN Extra0.xy
 #define MAP_INV    Extra0.z
 #define SPANS_ON   Extra0.w
+#define EXPOSURE_FRAME Extra1
 
 #define FADE_START 9000.0
 #define FADE_END 20000.0
@@ -30,6 +33,12 @@ sampler CoverSpans : register(s3);
 
 #define SUN_PROBE 48.0
 #define PROBE_BELOW 32.0
+#define RING_RADIUS 128.0
+#define RING_BELOW 56.0
+#define RING_TWIST 0.3
+#define EXPOSED_MIN 0.2
+#define EXPOSED_MAX 0.6
+#define CLEAR_MIN 0.9
 
 #define SHADOW_COL float3(0.35, 0.40, 0.52)
 #define OPACITY 3.0
@@ -73,7 +82,23 @@ float4 main(PS_IN i) : COLOR
 	float shade = (1.0 - pow(tex2Dlod(ShadowMap, float4(m, 0.0, 0.0)).r, OPACITY)) * edge.x * edge.y * STRENGTH * fade;
 	[branch] if (shade > 0.0 && SPANS_ON > 0.5)
 	{
-		shade *= CoverSpansOpen(CoverSpans, p + SUN_DIR * SUN_PROBE, PROBE_BELOW);
+		float2 baked = float2(0.0, 0.0);
+		[branch] if (EXPOSURE_FRAME.z > 0.0)
+		{
+			baked = CoverExposureAt(Exposure, p, EXPOSURE_FRAME);
+		}
+
+		float exposed = baked.x;
+		[branch] if (baked.y < 1.0)
+		{
+			exposed = lerp(CoverSpansExposure(CoverSpans, p, RING_RADIUS, RING_BELOW, RING_TWIST), baked.x, baked.y);
+		}
+
+		shade *= smoothstep(EXPOSED_MIN, EXPOSED_MAX, exposed);
+		[branch] if (shade > 0.0 && exposed > CLEAR_MIN)
+		{
+			shade *= lerp(1.0, CoverSpansOpenSmooth(CoverSpans, p + SUN_DIR * SUN_PROBE, PROBE_BELOW), smoothstep(CLEAR_MIN, 1.0, exposed));
+		}
 	}
 
 	return float4(scene * lerp(float3(1.0, 1.0, 1.0), SHADOW_COL, shade), 1.0);

@@ -1,4 +1,4 @@
-local PIXEL_SHADER, DEPTH_SHADER, VERTEX_SHADER = "seagrass_ps30", "seagrassdepth_ps30", "seagrass_vs30"
+local PIXEL_SHADER, DEPTH_SHADER, VERTEX_SHADER = "borealis_seagrass_ps30", "borealis_seagrassdepth_ps30", "borealis_seagrass_vs30"
 
 if SERVER then
 	shaderpack.AddResources({ PIXEL_SHADER, DEPTH_SHADER, VERTEX_SHADER })
@@ -108,4 +108,4 @@ local function start()
 	layer:Start()
 end
 
-shaderpack.AfterWorld("ms_seagrass", shaderpack.Toggle("ms_seagrass", SEAGRASS_ENABLED, { PIXEL_SHADER, VERTEX_SHADER }, start, function() layer:Stop() end))
+shaderpack.AfterWorld("borealis_seagrass", shaderpack.Toggle("borealis_seagrass", SEAGRASS_ENABLED, { PIXEL_SHADER, VERTEX_SHADER }, start, function() layer:Stop() end))

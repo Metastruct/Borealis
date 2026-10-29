@@ -79,19 +79,19 @@ local function isIce(e)
 	return IsValid(e) and e:GetClass() == CLASS
 end
 
-hook.Add("PhysgunPickup", "ms_ice", function(_, e)
+hook.Add("PhysgunPickup", "borealis_ice", function(_, e)
 	if isIce(e) then return false end
 end)
 
-hook.Add("GravGunPickupAllowed", "ms_ice", function(_, e)
+hook.Add("GravGunPickupAllowed", "borealis_ice", function(_, e)
 	if isIce(e) then return false end
 end)
 
-hook.Add("CanTool", "ms_ice", function(_, tr)
+hook.Add("CanTool", "borealis_ice", function(_, tr)
 	if isIce(tr.Entity) then return false end
 end)
 
-hook.Add("CanProperty", "ms_ice", function(_, _, e)
+hook.Add("CanProperty", "borealis_ice", function(_, _, e)
 	if isIce(e) then return false end
 end)
 
@@ -112,5 +112,5 @@ end
 
 ice.Spawn = spawn
 
-hook.Add("InitPostEntity", "ms_ice", spawn)
-hook.Add("PostCleanupMap", "ms_ice", spawn)
+hook.Add("InitPostEntity", "borealis_ice", spawn)
+hook.Add("PostCleanupMap", "borealis_ice", spawn)

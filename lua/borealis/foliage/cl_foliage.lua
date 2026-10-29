@@ -622,7 +622,7 @@ function Layer:draw(sky3d)
 end
 
 function Layer:Stop()
-	local id = "ms_" .. self.cfg.name
+	local id = "borealis_" .. self.cfg.name
 	hook.Remove("Think", id)
 	hook.Remove("PostDrawOpaqueRenderables", id)
 	if self.chunks then
@@ -648,7 +648,7 @@ end
 function Layer:Start()
 	self:Stop()
 	local cfg = self.cfg
-	self.mat = self.mat or CreateShaderMaterial("ms_" .. cfg.name .. "_" .. os.time(), {
+	self.mat = self.mat or CreateShaderMaterial("borealis_" .. cfg.name .. "_" .. os.time(), {
 		["$pixshader"] = cfg.pixelShader,
 		["$vertexshader"] = cfg.vertexShader,
 		["$ignorez"] = 0,
@@ -664,7 +664,7 @@ function Layer:Start()
 	})
 
 	if not self.depthMat and file.Exists("shaders/fxc/" .. cfg.depthShader .. ".vcs", "GAME") then
-		self.depthMat = CreateShaderMaterial("ms_" .. cfg.name .. "depth_" .. os.time(), {
+		self.depthMat = CreateShaderMaterial("borealis_" .. cfg.name .. "depth_" .. os.time(), {
 			["$pixshader"] = cfg.depthShader,
 			["$vertexshader"] = cfg.vertexShader,
 			["$alpha_blend"] = 0,
@@ -681,7 +681,7 @@ function Layer:Start()
 
 	self.chunks, self.tuftCache, self.buildQueue = {}, {}, {}
 	self.loader = coroutine.create(function() return self:load() end)
-	local id = "ms_" .. cfg.name
+	local id = "borealis_" .. cfg.name
 	hook.Add("Think", id, function() self:think() end)
 	hook.Add("PostDrawOpaqueRenderables", id, function(_, _, sky3d) self:draw(sky3d) end)
 end

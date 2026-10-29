@@ -1,11 +1,33 @@
 local procsky, foliage = shaderpack.procsky, shaderpack.foliage
-local TAG = "ms_shaderpack_bench"
+local TAG = "borealis_shaderpack_bench"
 local SETTLE, MEASURE = 20, 30
 local VIEWS = { { "horizon", 0 }, { "up", -30 } }
-local GENERAL = { "cl_draw_procsky", "cl_draw_clouds", "cl_draw_skyterrain", "cl_draw_sunshafts", "cl_draw_water", "cl_draw_grass", "cl_draw_seagrass", "cl_draw_kelp", "cl_draw_vclouds", "cl_draw_ssao", "cl_draw_leaves", "cl_draw_lava" }
+local GENERAL = { "cl_draw_procsky", "cl_draw_clouds", "cl_draw_skyterrain", "cl_draw_sunshafts", "cl_draw_water", "cl_draw_grass", "cl_draw_seagrass", "cl_draw_kelp", "cl_draw_vclouds", "cl_draw_ssao", "cl_draw_leaves", "cl_draw_lava", "cl_draw_grade" }
 local RAIN = { "cl_draw_precipitations", "cl_draw_fog", "cl_draw_wetness" }
+local SNOW = { "cl_draw_precipitations", "cl_draw_fog" }
+local WINTER = { "cl_draw_snowcover", "cl_draw_wetness" }
 local NIGHT = { "cl_draw_auroras" }
-local PAUSED = { cl_draw_grass = "grass", cl_draw_seagrass = "seagrass", cl_draw_kelp = "kelp" }
+local LISTS = { GENERAL, RAIN, SNOW, WINTER, NIGHT }
+
+local function pauseFoliage(layer)
+	return function(state)
+		if foliage and foliage.SetPaused then
+			foliage.SetPaused(layer, state)
+		end
+	end
+end
+
+local PAUSED = {
+	cl_draw_grass = pauseFoliage("grass"),
+	cl_draw_seagrass = pauseFoliage("seagrass"),
+	cl_draw_kelp = pauseFoliage("kelp"),
+	cl_draw_snowcover = function(state)
+		local snowcover = shaderpack.snowcover
+		if snowcover and snowcover.SetPaused then
+			snowcover.SetPaused(state)
+		end
+	end,
+}
 
 local running
 
@@ -22,10 +44,13 @@ local function enabled(list)
 end
 
 local function merged(...)
-	local out = {}
+	local out, seen = {}, {}
 	for _, list in ipairs({ ... }) do
 		for _, name in ipairs(enabled(list)) do
-			out[#out + 1] = name
+			if not seen[name] then
+				seen[name] = true
+				out[#out + 1] = name
+			end
 		end
 	end
 
@@ -33,14 +58,18 @@ local function merged(...)
 end
 
 local function conditions()
+	local winter = shaderpack.Season() == "winter" and WINTER or {}
 	if not tod then
-		return { { name = "as is", cvars = merged(GENERAL) } }
+		return { { name = "as is", cvars = merged(GENERAL, winter) } }
 	end
 
-	local list = { { name = "day", weather = "clear", cycle = 0.5, cvars = merged(GENERAL) } }
-	list[#list + 1] = { name = "day rain", weather = "rain", cycle = 0.5, cvars = merged(GENERAL, RAIN) }
-	list[#list + 1] = { name = "night", weather = "clear", cycle = 0, cvars = merged(GENERAL, NIGHT) }
-	list[#list + 1] = { name = "night rain", weather = "rain", cycle = 0, cvars = merged(GENERAL, RAIN, NIGHT) }
+	local list = { { name = "day", weather = "clear", cycle = 0.5, cvars = merged(GENERAL, winter) } }
+	list[#list + 1] = { name = "day rain", weather = "rain", cycle = 0.5, cvars = merged(GENERAL, RAIN, winter) }
+	if tod.snow then
+		list[#list + 1] = { name = "day snow", weather = "snow", cycle = 0.5, cvars = merged(GENERAL, SNOW, winter) }
+	end
+	list[#list + 1] = { name = "night", weather = "clear", cycle = 0, cvars = merged(GENERAL, NIGHT, winter) }
+	list[#list + 1] = { name = "night rain", weather = "rain", cycle = 0, cvars = merged(GENERAL, RAIN, NIGHT, winter) }
 
 	return list
 end
@@ -57,10 +86,11 @@ end
 
 local function header()
 	local aa = GetConVar("mat_antialias")
-	local on, off = {}, {}
-	for _, list in ipairs({ GENERAL, RAIN, NIGHT }) do
+	local on, off, seen = {}, {}, {}
+	for _, list in ipairs(LISTS) do
 		for _, name in ipairs(list) do
-			local cv = GetConVar(name)
+			local cv = not seen[name] and GetConVar(name)
+			seen[name] = true
 			if cv and cv:GetBool() then on[#on + 1] = short(name) elseif cv then off[#off + 1] = short(name) end
 		end
 	end
@@ -106,7 +136,7 @@ local function conditionTable(c, data)
 	local lines = {
 		"",
 		row(c.name, names, "%9s"),
-		string.format("  sun %.0f, rain %.2f, overcast %.2f", c.sun or 0, c.rain or 0, c.overcast or 0),
+		string.format("  sun %.0f, rain %.2f, snow %.2f, overcast %.2f", c.sun or 0, c.rain or 0, c.snow or 0, c.overcast or 0),
 		row("frame, all on", base),
 	}
 	for _, r in ipairs(rows) do
@@ -136,7 +166,7 @@ local function start()
 	local conds = conditions()
 	local blocks = schedule(conds)
 	local original = {}
-	for _, list in ipairs({ GENERAL, RAIN, NIGHT }) do
+	for _, list in ipairs(LISTS) do
 		for _, name in ipairs(list) do
 			local cv = GetConVar(name)
 			if cv then original[name] = cv:GetString() end
@@ -163,10 +193,8 @@ local function start()
 			end
 		end
 
-		if foliage and foliage.SetPaused then
-			for cvar, layer in pairs(PAUSED) do
-				foliage.SetPaused(layer, cvar == off)
-			end
+		for cvar, pause in pairs(PAUSED) do
+			pause(cvar == off)
 		end
 	end
 
@@ -252,6 +280,7 @@ local function start()
 				local c = conds[b.cond]
 				c.sun = procsky and procsky.GetLights and select(3, procsky.GetLights()) or 0
 				c.rain = tod and tod.rain and tod.rain.amount or 0
+				c.snow = tod and tod.snow and tod.snow.amount or 0
 				c.overcast = shaderpack.Overcast()
 			end
 		end

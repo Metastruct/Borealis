@@ -1,4 +1,4 @@
-local PIXEL_SHADER, DEPTH_SHADER, VERTEX_SHADER = "kelp_ps30", "kelpdepth_ps30", "kelp_vs30"
+local PIXEL_SHADER, DEPTH_SHADER, VERTEX_SHADER = "borealis_kelp_ps30", "borealis_kelpdepth_ps30", "borealis_kelp_vs30"
 
 if SERVER then
 	shaderpack.AddResources({ VERTEX_SHADER, PIXEL_SHADER, DEPTH_SHADER })
@@ -190,4 +190,4 @@ local layer = foliage.Layer({
 })
 layer:SetDistance(RADIUS)
 
-shaderpack.AfterWorld("ms_kelp", shaderpack.Toggle("ms_kelp", KELP_ENABLED, { PIXEL_SHADER, VERTEX_SHADER }, function() layer:Start() end, function() layer:Stop() end))
+shaderpack.AfterWorld("borealis_kelp", shaderpack.Toggle("borealis_kelp", KELP_ENABLED, { PIXEL_SHADER, VERTEX_SHADER }, function() layer:Start() end, function() layer:Stop() end))
