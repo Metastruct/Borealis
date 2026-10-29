@@ -33,6 +33,7 @@ local TRAIL_STEP = 128
 local REFILL_INTERVAL = 1
 local SETTLE_TIME, SNOWFALL_TIME = 1200, 120
 local CAPTURE_PAD = 4
+local STAMP_BLUR = 2
 local CAPTURE_HEIGHT = 4096
 local GATHER_INTERVAL = 0.25
 local RESTAMP_INTERVAL = 1
@@ -638,8 +639,7 @@ local function drawStamp(s)
 end
 
 local function blurRect(px, py, w, h)
-	render.SetViewPort(px, py, w, h)
-	render.DrawScreenQuad()
+	surface.DrawTexturedRect(px, py, w, h)
 end
 
 local function capture()
@@ -661,7 +661,7 @@ local function capture()
 	render.PushRenderTarget(stampRT)
 	for i = 1, n do
 		local s = stamps[i]
-		eachRTRect(s.X0, s.Y0, s.w, s.h, clearRect)
+		eachRTRect(s.X0 - STAMP_BLUR, s.Y0 - STAMP_BLUR, s.w + STAMP_BLUR * 2, s.h + STAMP_BLUR * 2, clearRect)
 	end
 	render.SetViewPort(0, 0, TRAIL_TEXELS, TRAIL_TEXELS)
 
@@ -680,14 +680,16 @@ local function capture()
 	render.PopRenderTarget()
 
 	render.PushRenderTarget(trailRT)
+	cam.Start2D()
 	render.OverrideBlend(true, BLEND_ONE, BLEND_ONE, BLENDFUNC_MAX, BLEND_ONE, BLEND_ONE, BLENDFUNC_MAX)
-	render.SetMaterial(blurMat)
+	surface.SetDrawColor(255, 255, 255, 255)
+	surface.SetMaterial(blurMat)
 	for i = 1, n do
 		local s = stamps[i]
 		eachRTRect(s.X0, s.Y0, s.w, s.h, blurRect)
 	end
-	render.SetViewPort(0, 0, TRAIL_TEXELS, TRAIL_TEXELS)
 	render.OverrideBlend(false)
+	cam.End2D()
 	render.PopRenderTarget()
 end
 

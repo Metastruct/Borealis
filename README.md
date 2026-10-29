@@ -153,7 +153,7 @@ Detection of things that are drawing into the translucent pass even though they 
 - Hook callbacks that error are removed, and skyboxer's dispatcher dies with them. Wrap experimental code in `pcall`.
 - Keep module tables as `x = x or {}` under `shaderpack.*`; reassigning one on reload wipes live registrations.
 - Full-screen passes are expensive: measure before adding taps or march steps.
-- `render.DrawScreenQuadEx` takes screen coordinates even inside a pushed render target. To fill a rect of an RT, use `render.SetViewPort` and `render.DrawScreenQuad`.
+- Inside a pushed render target, `render.DrawScreenQuadEx` takes screen coordinates and `render.DrawScreenQuad` fills the whole target regardless of the viewport. To fill a rect of an RT, use `cam.Start2D` and `surface.DrawTexturedRect`, which take RT pixels. `render.Clear` does respect `render.SetViewPort`.
 
 ## Data
 
