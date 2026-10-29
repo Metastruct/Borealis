@@ -68,7 +68,7 @@ function foliage.SurfaceClassifier(kinds, names)
 		if not names then return end
 
 		local base2 = mat:GetString("$basetexture2")
-		local first = named(mat:GetString("$basetexture")) or (not base2 and named(name))
+		local first = named(mat:GetString("$basetexture")) or (not base2 and named((name:lower():gsub("^maps/[^/]+/", ""))))
 		local second = named(base2)
 		if first and (not base2 or second) then
 			return 1

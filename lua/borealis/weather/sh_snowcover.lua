@@ -17,6 +17,7 @@ local MIN_NZ = 0.6
 local RADIUS = 3072
 local FADE_START, FADE_END = RADIUS * 0.75, RADIUS * 0.95
 local MESH_TRIS = 10000
+local MESH_CACHE_TRIS = jit.arch == "x64" and math.huge or 300000
 local BUILD_BUDGET_MS = 2
 local SKY_REACH = 16384
 local SKY_CELL, LIGHT_CELL, CLUSTER_CELL = 16, 16, 64
@@ -475,9 +476,10 @@ local function think()
 			local ok, verts, tris = coroutine.resume(current.co, current)
 			if not ok then
 				ErrorNoHalt("[snowcover] chunk build failed: " .. tostring(verts) .. "\n")
-				current.meshes, current.co, current = {}, nil, nil
+				current.meshes, current.tris, current.co, current = {}, 0, nil, nil
 			elseif coroutine.status(current.co) == "dead" then
 				current.meshes = tris > 0 and buildMeshes(verts, tris) or {}
+				current.tris = tris
 				current.co, current = nil, nil
 			else
 				break
@@ -824,12 +826,29 @@ local function evict()
 
 	local eye = EyePos()
 	local limit = (RADIUS + CHUNK * 2) ^ 2
+	local far, meshed = {}, 0
 	for key, ch in pairs(chunks) do
 		local dx, dy = ch.cx * CHUNK + CHUNK * 0.5 - eye.x, ch.cy * CHUNK + CHUNK * 0.5 - eye.y
-		if dx * dx + dy * dy > limit and ch ~= current then
-			destroyChunk(ch)
-			chunks[key] = nil
+		local d = dx * dx + dy * dy
+		if d > limit and ch ~= current then
+			if not ch.meshes then
+				chunks[key] = nil
+			elseif ch.tris > 0 then
+				ch.evictDist = d
+				far[#far + 1] = ch
+				meshed = meshed + ch.tris
+			end
 		end
+	end
+
+	if meshed <= MESH_CACHE_TRIS then return end
+
+	table.sort(far, function(a, b) return a.evictDist > b.evictDist end)
+	for _, ch in ipairs(far) do
+		if meshed <= MESH_CACHE_TRIS then break end
+		meshed = meshed - ch.tris
+		destroyChunk(ch)
+		chunks[chunkKey(ch.cx, ch.cy)] = nil
 	end
 end
 
