@@ -409,7 +409,7 @@ if SERVER then
 		end
 	end
 
-	hook.Add("PlayerFullyConnected", SPAN_NET, connected)
+	shaderpack.OnPlayerReady(SPAN_NET, connected)
 
 	if game.GetWorld():IsWorld() then
 		start()

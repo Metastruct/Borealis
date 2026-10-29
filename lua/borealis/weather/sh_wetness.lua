@@ -257,21 +257,28 @@ local function stop()
 	active = false
 end
 
+local winterRemoved = false
+
+local function freeze()
+	frozen = not winterRemoved and shaderpack.ice ~= nil and shaderpack.ice.Winter()
+	if frozen then
+		wet, pool = FROST, 0
+	end
+end
+
 local function start()
 	stop()
 	MAT = nil
-	frozen = shaderpack.ice ~= nil and shaderpack.ice.Winter()
+	freeze()
 	hook.Add("Think", "ms_wetness", think)
 	hook.Add("PreRender", "ms_wetness", prepare)
 	depthslices.AddEffect("ms_wetness", ORDER, draw, false, function() return active end)
 end
 
 shaderpack.Toggle("ms_wetness", ENABLED, { PS, VS }, start, stop, { NOISE })()
+shaderpack.AfterWorld("ms_wetness", freeze)
 
 hook.Add("TOD_WinterRemoved", "ms_wetness", function()
-	frozen = false
-end)
-
-hook.Add("TOD_WinterRemoved", "ms_wetness", function()
+	winterRemoved = true
 	frozen = false
 end)

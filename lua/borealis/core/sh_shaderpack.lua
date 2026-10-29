@@ -33,6 +33,30 @@ if SERVER then
 		end
 	end
 
+	shaderpack.readyCallbacks = shaderpack.readyCallbacks or {}
+
+	function shaderpack.OnPlayerReady(id, fn)
+		shaderpack.readyCallbacks[id] = fn
+	end
+
+	local justSpawned = {}
+	hook.Add("PlayerInitialSpawn", "shaderpack_ready", function(ply)
+		justSpawned[ply] = true
+	end)
+
+	hook.Add("PlayerDisconnected", "shaderpack_ready", function(ply)
+		justSpawned[ply] = nil
+	end)
+
+	hook.Add("SetupMove", "shaderpack_ready", function(ply, _, ucmd)
+		if justSpawned[ply] and not ucmd:IsForced() then
+			justSpawned[ply] = nil
+			for _, fn in pairs(shaderpack.readyCallbacks) do
+				fn(ply)
+			end
+		end
+	end)
+
 	return
 end
 

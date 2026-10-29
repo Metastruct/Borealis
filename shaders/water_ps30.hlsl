@@ -34,9 +34,17 @@ sampler CoverTex : register(s5);
 #define ICE_WARP 90.0
 #define ICE_CRACK_MASK_TILE 2600.0
 #define ICE_CLOUD_TILE 1300.0
-#define ICE_CLOUD_MIN 0.3
-#define ICE_CLOUD_MAX 0.8
-#define ICE_SCATTER 0.5
+#define ICE_CLOUD_MIN 0.5
+#define ICE_CLOUD_MAX 0.9
+#define ICE_SCATTER 0.65
+#define ICE_BUMP_TILE 700.0
+#define ICE_BUMP 0.45
+#define ICE_SSR 0.5
+#define ICE_ROUGH_TILE 70.0
+#define ICE_ROUGH 0.35
+#define ICE_ROUGH_FADE float2(250.0, 900.0)
+#define ICE_BUMP_FADE float2(900.0, 2500.0)
+#define ICE_REFLECT 0.55
 #define ICE_TINT float3(0.75, 0.88, 0.95)
 #define ICE_WIND float2(0.9397, 0.3420)
 #define ICE_WIND2 float2(0.7660, 0.6428)
@@ -44,7 +52,7 @@ sampler CoverTex : register(s5);
 #define ICE_DRIFT_ACROSS 700.0
 #define ICE_GRAIN_TILE 450.0
 #define ICE_COVER_TILE 7000.0
-#define ICE_FROST_SPARSE 0.72
+#define ICE_FROST_SPARSE 0.66
 #define ICE_FROST_DENSE 0.38
 #define ICE_FROST_SOFT 0.2
 #define ICE_FROST_MAX 0.85
@@ -168,7 +176,10 @@ float4 main(PS_IN i) : COLOR
         float bigLine = (1.0 - smoothstep(0.0, ICE_CRACK_WIDTH, big.x)) * bigMask;
         float fineLine = (1.0 - smoothstep(0.0, ICE_CRACK_WIDTH * 0.6, fine.x)) * ICE_FINE_STRENGTH * fineMask;
         crack = max(bigLine, fineLine);
-        slope = (big.yz * bigLine + fine.yz * fineLine) * ICE_GROOVE;
+        float dist = length(i.wpos - EYE_POS);
+        float bump = ICE_BUMP * (1.0 - smoothstep(ICE_BUMP_FADE.x, ICE_BUMP_FADE.y, dist));
+        float rough = ICE_ROUGH * (1.0 - smoothstep(ICE_ROUGH_FADE.x, ICE_ROUGH_FADE.y, dist));
+        slope = (big.yz * bigLine + fine.yz * fineLine) * ICE_GROOVE + IceBump(Noise, p, ICE_BUMP_TILE, 0.61) * bump + IceBump(Noise, p, ICE_ROUGH_TILE, 0.07) * rough;
         cloud = IceNoise(Noise, p, ICE_CLOUD_TILE, 0.4);
         float2 drift = float2(dot(p, ICE_WIND) / ICE_DRIFT_ALONG, dot(p, float2(-ICE_WIND.y, ICE_WIND.x)) / ICE_DRIFT_ACROSS);
         float2 drift2 = float2(dot(p, ICE_WIND2) / (ICE_DRIFT_ALONG * ICE_GOLDEN), dot(p, float2(-ICE_WIND2.y, ICE_WIND2.x)) / (ICE_DRIFT_ACROSS * ICE_GOLDEN));
@@ -230,7 +241,7 @@ float4 main(PS_IN i) : COLOR
         }
 
         float cosTheta = saturate(dot(-viewDir, normal));
-        f = (F0 + (1 - F0) * pow(1 - cosTheta, 5)) * saturate((i.wpos.z - seabedPos.z) / SHORE_FADE);
+        f = (F0 + (1 - F0) * pow(1 - cosTheta, 5)) * saturate((i.wpos.z - seabedPos.z) / SHORE_FADE) * (FROZEN ? ICE_REFLECT : 1.0);
         reflectDir = reflect(viewDir, normal);
         skyClear = exp(-FogLayerDepth(FOG_DENSITY, FOG_BASE, FOG_FALLOFF, i.wpos.z, i.wpos.z + reflectDir.z * FOG_RANGE, FOG_RANGE));
         fallbackColor = lerp(HORIZON_COLOR * FOG_AMBIENT, SkyColor(reflectDir, HORIZON_COLOR, ZENITH_COLOR), skyClear);
@@ -301,7 +312,7 @@ float4 main(PS_IN i) : COLOR
                 float4 projectedFrame = tex2Dlod(Frame, float4(projectedUV, 0.0, 0.0));
                 float fadeX = saturate(min(projectedUV.x, 1 - projectedUV.x) / 0.1);
                 float fadeY = saturate(min(projectedUV.y, 1 - projectedUV.y) / 0.1);
-                float weight = fadeX * fadeY * (FROM_BELOW ? saturate(-reflectDir.z / BELOW_SSR_GRAZING) : 1.0);
+                float weight = fadeX * fadeY * (FROM_BELOW ? saturate(-reflectDir.z / BELOW_SSR_GRAZING) : 1.0) * (FROZEN ? ICE_SSR : 1.0);
                 hit = true;
                 float3 reflected = FROM_BELOW ? WaterAttenuate(projectedFrame.rgb, tFar * MURK, fallbackColor) : lerp(HORIZON_COLOR * FOG_AMBIENT, projectedFrame.rgb, exp(-FogLayerDepth(FOG_DENSITY, FOG_BASE, FOG_FALLOFF, i.wpos.z, i.wpos.z + reflectDir.z * tFar, tFar)));
                 hitColor = lerp(fallbackColor, reflected, weight);

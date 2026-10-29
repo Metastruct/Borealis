@@ -9,6 +9,14 @@ float IceNoise(sampler3D noise, float2 p, float tile, float w)
 	return saturate(0.5 + (a + b - 1.0) * 0.7);
 }
 
+float2 IceBump(sampler3D noise, float2 p, float tile, float w)
+{
+	float e = tile / 32.0;
+	float h = IceNoise(noise, p, tile, w);
+
+	return float2(IceNoise(noise, p + float2(e, 0.0), tile, w), IceNoise(noise, p + float2(0.0, e), tile, w)) - h;
+}
+
 float2 IceHash2(float2 p)
 {
 	return frac(sin(float2(dot(p, float2(127.1, 311.7)), dot(p, float2(269.5, 183.3)))) * 43758.5453);
