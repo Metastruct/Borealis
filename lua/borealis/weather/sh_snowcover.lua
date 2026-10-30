@@ -8,15 +8,17 @@ if SERVER then
 	return
 end
 
-local bspdata, depthslices, foliage = shaderpack.bspdata, shaderpack.depthslices, shaderpack.foliage
+local bspdata, depthslices, foliage, chunks = shaderpack.bspdata, shaderpack.depthslices, shaderpack.foliage, shaderpack.chunks
 local ENABLED = CreateClientConVar("cl_draw_snowcover", "1", true, false, "draw deep snow with footprints on snowy ground in winter")
 local snowcover = shaderpack.snowcover or {}
 shaderpack.snowcover = snowcover
 
 local paused = false
+local grid
 
 function snowcover.SetPaused(state)
 	paused = state
+	grid:SetPaused(state)
 end
 
 local DEPTH = 10
@@ -26,7 +28,6 @@ local RADIUS = 3072
 local FADE_START, FADE_END = RADIUS * 0.75, RADIUS * 0.95
 local MESH_TRIS = 10000
 local MESH_CACHE_TRIS = jit.arch == "x64" and math.huge or 300000
-local BUILD_BUDGET_MS = 2
 local SKY_REACH = 16384
 local SKY_CELL, LIGHT_CELL, CLUSTER_CELL = 16, 16, 64
 local SMALL_TRI = CELL * 2
@@ -69,9 +70,7 @@ local function classify(name)
 	return (not base2 or snowy(base2)) and 1 or 2
 end
 
-local function chunkKey(cx, cy)
-	return cx * 65536 + cy
-end
+local chunkKey = chunks.Key
 
 local function triNormal(t)
 	local ux, uy, uz = t[4] - t[1], t[5] - t[2], t[6] - t[3]
@@ -90,22 +89,6 @@ end
 
 local triGrid, edgeGrid
 
-local function skyboxPVS()
-	local f, lump = bspdata.OpenLumps()
-	if not f then return end
-
-	local entities = lump(0)
-	f:Close()
-	for block in entities:gmatch("%b{}") do
-		if block:find("\"classname\" \"sky_camera\"", 1, true) then
-			local x, y, z = (block:match("\"origin\" \"([^\"]*)\"") or ""):match("(%S+)%s+(%S+)%s+(%S+)")
-			local cluster = x and bspdata.ClusterAt(tonumber(x), tonumber(y), tonumber(z)) or -1
-
-			return cluster >= 0 and bspdata.PVS(cluster) or nil
-		end
-	end
-end
-
 local wetPos = Vector()
 
 local function submerged(x, y, z)
@@ -122,19 +105,15 @@ local function load()
 	grid, why = bspdata.Triangles(classify, MIN_NZ)
 	if not grid then return false, why end
 
+	grid = bspdata.DropSkybox(grid)
+
 	local yieldIfOverBudget = bspdata.FrameBudget()
-	local skybox = skyboxPVS()
 	local seen, edges, normals, up = {}, {}, {}, {}
 	for _, cell in pairs(grid) do
 		for _, t in ipairs(cell) do
 			if not seen[t] then
 				seen[t] = true
 				t.nx, t.ny, t.nz = triNormal(t)
-				if t.nz >= MIN_NZ and skybox then
-					local c = bspdata.ClusterAt((t[1] + t[4] + t[7]) / 3, (t[2] + t[5] + t[8]) / 3, (t[3] + t[6] + t[9]) / 3 + DEPTH + 4)
-					if c >= 0 and skybox[c] then t.nz = 0 end
-				end
-
 				if t.nz >= MIN_NZ and submerged(t[1], t[2], t[3]) and submerged(t[4], t[5], t[6]) and submerged(t[7], t[8], t[9]) then
 					t.nz = 0
 				end
@@ -276,7 +255,7 @@ end
 
 local STRIDE = 7
 
-local function buildChunk(ch)
+local function buildVerts(ch)
 	local x0, y0 = ch.cx * CHUNK, ch.cy * CHUNK
 	local x1, y1 = x0 + CHUNK, y0 + CHUNK
 	local cand = bspdata.Candidates(triGrid, x0, y0, x1, y1)
@@ -284,14 +263,7 @@ local function buildChunk(ch)
 	local cache = { sky = {}, light = {}, cluster = {} }
 	local clusters, clusterSet = {}, {}
 	local zmin, zmax = math.huge, -math.huge
-	local sliceStart = SysTime()
-
-	local function budget()
-		if (SysTime() - sliceStart) * 1000 > BUILD_BUDGET_MS then
-			coroutine.yield()
-			sliceStart = SysTime()
-		end
-	end
+	local budget = chunks.Pace
 
 	local function emit(x, y, z, nx, ny, cover, light)
 		verts[n + 1], verts[n + 2], verts[n + 3], verts[n + 4], verts[n + 5], verts[n + 6], verts[n + 7] = x, y, z, nx, ny, light, cover
@@ -414,10 +386,14 @@ end
 
 local vpos = Vector()
 
-local function buildMeshes(verts, tris)
+local function buildChunk(ch)
+	local verts, tris = buildVerts(ch)
+	local total = tris
 	local meshes = {}
+	ch.meshes = meshes
 	local o = 0
 	while tris > 0 do
+		chunks.Pace()
 		local count = math.min(tris, MESH_TRIS)
 		local m = Mesh()
 		mesh.Begin(m, MATERIAL_TRIANGLES, count)
@@ -435,66 +411,14 @@ local function buildMeshes(verts, tris)
 		tris = tris - count
 	end
 
-	return meshes
+	return total
 end
-
-local chunks, queue, current, loader, ready = {}, {}, nil, nil, false
 
 local function destroyChunk(ch)
 	for _, m in ipairs(ch.meshes or {}) do
 		m:Destroy()
 	end
 	ch.meshes = nil
-end
-
-local function think()
-	local t0 = SysTime()
-	if not ready then
-		local ok, res, why = coroutine.resume(loader)
-		if not ok or (coroutine.status(loader) == "dead" and not res) then
-			ErrorNoHalt("[snowcover] off: " .. tostring(ok and why or res) .. "\n")
-			loader = nil
-			hook.Remove("Think", "borealis_snowcover")
-
-			return
-		end
-
-		ready = coroutine.status(loader) == "dead"
-
-		return
-	end
-
-	while (SysTime() - t0) * 1000 < BUILD_BUDGET_MS do
-		if not current then
-			local eye = EyePos()
-			local best, bestDist
-			for i, ch in ipairs(queue) do
-				local dx, dy = ch.cx * CHUNK + CHUNK * 0.5 - eye.x, ch.cy * CHUNK + CHUNK * 0.5 - eye.y
-				local d = dx * dx + dy * dy
-				if not bestDist or d < bestDist then best, bestDist = i, d end
-			end
-
-			if not best then break end
-			current = table.remove(queue, best)
-			if chunks[chunkKey(current.cx, current.cy)] ~= current then
-				current = nil
-			else
-				current.co = coroutine.create(buildChunk)
-			end
-		else
-			local ok, verts, tris = coroutine.resume(current.co, current)
-			if not ok then
-				ErrorNoHalt("[snowcover] chunk build failed: " .. tostring(verts) .. "\n")
-				current.meshes, current.tris, current.co, current = {}, 0, nil, nil
-			elseif coroutine.status(current.co) == "dead" then
-				current.meshes = tris > 0 and buildMeshes(verts, tris) or {}
-				current.tris = tris
-				current.co, current = nil, nil
-			else
-				break
-			end
-		end
-	end
 end
 
 local trailRT, stampRT, winX, winY
@@ -731,49 +655,24 @@ end
 local visible = {}
 
 local function draw(depth, skybox, sky3d)
-	if paused or not ready or depth or skybox or sky3d or render.GetRenderTarget() then return end
+	if paused or not grid.ready or depth or skybox or sky3d or render.GetRenderTarget() then return end
 
-	local eye, fwd = EyePos(), EyeVector()
-	local ang = EyeAngles()
-	local right, up = ang:Right(), ang:Up()
-	local tanH, tanV = shaderpack.ViewTan()
-	local kH, kV = math.sqrt(1 + tanH * tanH), math.sqrt(1 + tanV * tanV)
+	local view = chunks.View()
+	local eye = view.eye
 	local eyeCluster = bspdata.ClusterAt(eye.x, eye.y, eye.z)
 	local pvs = bspdata.PVS(eyeCluster)
 
-	local n = math.ceil(RADIUS / CHUNK)
-	local ecx, ecy = math.floor(eye.x / CHUNK), math.floor(eye.y / CHUNK)
-	local half = CHUNK * 0.5
 	local nvis = 0
-	for cy = ecy - n, ecy + n do
-		for cx = ecx - n, ecx + n do
-			local dx, dy = cx * CHUNK + half - eye.x, cy * CHUNK + half - eye.y
-			if math.sqrt(dx * dx + dy * dy) - half * 1.42 < RADIUS then
-				local key = chunkKey(cx, cy)
-				local ch = chunks[key]
-				if not ch then
-					ch = { cx = cx, cy = cy }
-					chunks[key] = ch
-					queue[#queue + 1] = ch
-				elseif ch.meshes and #ch.meshes > 0 then
-					local dz, r = ch.cz - eye.z, ch.radius
-					local fz = dx * fwd.x + dy * fwd.y + dz * fwd.z
-					local fx = dx * right.x + dy * right.y + dz * right.z
-					local fy = dx * up.x + dy * up.y + dz * up.z
-					if fz > -r and math.abs(fx) < fz * tanH + r * kH and math.abs(fy) < fz * tanV + r * kV then
-						local seen = pvs == nil or #ch.clusters == 0
-						for _, c in ipairs(ch.clusters) do
-							if seen then break end
-							seen = c == eyeCluster or pvs[c] and true or false
-						end
+	for _, ch in ipairs(grid:Visible(view)) do
+		local seen = pvs == nil or #ch.clusters == 0
+		for _, c in ipairs(ch.clusters) do
+			if seen then break end
+			seen = c == eyeCluster or pvs[c] and true or false
+		end
 
-						if seen then
-							nvis = nvis + 1
-							visible[nvis] = ch
-						end
-					end
-				end
-			end
+		if seen then
+			nvis = nvis + 1
+			visible[nvis] = ch
 		end
 	end
 
@@ -827,56 +726,21 @@ local function draw(depth, skybox, sky3d)
 	cam.PopModelMatrix()
 end
 
-local nextEvict = 0
-
-local function evict()
-	local now = RealTime()
-	if now < nextEvict then return end
-	nextEvict = now + 2
-
-	local eye = EyePos()
-	local limit = (RADIUS + CHUNK * 2) ^ 2
-	local far, meshed = {}, 0
-	for key, ch in pairs(chunks) do
-		local dx, dy = ch.cx * CHUNK + CHUNK * 0.5 - eye.x, ch.cy * CHUNK + CHUNK * 0.5 - eye.y
-		local d = dx * dx + dy * dy
-		if d > limit and ch ~= current then
-			if not ch.meshes then
-				chunks[key] = nil
-			elseif ch.tris > 0 then
-				ch.evictDist = d
-				far[#far + 1] = ch
-				meshed = meshed + ch.tris
-			end
-		end
-	end
-
-	if meshed <= MESH_CACHE_TRIS then return end
-
-	table.sort(far, function(a, b) return a.evictDist > b.evictDist end)
-	for _, ch in ipairs(far) do
-		if meshed <= MESH_CACHE_TRIS then break end
-		meshed = meshed - ch.tris
-		destroyChunk(ch)
-		chunks[chunkKey(ch.cx, ch.cy)] = nil
-	end
-end
-
 local winterRemoved = false
 
 local function stop()
-	hook.Remove("Think", "borealis_snowcover")
 	hook.Remove("PreRender", "borealis_snowcover")
 	hook.Remove("PostDrawOpaqueRenderables", "borealis_snowcover")
 	hook.Remove("ShouldDrawLocalPlayer", "borealis_snowcover")
-	for _, ch in pairs(chunks) do
-		destroyChunk(ch)
-	end
-
-	chunks, queue, current, loader, ready = {}, {}, nil, nil, false
+	grid:Stop()
 	triGrid, edgeGrid = nil, nil
 	winX, winY = nil, nil
 end
+
+grid = chunks.Grid({
+	name = "snowcover", size = CHUNK, radius = RADIUS, cacheLimit = MESH_CACHE_TRIS,
+	load = load, build = buildChunk, destroy = destroyChunk, failed = stop,
+})
 
 local function start()
 	stop()
@@ -937,11 +801,7 @@ local function start()
 		render.PopRenderTarget()
 	end
 
-	loader = coroutine.create(load)
-	hook.Add("Think", "borealis_snowcover", function()
-		think()
-		evict()
-	end)
+	grid:Start()
 	hook.Add("PreRender", "borealis_snowcover", prepare)
 	hook.Add("PostDrawOpaqueRenderables", "borealis_snowcover", draw)
 	hook.Add("ShouldDrawLocalPlayer", "borealis_snowcover", function()

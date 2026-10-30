@@ -96,6 +96,12 @@ Detection of things that are drawing into the translucent pass even though they 
 - Without the shaders (ToGL, `cl_shaderpack 0`) it falls back to the stock blur glow, still with the new entity drawing.
 - `core/sv_halo` registers the shaders. The loader keeps `sv_` files on the server and `cl_` files on the client.
 
+### cl_chunks
+
+Shared lifecycle for world-grid effects: request within a radius, build queue (nearest first, chunks behind the eye last), frustum culling, eviction, pause and teardown. All grids share one adaptive build budget (4 to 8 ms per frame), so adding a grid cannot stack another budget on the frame. One grid loads at a time.
+
+`chunks.Grid({ name, size, radius, pad, cacheLimit, load, build, destroy, failed })` returns a grid with `Start`, `Stop`, `SetPaused` and `Visible(chunks.View())`. `load` and `build(ch)` run in coroutines and call `chunks.Pace()` in their loops. `build` sets `ch.cz` and `ch.radius` and returns a cost, 0 for an empty chunk. Finish `mesh.Begin` before calling `Pace`. The effect keeps its materials, draw calls and finer occlusion.
+
 ### cl_bench
 
 `borealis_shaderpack_bench` Needs `fps_max 0` and vsync off. Literally the benchmark of the shaderpack.
@@ -132,7 +138,7 @@ Detection of things that are drawing into the translucent pass even though they 
 
 ### Foliage
 
-`cl_foliage` builds tufts per 512-unit chunk within a frame budget, batches them into meshes sorted by vis cluster and culls by frustum, PVS and line of sight against world brushes. Lightmap light is baked into vertices and scaled by tod's current light style.
+`cl_foliage` builds tufts per 512-unit chunk on a `cl_chunks` grid, skipping the 3D skybox, batches them into meshes sorted by vis cluster and culls by frustum, PVS and line of sight against world brushes. Lightmap light is baked into vertices and scaled by tod's current light style.
 
 - **Grass** `cl_draw_grass`, `cl_draw_grass_distance`: tufts of three crossed quads on grass surfaces up to a slope limit. The vertex shader tilts blades downwind. Sparser and fully dry in winter, half dry in autumn.
 - **Seagrass** `cl_draw_seagrass`: meadows on sunlit sandy water beds.

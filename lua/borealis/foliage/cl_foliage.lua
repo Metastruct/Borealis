@@ -1,10 +1,9 @@
 local foliage = shaderpack.foliage or {}
 shaderpack.foliage = foliage
-local bspdata, depthslices = shaderpack.bspdata, shaderpack.depthslices
+local bspdata, depthslices, chunks = shaderpack.bspdata, shaderpack.depthslices, shaderpack.chunks
 foliage.layers = foliage.layers or {}
 
 local CHUNK = 512
-local BUILD_BUDGET_MS = 3
 local MESH_BATCH = 240
 local STRIDE = 7
 local SIGHT_TESTS_PER_FRAME = 40
@@ -101,18 +100,10 @@ end
 
 foliage.WorldLightScale = worldLightScale
 
-local function chunkKey(cx, cy)
-	return cx * 65536 + cy
-end
-
 local UP = Vector(0, 0, 1)
 local traceStart, traceEnd, lightPos = Vector(0, 0, 0), Vector(0, 0, 0), Vector(0, 0, 0)
 local coverTraceRes = {}
 local coverTrace = { mask = MASK_SOLID_BRUSHONLY, start = traceStart, endpos = traceEnd, output = coverTraceRes }
-
-function Layer:budget()
-	return math.Clamp(16 - RealFrameTime() * 1000 + self.lastThinkMs, BUILD_BUDGET_MS * 0.7, BUILD_BUDGET_MS * 2)
-end
 
 function Layer:raster(ch, cand)
 	local cfg = self.cfg
@@ -150,12 +141,8 @@ function Layer:raster(ch, cand)
 		return light
 	end
 
-	local sliceStart = SysTime()
 	for gy = y0, y1 - 1, spacing do
-		if (SysTime() - sliceStart) * 1000 > self:budget() then
-			coroutine.yield()
-			sliceStart = SysTime()
-		end
+		chunks.Pace()
 
 		for gx = x0, x1 - 1, spacing do
 			local x = gx + spacing * 0.5 + (rand() - 0.5) * 2 * jitter
@@ -279,10 +266,12 @@ function Layer:buildMesh(tufts, first, last)
 end
 
 local function destroyMeshes(ch)
-	if not ch.mesh then return end
-	for _, b in ipairs(ch.mesh) do
+	if not ch.meshes then return end
+	for _, b in ipairs(ch.meshes) do
 		b.m:Destroy()
 	end
+
+	ch.meshes = nil
 end
 
 function Layer:chunkBounds(ch, tufts)
@@ -299,153 +288,48 @@ function Layer:chunkBounds(ch, tufts)
 	ch.radius = math.sqrt(half * half * 2 + hz * hz)
 end
 
-function Layer:nextChunk()
-	local eye, fwd = EyePos(), EyeVector()
-	local buildQueue, chunks = self.buildQueue, self.chunks
-	if self.queueDirty or eye:DistToSqr(self.queueEye) > CHUNK * CHUNK then
-		self.queueDirty, self.queueEye = false, eye
-		local n = 0
-		for i = 1, #buildQueue do
-			local ch = buildQueue[i]
-			buildQueue[i] = nil
-			if ch.mesh == nil and chunks[chunkKey(ch.cx, ch.cy)] == ch then
-				local dx, dy = ch.cx * CHUNK + CHUNK * 0.5 - eye.x, ch.cy * CHUNK + CHUNK * 0.5 - eye.y
-				local dist = math.sqrt(dx * dx + dy * dy)
-				local behind = dist > CHUNK and (dx * fwd.x + dy * fwd.y) / dist < -0.35
-				ch.prio = dist + (behind and self.radius or 0)
-				n = n + 1
-				buildQueue[n] = ch
-			end
-		end
-	end
+function Layer:buildChunk(ch)
+	local key = chunks.Key(ch.cx, ch.cy)
+	local tufts = self.tuftCache[key]
+	if tufts == false then return 0 end
 
-	local count = #buildQueue
-	if count == 0 then return end
-	local best = 1
-	for i = 2, count do
-		if buildQueue[i].prio < buildQueue[best].prio then best = i end
-	end
-
-	local ch = buildQueue[best]
-	buildQueue[best] = buildQueue[count]
-	buildQueue[count] = nil
-	local key = chunkKey(ch.cx, ch.cy)
-	if ch.mesh ~= nil or chunks[key] ~= ch then return end
-
-	local cached = self.tuftCache[key]
-	if cached == false then
-		ch.mesh, ch.tufts = false, 0
-	elseif cached then
-		ch.pendingTufts, ch.nextTuft, ch.meshes = cached, 1, {}
-		self:chunkBounds(ch, cached)
-		self.current = ch
-	else
+	if not tufts then
 		local x0, y0 = ch.cx * CHUNK, ch.cy * CHUNK
 		local cand = bspdata.Candidates(self.triGrid, x0, y0, x0 + CHUNK, y0 + CHUNK)
-		if #cand == 0 then
-			ch.mesh, ch.tufts = false, 0
-			self.tuftCache[key] = false
-		else
-			ch.co = coroutine.create(function() return self:raster(ch, cand) end)
-			self.current = ch
-		end
-	end
-end
-
-function Layer:stepChunk()
-	local ch = self.current
-	if ch.pendingTufts then
-		local tufts = ch.pendingTufts
-		local total = #tufts / STRIDE
-		local first = ch.nextTuft
-		local last = math.min(first + (self.cfg.meshBatch or MESH_BATCH) - 1, total)
-		ch.meshes[#ch.meshes + 1] = self:buildMesh(tufts, first, last)
-		if last >= total then
-			ch.tufts = total
-			ch.mesh = ch.meshes
-			ch.pendingTufts, ch.co = nil, nil
-			self.current = nil
-		else
-			ch.nextTuft = last + 1
-		end
-
-		return true
-	end
-
-	local ok, tufts = coroutine.resume(ch.co)
-	if not ok then
-		ErrorNoHalt("[" .. self.cfg.name .. "] chunk build failed: " .. tostring(tufts) .. "\n")
-		ch.mesh, ch.tufts = false, 0
-		self.current = nil
-	elseif coroutine.status(ch.co) == "dead" then
-		local key = chunkKey(ch.cx, ch.cy)
+		tufts = #cand > 0 and self:raster(ch, cand) or {}
 		if #tufts == 0 then
-			ch.mesh, ch.tufts = false, 0
 			self.tuftCache[key] = false
-			self.current = nil
-		else
-			self.tuftCache[key] = tufts
-			ch.pendingTufts, ch.nextTuft, ch.meshes = tufts, 1, {}
-			self:chunkBounds(ch, tufts)
+
+			return 0
 		end
-	else
-		return false
+
+		self.tuftCache[key] = tufts
 	end
 
-	return true
+	self:chunkBounds(ch, tufts)
+
+	local total = #tufts / STRIDE
+	local batch = self.cfg.meshBatch or MESH_BATCH
+	ch.meshes = {}
+	for first = 1, total, batch do
+		chunks.Pace()
+		ch.meshes[#ch.meshes + 1] = self:buildMesh(tufts, first, math.min(first + batch - 1, total))
+	end
+
+	return total
 end
 
 function Layer:load()
 	local vis, why = bspdata.WaitVis()
 	if not vis then return false, why end
 
-	self.triGrid, why = bspdata.Triangles(self.cfg.classify, self.cfg.minNormalZ)
-	if not self.triGrid then return false, why end
+	local grid
+	grid, why = bspdata.Triangles(self.cfg.classify, self.cfg.minNormalZ)
+	if not grid then return false, why end
+
+	self.triGrid = bspdata.DropSkybox(grid)
 
 	return true
-end
-
-function Layer:think()
-	if self.paused then return end
-	local t0 = SysTime()
-	if not self.ready then
-		local ok, res, why = coroutine.resume(self.loader)
-		if not ok then
-			ErrorNoHalt("[" .. self.cfg.name .. "] bsp parse failed: " .. tostring(res) .. "\n")
-			self:Stop()
-			return
-		end
-
-		if coroutine.status(self.loader) == "dead" then
-			if not res then
-				ErrorNoHalt("[" .. self.cfg.name .. "] off: " .. tostring(why) .. "\n")
-				self:Stop()
-				return
-			end
-
-			self.ready = true
-		end
-
-		self.lastThinkMs = (SysTime() - t0) * 1000
-		return
-	end
-
-	local frameBudget = self:budget()
-	while (SysTime() - t0) * 1000 < frameBudget do
-		if self.current then
-			if not self:stepChunk() then break end
-		elseif #self.buildQueue > 0 then
-			self:nextChunk()
-		else
-			break
-		end
-	end
-
-	self.lastThinkMs = (SysTime() - t0) * 1000
-end
-
-local function byDrawDist(a, b)
-	return a.drawDist < b.drawDist
 end
 
 local sightStart, sightEnd, sightRes = Vector(), Vector(), {}
@@ -457,26 +341,11 @@ local function sightBlocked(x, y, z)
 	return sightRes.Hit and not sightRes.StartSolid
 end
 
-local view = { frame = -1 }
-
-local function currentView()
-	local eye, ang = EyePos(), EyeAngles()
-	if view.frame == FrameNumber() and view.eye == eye and view.ang == ang then return view end
-
-	local vs = render.GetViewSetup()
-	view.frame, view.eye, view.ang = FrameNumber(), eye, ang
-	view.fwd, view.right, view.up = EyeVector(), ang:Right(), ang:Up()
-	view.amb, view.tonemap = render.GetAmbientLightColor(), render.GetToneMappingScaleLinear().x
-	view.tanH = math.tan(math.rad(vs.fov or 90) * 0.5)
-	view.tanV = view.tanH / (vs.aspect or (ScrW() / ScrH()))
-
-	return view
-end
-
 function Layer:draw(sky3d)
-	if self.paused or not self.ready or sky3d or render.GetRenderTarget() then return end
+	local grid = self.grid
+	if grid.paused or not grid.ready or sky3d or render.GetRenderTarget() then return end
 	local MAT, DEPTH_MAT = self.mat, self.depthMat
-	local v = currentView()
+	local v = chunks.View()
 	local eye, fwd, amb = v.eye, v.fwd, v.amb
 	local time = CurTime() * (self.cfg.timeScale or 1) % (self.cfg.timeWrap or 1000)
 
@@ -487,50 +356,7 @@ function Layer:draw(sky3d)
 	MAT:SetFloat("$c2_w", v.tonemap)
 	render.SetMaterial(MAT)
 
-	local right, up, tanH, tanV = v.right, v.up, v.tanH, v.tanV
-	local kH, kV = math.sqrt(1 + tanH * tanH), math.sqrt(1 + tanV * tanV)
-
-	local chunks, visible = self.chunks, self.visible
-	local radius = self.radius
-	local sway = self.cfg.sway or 0
-	local n = math.ceil(radius / CHUNK)
-	local ecx, ecy = math.floor(eye.x / CHUNK), math.floor(eye.y / CHUNK)
-	local half = CHUNK * 0.5
-	local nvis = 0
-	for cy = ecy - n, ecy + n do
-		for cx = ecx - n, ecx + n do
-			local ddx, ddy = cx * CHUNK + half - eye.x, cy * CHUNK + half - eye.y
-			local dist = math.sqrt(ddx * ddx + ddy * ddy)
-			if dist - half * 1.42 < radius then
-				local key = chunkKey(cx, cy)
-				local ch = chunks[key]
-				if not ch then
-					ch = { cx = cx, cy = cy }
-					chunks[key] = ch
-					self.buildQueue[#self.buildQueue + 1] = ch
-					self.queueDirty = true
-				elseif ch.mesh then
-					local ddz, r = ch.cz - eye.z, ch.radius + sway
-					local fz = ddx * fwd.x + ddy * fwd.y + ddz * fwd.z
-					if fz > -r then
-						local fx = ddx * right.x + ddy * right.y + ddz * right.z
-						local fy = ddx * up.x + ddy * up.y + ddz * up.z
-						if math.abs(fx) < fz * tanH + r * kH and math.abs(fy) < fz * tanV + r * kV then
-							ch.drawDist = dist
-							nvis = nvis + 1
-							visible[nvis] = ch
-						end
-					end
-				end
-			end
-		end
-	end
-
-	for i = #visible, nvis + 1, -1 do
-		visible[i] = nil
-	end
-
-	table.sort(visible, byDrawDist)
+	local visible = grid:Visible(v)
 
 	local eyeCluster = bspdata.ClusterAt(eye.x, eye.y, eye.z)
 	local pvs = bspdata.PVS(eyeCluster)
@@ -546,7 +372,7 @@ function Layer:draw(sky3d)
 	local shown = 0
 	render.OverrideDepthEnable(true, true)
 	for _, ch in ipairs(visible) do
-		for _, b in ipairs(ch.mesh) do
+		for _, b in ipairs(ch.meshes) do
 			local show = false
 			for _, g in ipairs(b.groups) do
 				local c = g.cluster
@@ -590,54 +416,17 @@ function Layer:draw(sky3d)
 	for i = shown + 1, #drawn do
 		drawn[i] = nil
 	end
-
-	if RealTime() > self.evictNext then
-		self.evictNext = RealTime() + 2
-		local limit = (radius + CHUNK * 2) ^ 2
-		local far, meshed = {}, 0
-		for key, ch in pairs(chunks) do
-			local ddx, ddy = ch.cx * CHUNK + half - eye.x, ch.cy * CHUNK + half - eye.y
-			local d = ddx * ddx + ddy * ddy
-			if d > limit and ch ~= self.current then
-				if ch.mesh then
-					ch.evictDist = d
-					far[#far + 1] = ch
-					meshed = meshed + ch.tufts
-				else
-					chunks[key] = nil
-				end
-			end
-		end
-
-		if meshed > MESH_CACHE_TUFTS then
-			table.sort(far, function(a, b) return a.evictDist > b.evictDist end)
-			for _, ch in ipairs(far) do
-				if meshed <= MESH_CACHE_TUFTS then break end
-				meshed = meshed - ch.tufts
-				destroyMeshes(ch)
-				chunks[chunkKey(ch.cx, ch.cy)] = nil
-			end
-		end
-	end
 end
 
 function Layer:Stop()
-	local id = "borealis_" .. self.cfg.name
-	hook.Remove("Think", id)
-	hook.Remove("PostDrawOpaqueRenderables", id)
-	if self.chunks then
-		for _, ch in pairs(self.chunks) do
-			destroyMeshes(ch)
-		end
-	end
-
-	table.Empty(self.visible)
-	self.chunks, self.tuftCache, self.buildQueue, self.current = nil, nil, nil, nil
-	self.triGrid, self.loader, self.ready = nil, nil, false
+	hook.Remove("PostDrawOpaqueRenderables", "borealis_" .. self.cfg.name)
+	self.grid:Stop()
+	self.tuftCache, self.triGrid = nil, nil
 end
 
 function Layer:SetDistance(radius)
 	self.radius = radius
+	self.grid.radius = radius
 	self.fadeStart, self.fadeEnd = radius * 0.72, radius * 0.98
 	for _, mat in ipairs({ self.mat, self.depthMat }) do
 		mat:SetFloat("$c1_w", self.fadeStart)
@@ -679,19 +468,24 @@ function Layer:Start()
 	cfg.palette(self.mat, self.depthMat)
 	self:SetDistance(self.radius)
 
-	self.chunks, self.tuftCache, self.buildQueue = {}, {}, {}
-	self.loader = coroutine.create(function() return self:load() end)
-	local id = "borealis_" .. cfg.name
-	hook.Add("Think", id, function() self:think() end)
-	hook.Add("PostDrawOpaqueRenderables", id, function(_, _, sky3d) self:draw(sky3d) end)
+	self.tuftCache = {}
+	self.grid:Start()
+	hook.Add("PostDrawOpaqueRenderables", "borealis_" .. cfg.name, function(_, _, sky3d) self:draw(sky3d) end)
 end
 
 function foliage.Layer(cfg)
 	local layer = setmetatable({
-		cfg = cfg, height = 1, radius = 3072, lastThinkMs = 0, ready = false, paused = false,
-		visible = {}, drawn = {}, queueDirty = false, queueEye = Vector(),
-		sightEpoch = 0, sightEye = Vector(), sightNext = 0, evictNext = 0,
+		cfg = cfg, height = 1, radius = 3072,
+		drawn = {},
+		sightEpoch = 0, sightEye = Vector(), sightNext = 0,
 	}, Layer)
+	layer.grid = chunks.Grid({
+		name = cfg.name, size = CHUNK, radius = layer.radius, pad = cfg.sway, cacheLimit = MESH_CACHE_TUFTS,
+		load = function() return layer:load() end,
+		build = function(ch) return layer:buildChunk(ch) end,
+		destroy = destroyMeshes,
+		failed = function() layer:Stop() end,
+	})
 	foliage.layers[cfg.name] = layer
 
 	return layer
@@ -700,6 +494,6 @@ end
 function foliage.SetPaused(name, paused)
 	local layer = foliage.layers[name]
 	if layer then
-		layer.paused = paused
+		layer.grid:SetPaused(paused)
 	end
 end

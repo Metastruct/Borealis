@@ -391,6 +391,64 @@ function bspdata.Triangles(classify, minNormalZ)
 	return triGrid
 end
 
+local SKYBOX_CHECK_HEIGHT = 14
+local skyboxVis, skyboxSet
+
+function bspdata.SkyboxPVS()
+	local vis = bspdata.vis
+	if vis == skyboxVis then return skyboxSet end
+	skyboxVis, skyboxSet = vis, nil
+
+	local f, lump = openLumps()
+	if not f then return nil end
+
+	local entities = lump(0)
+	f:Close()
+	for block in entities:gmatch("%b{}") do
+		if block:find("\"classname\" \"sky_camera\"", 1, true) then
+			local x, y, z = (block:match("\"origin\" \"([^\"]*)\"") or ""):match("(%S+)%s+(%S+)%s+(%S+)")
+			local cluster = x and bspdata.ClusterAt(tonumber(x), tonumber(y), tonumber(z)) or -1
+			skyboxSet = cluster >= 0 and bspdata.PVS(cluster) or nil
+
+			return skyboxSet
+		end
+	end
+end
+
+local function inSkybox(skybox, x, y, z)
+	local c = bspdata.ClusterAt(x, y, z + SKYBOX_CHECK_HEIGHT)
+
+	return c >= 0 and skybox[c] or false
+end
+
+function bspdata.DropSkybox(triGrid)
+	local skybox = bspdata.SkyboxPVS()
+	if not skybox then return triGrid end
+
+	local yieldIfOverBudget = frameBudget()
+	local dropped = {}
+	for key, cell in pairs(triGrid) do
+		local kept = {}
+		for _, t in ipairs(cell) do
+			local drop = dropped[t]
+			if drop == nil then
+				drop = inSkybox(skybox, (t[1] + t[4] + t[7]) / 3, (t[2] + t[5] + t[8]) / 3, (t[3] + t[6] + t[9]) / 3)
+					or inSkybox(skybox, t[1], t[2], t[3])
+					or inSkybox(skybox, t[4], t[5], t[6])
+					or inSkybox(skybox, t[7], t[8], t[9])
+				dropped[t] = drop
+			end
+
+			if not drop then kept[#kept + 1] = t end
+			yieldIfOverBudget()
+		end
+
+		triGrid[key] = #kept > 0 and kept or nil
+	end
+
+	return triGrid
+end
+
 function bspdata.Sample(t, x, y)
 	local ax, ay, bx, by, cx, cy = t[1], t[2], t[4], t[5], t[7], t[8]
 	local v0x, v0y = cx - ax, cy - ay
