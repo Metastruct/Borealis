@@ -6,6 +6,17 @@ local bspdata = shaderpack.bspdata
 local CLASS = "borealis_ice"
 local HEIGHT_OFFSET, THICKNESS = 2, 12
 local WATER_SURFACEPROPS = { water = true, slime = true, wade = true }
+local SURFACE = "borealis_ice"
+
+physenv.AddSurfaceData([[
+"borealis_ice"
+{
+	"base"	"glass"
+	"density"	"917"
+	"friction"	"0.1"
+	"elasticity"	"0.1"
+}
+]])
 
 function ice.Winter()
 	if tod and tod.GetSeason then return tod.GetSeason() == "winter" end
@@ -63,7 +74,7 @@ function ENT:Initialize()
 	local phys = self:GetPhysicsObject()
 	if IsValid(phys) then
 		phys:EnableMotion(false)
-		phys:SetMaterial("ice")
+		phys:SetMaterial(util.GetSurfaceIndex(SURFACE) >= 0 and SURFACE or "ice")
 	end
 end
 
