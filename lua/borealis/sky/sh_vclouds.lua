@@ -38,7 +38,12 @@ local MAP_SIZE = 512
 local MAP_EXTENT = 80000
 local MAP_BAKE_EVERY = 4
 
-local MAT, LIGHT_MAT, lightMap
+local SKY3D_FAR_FRAC = 0.98
+local SKY3D_OVERSIZE = 6
+local SKY3D_NEAR = 12
+local CLAMP = 4 + 8
+
+local MAT, LIGHT_MAT, lightMap, sky3dMask
 local materialSerial = 0
 local mapExtra = Matrix()
 local mapOrigin = Vector()
@@ -88,6 +93,7 @@ local function build()
 		["$c1_x"] = 0, ["$c1_y"] = 0, ["$c1_z"] = 1, ["$c1_w"] = 0,
 		["$c2_x"] = 0, ["$c2_y"] = MAP_SIZE, ["$c2_z"] = 0, ["$c2_w"] = 0,
 	})
+	sky3dMask = nil
 	mapReady = false
 
 	return true
@@ -217,12 +223,63 @@ local function bakeLight()
 		0, 0, 0, 0,
 		0, 0, 0, 0
 	)
-	MAT:SetMatrix("$viewprojmat", mapExtra)
 	mapReady = true
+end
+
+local ALPHA0, ALPHA1 = Color(0, 0, 0, 0), Color(255, 255, 255, 255)
+local sky3dFrame = -1
+
+local function sky3dMaskReady()
+	local w, h = ScrW(), ScrH()
+	if shaderpack.UsableRT(sky3dMask, w, h) then return true end
+
+	local rt = GetRenderTargetEx("borealis_vclouds_sky3d_" .. w .. "x" .. h, w, h, RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE, CLAMP, 0, IMAGE_FORMAT_RGBA8888)
+	if not shaderpack.UsableRT(rt, w, h) then return false end
+
+	sky3dMask = rt
+	MAT:SetTexture("$texture5", rt)
+
+	return true
+end
+
+local function captureSky3D(bDepth, _, b3DSky)
+	if bDepth or not b3DSky or render.GetRenderTarget() then return end
+	if not MAT and not build() then return end
+	if not sky3dMaskReady() then return end
+
+	local eye, fwd = EyePos(), EyeAngles():Forward()
+	local halfW, halfH, vs = shaderpack.ViewTan()
+	local near = math.max(SKY3D_NEAR, vs.znear * 1.5)
+	local far = vs.zfar * SKY3D_FAR_FRAC
+
+	render.OverrideColorWriteEnable(true, false)
+	render.OverrideAlphaWriteEnable(true, true)
+	render.OverrideBlend(true, BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD, BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD)
+	render.SetColorMaterial()
+
+	render.OverrideDepthEnable(true, false)
+	cam.IgnoreZ(true)
+	render.DrawQuadEasy(eye + fwd * near, -fwd, halfW * near * SKY3D_OVERSIZE, halfH * near * SKY3D_OVERSIZE, ALPHA0, 0)
+	cam.IgnoreZ(false)
+	render.DrawQuadEasy(eye + fwd * far, -fwd, halfW * far * SKY3D_OVERSIZE, halfH * far * SKY3D_OVERSIZE, ALPHA1, 0)
+	render.CopyRenderTargetToTexture(sky3dMask)
+
+	cam.IgnoreZ(true)
+	render.DrawQuadEasy(eye + fwd * near, -fwd, halfW * near * SKY3D_OVERSIZE, halfH * near * SKY3D_OVERSIZE, ALPHA1, 0)
+	cam.IgnoreZ(false)
+	render.OverrideDepthEnable(false, false)
+
+	render.OverrideBlend(false)
+	render.OverrideAlphaWriteEnable(false, false)
+	render.OverrideColorWriteEnable(false, false)
+	sky3dFrame = FrameNumber()
 end
 
 local function draw()
 	if not MAT and not build() then return end
+
+	mapExtra:SetField(2, 1, sky3dFrame == FrameNumber() and 1 or 0)
+	MAT:SetMatrix("$viewprojmat", mapExtra)
 
 	local eye = EyePos()
 	lastEye = eye
@@ -246,6 +303,7 @@ end
 
 local function stop()
 	hook.Remove("PreDrawTranslucentRenderables", "borealis_vclouds")
+	hook.Remove("PostDrawTranslucentRenderables", "borealis_vclouds")
 	hook.Remove("RenderScreenspaceEffects", "borealis_vclouds")
 	hook.Remove("PreRender", "borealis_vclouds")
 	depthslices.RemoveEffect("borealis_vclouds")
@@ -257,6 +315,7 @@ local function start()
 	active = true
 	mapReady = false
 	hook.Add("PreRender", "borealis_vclouds", bakeLight)
+	hook.Add("PostDrawTranslucentRenderables", "borealis_vclouds", captureSky3D)
 	depthslices.AddEffect("borealis_vclouds", ORDER, draw, true, function() return active end)
 end
 
