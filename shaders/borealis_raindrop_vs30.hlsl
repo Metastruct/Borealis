@@ -44,7 +44,7 @@ struct VS_OUTPUT
 	float2 uv      : TEXCOORD0;
 	float4 strip   : TEXCOORD1;
 	float3 wpos    : TEXCOORD2;
-	float4 owner   : TEXCOORD3;
+	float4 tileData   : TEXCOORD3;
 };
 
 float3 hash33(float3 p)
@@ -119,13 +119,13 @@ VS_OUTPUT main(VS_INPUT i)
 	float bright = brightB / 255.0;
 	float sp = 0.1 * speedS;
 	float size = 0.75 + 0.5 * frac(phase * 13.7 + bright * 5.1);
-	float salt = frac(phase * 13.1 + bright * 7.9);
+	float hashSeed = frac(phase * 13.1 + bright * 7.9);
 
 	float sj = (j < 0.5 ? 0.8 : (j < 1.5 ? 0.9 : 0.7)) + sp;
 	float oj = j < 0.5 ? 0.0 : (j < 1.5 ? 0.37 : 0.71);
 	float lj = j < 0.5 ? 1.0 : (j < 1.5 ? 0.8 : 0.65);
 	float wj = j < 0.5 ? 1.0 : (j < 1.5 ? 0.8 : 0.7);
-	float saltj = salt + (j < 0.5 ? 0.0 : (j < 1.5 ? 0.41 : 0.83));
+	float hashSeedJ = hashSeed + (j < 0.5 ? 0.0 : (j < 1.5 ? 0.41 : 0.83));
 
 	float gw = 2.0 * PI * GUST_N / WRAP;
 	float t = TIME + GUST / gw * sin(gw * TIME + (base.x + base.y * 0.7) * GUST_K);
@@ -136,7 +136,7 @@ VS_OUTPUT main(VS_INPUT i)
 	float n = floor(C - zTop / PERIOD) + r;
 	float m = frac(n / SLOTS) * SLOTS;
 
-	float3 h = hash3(float2(m, saltj));
+	float3 h = hash3(float2(m, hashSeedJ));
 	if (h.x < SKIP)
 	{
 		return o;
@@ -187,7 +187,7 @@ VS_OUTPUT main(VS_INPUT i)
 	o.uv = float2(u, 0.0);
 	o.strip = float4(phaseB, speedS, brightB, WEIGHT);
 	o.wpos = world;
-	o.owner = float4(j, m, zBot, zTop);
+	o.tileData = float4(j, m, zBot, zTop);
 
 	return o;
 }

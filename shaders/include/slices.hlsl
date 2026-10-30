@@ -3,7 +3,7 @@
 #define SLICES      32.0
 #define SLICE_NEAR  16.0
 #define SLICE_RATIO 1.2219785
-#define SLICE_SLACK 1.02
+#define SLICE_MARGIN 1.02
 #define SLICE_EXACT 64.0
 
 float ExactDepthAlpha(float viewDepth)
@@ -28,8 +28,8 @@ float SliceDepth(float d, float code, float samples)
 	}
 	else
 	{
-		d = max(d, SLICE_NEAR * pow(SLICE_RATIO, SLICES - 1.0 - samples * (SLICES - code)) / SLICE_SLACK);
-		if (ks < SLICES - 1.0 && d > SLICE_NEAR * pow(SLICE_RATIO, ks + 1.0) * SLICE_SLACK)
+		d = max(d, SLICE_NEAR * pow(SLICE_RATIO, SLICES - 1.0 - samples * (SLICES - code)) / SLICE_MARGIN);
+		if (ks < SLICES - 1.0 && d > SLICE_NEAR * pow(SLICE_RATIO, ks + 1.0) * SLICE_MARGIN)
 		{
 			d = SLICE_NEAR * pow(SLICE_RATIO, ks + 0.5);
 		}

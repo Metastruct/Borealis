@@ -96,16 +96,16 @@ float4 march(float3 ray, float jitter)
 		float3 p = EYE + ray * t;
 		float h = heightFraction(p);
 		float cover = coverAt(p);
-		float dens = cloudDensity(p, h, erode, cover);
-		if (dens > 0.0)
+		float sampleDensity = cloudDensity(p, h, erode, cover);
+		if (sampleDensity > 0.0)
 		{
-			dens *= saturate(remap(t, MAX_RANGE, FADE_RANGE, 0.0, 1.0));
+			sampleDensity *= saturate(remap(t, MAX_RANGE, FADE_RANGE, 0.0, 1.0));
 
-			float sigma = dens * DENSITY;
+			float sigma = sampleDensity * DENSITY;
 			float a = 1.0 - exp(-sigma * ds);
 
-			float beer = exp(-lightTau(p, erode, cover));
-			float3 col = lerp(cloudLight(beer, sigma, dens, h, phases, sunCol, ambCol), fogCol, saturate((t - fog.x) / fog.y) * fog.z);
+			float transmittance = exp(-lightTau(p, erode, cover));
+			float3 col = lerp(cloudLight(transmittance, sigma, sampleDensity, h, phases, sunCol, ambCol), fogCol, saturate((t - fog.x) / fog.y) * fog.z);
 
 			L += col * a * T;
 			T *= 1.0 - a;

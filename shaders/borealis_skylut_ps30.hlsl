@@ -95,14 +95,14 @@ float3 scatter(float3 o, float3 dir, float len, float3 l, float3 lightCol, out f
 		float ds = tNext - tPrev;
 		float3 q = o + dir * (tPrev + ds * 0.5);
 		tPrev = tNext;
-		float3 dens = density(length(q) - R_EARTH) * ds;
-		odView += dens;
+		float3 stepDensity = density(length(q) - R_EARTH) * ds;
+		odView += stepDensity;
 
 		float lit;
 		float3 odLight = lightDepth(q, l, lit);
 		float3 attn = exp(-extinction(odView + odLight)) * lit;
-		sumR += attn * dens.x;
-		sumM += attn * dens.y;
+		sumR += attn * stepDensity.x;
+		sumM += attn * stepDensity.y;
 	}
 
 	transmittance = exp(-extinction(odView));

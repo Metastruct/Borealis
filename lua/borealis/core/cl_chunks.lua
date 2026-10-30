@@ -33,7 +33,7 @@ end
 
 local stepStart, stepBudget, lastThinkMs = 0, MIN_BUDGET_MS, 0
 
-function chunks.Pace()
+function chunks.YieldIfOverBudget()
 	if (SysTime() - stepStart) * 1000 > stepBudget then
 		coroutine.yield()
 	end

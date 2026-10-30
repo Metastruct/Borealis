@@ -87,9 +87,9 @@ local function updateSun()
 
 	local off = math.max(math.abs(x), math.abs(y))
 	local inView = 1 - math.Clamp((off - 1) / 0.6, 0, 1)
-	local elev = shaderpack.Elevation(sunDir)
-	local risen = math.Clamp((elev + 1) / 4, 0, 1)
-	local low = 1 + 0.5 * (1 - math.Clamp(elev / 40, 0, 1))
+	local elevation = shaderpack.Elevation(sunDir)
+	local risen = math.Clamp((elevation + 1) / 4, 0, 1)
+	local low = 1 + 0.5 * (1 - math.Clamp(elevation / 40, 0, 1))
 	sunWeight = inView * risen * low * (1 - shaderpack.Overcast())
 end
 
@@ -157,8 +157,8 @@ local function drawShafts()
 	render.DrawScreenQuad(true)
 	render.PopRenderTarget()
 
-	local elev = shaderpack.Elevation(sunDir)
-	local warm = 1 - math.Clamp(elev / 30, 0, 1)
+	local elevation = shaderpack.Elevation(sunDir)
+	local warm = 1 - math.Clamp(elevation / 30, 0, 1)
 	local k = math.Clamp(INTENSITY * sunWeight, 0, 1) * 255
 	surface.SetDrawColor(k, (0.92 - 0.35 * warm) * k, (0.8 - 0.6 * warm) * k, 255)
 	surface.SetMaterial(COMPOSITE)

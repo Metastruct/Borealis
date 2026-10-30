@@ -10,7 +10,7 @@ end
 
 local procsky, vclouds, cover, depthslices = shaderpack.procsky, shaderpack.vclouds, shaderpack.cover, shaderpack.depthslices
 
-local MIN_ELEV, FADE_ELEV = 2, 10
+local MIN_ELEVATION, FADE_ELEVATION = 2, 10
 local MIN_SUN_Z = 0.03
 local ORDER = 5
 local TIME_WRAP = 3600
@@ -80,9 +80,9 @@ local sunDir = Vector(0, 0, 1)
 
 local function sunInfo()
 	if procsky and procsky.GetLights then
-		local sun, _, elev = procsky.GetLights()
+		local sun, _, elevation = procsky.GetLights()
 
-		return sun, elev
+		return sun, elevation
 	end
 
 	local params = tod and tod.CurrentParams
@@ -105,8 +105,8 @@ local function update()
 		return
 	end
 
-	local sun, elev = sunInfo()
-	local g = math.Clamp((elev - MIN_ELEV) / FADE_ELEV, 0, 1) * (1 - shaderpack.Overcast())
+	local sun, elevation = sunInfo()
+	local g = math.Clamp((elevation - MIN_ELEVATION) / FADE_ELEVATION, 0, 1) * (1 - shaderpack.Overcast())
 	if g <= 0.001 then
 		active = false
 
@@ -129,9 +129,9 @@ local function bakeMap()
 	if mapReady and FrameNumber() % MAP_BAKE_EVERY ~= MAP_BAKE_PHASE then return end
 
 	local texel = MAP_EXTENT / MAP_SIZE
-	local lift = math.max(layerZ - eye.z, 0) / math.max(sunDir.z, MIN_SUN_Z)
-	mapX = math.Round((eye.x + sunDir.x * lift) / texel) * texel
-	mapY = math.Round((eye.y + sunDir.y * lift) / texel) * texel
+	local sunDistance = math.max(layerZ - eye.z, 0) / math.max(sunDir.z, MIN_SUN_Z)
+	mapX = math.Round((eye.x + sunDir.x * sunDistance) / texel) * texel
+	mapY = math.Round((eye.y + sunDir.y * sunDistance) / texel) * texel
 
 	setConstant(MAP_MAT, "$c0", mapX, mapY, nil, CurTime() % TIME_WRAP)
 	setConstant(MAP_MAT, "$c1", sunDir.x, sunDir.y, sunDir.z, layerZ)

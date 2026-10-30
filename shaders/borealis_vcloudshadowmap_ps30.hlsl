@@ -40,13 +40,13 @@ float4 main(PS_IN i) : COLOR
 	{
 		float h = (k + 0.5) / STEPS;
 		float3 q = float3(xy, BASE_Z) + rise * (h * THICK);
-		float reach = saturate(remap(length(q - EYE), MAX_RANGE, FADE_RANGE, 0.0, 1.0));
-		[branch] if (reach > 0.0)
+		float rangeFade = saturate(remap(length(q - EYE), MAX_RANGE, FADE_RANGE, 0.0, 1.0));
+		[branch] if (rangeFade > 0.0)
 		{
 			float cover = coverAt(q);
 			[branch] if (h < columnTop)
 			{
-				tau += lightDensity(q, h, ERODE, cover, false) * reach;
+				tau += lightDensity(q, h, ERODE, cover, false) * rangeFade;
 			}
 		}
 	}

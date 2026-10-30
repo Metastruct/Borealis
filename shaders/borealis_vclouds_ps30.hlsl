@@ -132,7 +132,7 @@ float4 main(PS_IN i) : COLOR
 
 	float T = 1.0;
 	float3 L = 0.0;
-	float debugDens = 0.0;
+	float debugDensity = 0.0;
 
 	for (int k = 0; k < STEPS; k++)
 	{
@@ -163,32 +163,32 @@ float4 main(PS_IN i) : COLOR
 				n = lerp(MEAN_DETAIL, n, detailW);
 			}
 
-			float dens = erodeBy(base, n, h, erode) * saturate(remap(t, MAX_RANGE, FADE_RANGE, 0.0, 1.0));
-			[branch] if (dens > 0.0)
+			float sampleDensity = erodeBy(base, n, h, erode) * saturate(remap(t, MAX_RANGE, FADE_RANGE, 0.0, 1.0));
+			[branch] if (sampleDensity > 0.0)
 			{
-				debugDens = max(debugDens, dens);
+				debugDensity = max(debugDensity, sampleDensity);
 
-				float sigma = dens * DENSITY;
+				float sigma = sampleDensity * DENSITY;
 				float a = 1.0 - exp(-sigma * ds);
 
-				float beer;
+				float transmittance;
 				[branch] if (MAP_ON > 0.5)
 				{
 					[branch] if (T > LIGHT_LOD_T)
 					{
-						beer = exp(-nearLightTau(p, erode, cover)) * mapTransmittance(p + SUN_DIR * LIGHT_NEAR_REACH);
+						transmittance = exp(-nearLightTau(p, erode, cover)) * mapTransmittance(p + SUN_DIR * LIGHT_NEAR_DISTANCE);
 					}
 					else
 					{
-						beer = mapTransmittance(p);
+						transmittance = mapTransmittance(p);
 					}
 				}
 				else
 				{
-					beer = exp(-lightTau(p, erode, cover));
+					transmittance = exp(-lightTau(p, erode, cover));
 				}
 
-				float3 col = lerp(cloudLight(beer, sigma, dens, h, phases, sunCol, ambCol), fogCol, saturate((t - fog.x) / fog.y) * fog.z);
+				float3 col = lerp(cloudLight(transmittance, sigma, sampleDensity, h, phases, sunCol, ambCol), fogCol, saturate((t - fog.x) / fog.y) * fog.z);
 
 				L += col * a * T;
 				T *= 1.0 - a;
@@ -198,7 +198,7 @@ float4 main(PS_IN i) : COLOR
 
 	if (i.color.b > 0.25)
 	{
-		return float4(debugDens.xxx, 1.0);
+		return float4(debugDensity.xxx, 1.0);
 	}
 
 	return float4(scene * T + L, 1.0);

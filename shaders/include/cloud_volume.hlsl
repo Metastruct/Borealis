@@ -12,7 +12,7 @@
 #define LIGHT_DETAIL_STEPS 2
 #define LIGHT_STEP 70.0
 #define LIGHT_GROW 2.2
-#define LIGHT_NEAR_REACH 224.0
+#define LIGHT_NEAR_DISTANCE 224.0
 
 #define SHAPE_SCALE (1.0 / 16000.0)
 
@@ -262,18 +262,18 @@ float3 cloudPhases(float cosSun)
 	return float3(dualPhase(cosSun, 1.0), dualPhase(cosSun, 0.5), dualPhase(cosSun, 0.25)) * float3(1.0, 0.5, 0.25) / 1.75;
 }
 
-float sunScatter(float beer, float3 phases)
+float sunScatter(float transmittance, float3 phases)
 {
-	float b1 = sqrt(beer);
+	float b1 = sqrt(transmittance);
 
-	return dot(float3(beer, b1, sqrt(b1)), phases);
+	return dot(float3(transmittance, b1, sqrt(b1)), phases);
 }
 
-float3 cloudLight(float beer, float sigma, float dens, float h, float3 phases, float3 sunCol, float3 ambCol)
+float3 cloudLight(float transmittance, float sigma, float sampleDensity, float h, float3 phases, float3 sunCol, float3 ambCol)
 {
 	float powder = 1.0 - exp(-sigma * POWDER * 400.0);
-	float3 sun = sunCol * sunScatter(beer, phases) * lerp(1.0, powder, 0.7);
-	float3 amb = ambCol * lerp(AMBIENT_BASE, 1.0, saturate(h / columnTop)) * lerp(1.0, AMBIENT_OCCLUSION, dens);
+	float3 sun = sunCol * sunScatter(transmittance, phases) * lerp(1.0, powder, 0.7);
+	float3 amb = ambCol * lerp(AMBIENT_BASE, 1.0, saturate(h / columnTop)) * lerp(1.0, AMBIENT_OCCLUSION, sampleDensity);
 
 	return sun + amb;
 }

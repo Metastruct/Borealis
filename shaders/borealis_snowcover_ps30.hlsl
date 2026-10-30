@@ -33,7 +33,7 @@ sampler3D Noise : register(s1);
 #define WALL_NZ 0.3
 #define POM_STEPS 16
 #define POM_REFINE 5
-#define POM_REACH 48.0
+#define POM_MAX_DISTANCE 48.0
 #define POM_MIN_SLOPE 0.12
 #define TRAIL_PEAK_MIN 0.01
 #define SOFT_A float2(1.8, 0.7)
@@ -56,7 +56,7 @@ sampler3D Noise : register(s1);
 #define GLINT_RANGE 700.0
 #define GLINT_SCALE (1.0 / 2.5)
 #define GLINT_SHIFT 0.8
-#define GLINT_CUT 0.8
+#define GLINT_THRESHOLD 0.8
 #define GLINT_GAIN 1.5
 
 struct PS_IN
@@ -120,18 +120,18 @@ PS_OUT main(PS_IN i)
 		clip(a - MIN_THICK);
 		float thick = a * SNOW_DEPTH;
 		float descent = -dot(v, n);
-		float reach = min(thick / max(descent, POM_MIN_SLOPE), POM_REACH);
-		float3 dir = v * reach;
+		float rayLength = min(thick / max(descent, POM_MIN_SLOPE), POM_MAX_DISTANCE);
+		float3 dir = v * rayLength;
 		float trailPeak = max(trailAt(p.xy), max(trailAt(p.xy + dir.xy * 0.5), trailAt(p.xy + dir.xy)));
 		[branch] if (trailPeak > TRAIL_PEAK_MIN)
 		{
-			float drop = reach * max(descent, 0.0);
+			float rayDepth = rayLength * max(descent, 0.0);
 			float s = 1.0;
 			float sPrev = 0.0;
 			[loop] for (int k = 0; k <= POM_STEPS; k++)
 			{
 				float t = (float)k / POM_STEPS;
-				if (t * drop >= thick * trailAt(p.xy + dir.xy * t))
+				if (t * rayDepth >= thick * trailAt(p.xy + dir.xy * t))
 				{
 					s = t;
 					break;
@@ -142,7 +142,7 @@ PS_OUT main(PS_IN i)
 			[loop] for (int r = 0; r < POM_REFINE; r++)
 			{
 				float m = (sPrev + s) * 0.5;
-				if (m * drop >= thick * trailAt(p.xy + dir.xy * m))
+				if (m * rayDepth >= thick * trailAt(p.xy + dir.xy * m))
 				{
 					s = m;
 				}
@@ -158,7 +158,7 @@ PS_OUT main(PS_IN i)
 			float2 g = float2(softTrail(q.xy + e.xy) - softTrail(q.xy - e.xy), softTrail(q.xy + e.yx) - softTrail(q.xy - e.yx));
 			nrm = normalize(n + float3(g * (thick / (2.0 * GRAD_STEP)), 0.0));
 
-			float hitDepth = s * drop;
+			float hitDepth = s * rayDepth;
 			float rise = dot(sunDir, n);
 			[branch] if (hitDepth > SHADOW_BIAS && rise > 0.0)
 			{
@@ -191,7 +191,7 @@ PS_OUT main(PS_IN i)
 	[branch] if (dist < GLINT_RANGE)
 	{
 		float sparkle = tex3Dlod(Noise, float4(q * GLINT_SCALE + v * GLINT_SHIFT, 0.0)).r;
-		float glint = pow(saturate((sparkle - GLINT_CUT) / (1.0 - GLINT_CUT)), 4.0) * share * saturate(dot(nrm, sunDir)) * (1.0 - dist / GLINT_RANGE);
+		float glint = pow(saturate((sparkle - GLINT_THRESHOLD) / (1.0 - GLINT_THRESHOLD)), 4.0) * share * saturate(dot(nrm, sunDir)) * (1.0 - dist / GLINT_RANGE);
 		color += light * glint * GLINT_GAIN * BRIGHTNESS;
 	}
 

@@ -37,7 +37,7 @@ struct PS_IN
 	float2 uv    : TEXCOORD0;
 	float4 strip : TEXCOORD1;
 	float3 wpos  : TEXCOORD2;
-	float4 owner : TEXCOORD3;
+	float4 tileData : TEXCOORD3;
 };
 
 float3 hash3(float2 p)
@@ -48,10 +48,10 @@ float3 hash3(float2 p)
 	return frac((q.xxy + q.yzz) * q.zyx);
 }
 
-float2 drop(float f, float u, float lane, float salt, float seg, float width, float px, float pv)
+float2 drop(float f, float u, float lane, float hashSeed, float seg, float width, float px, float pv)
 {
 	float slot = floor(f);
-	float3 h = hash3(float2(frac(slot / SLOTS) * SLOTS, salt));
+	float3 h = hash3(float2(frac(slot / SLOTS) * SLOTS, hashSeed));
 	if (h.x < SKIP)
 	{
 		return float2(0.0, 0.0);
@@ -84,28 +84,28 @@ float4 main(PS_IN i) : COLOR
 	float2 col = floor(i.wpos.xy / COLUMN);
 	float2 cuv = frac(col / COLUMNS) + 0.5 / COLUMNS;
 	float2 c = tex2D(CoverTex, cuv).rg;
-	float cut = (c.r * 65280.0 + c.g * 255.0) / 65535.0 * Z_RANGE + Z_MIN;
+	float coverZ = (c.r * 65280.0 + c.g * 255.0) / 65535.0 * Z_RANGE + Z_MIN;
 
 	float px = fwidth(i.uv.x);
 	float pv = fwidth(-i.wpos.z / PERIOD);
 	float phase = floor(i.strip.x + 0.5) / 255.0;
 	float sp = 0.1 * floor(i.strip.y + 0.5);
 	float bright = floor(i.strip.z + 0.5) / 255.0;
-	float j = floor(i.owner.x + 0.5);
-	float m = floor(i.owner.y + 0.5);
+	float j = floor(i.tileData.x + 0.5);
+	float m = floor(i.tileData.y + 0.5);
 	float size = 0.75 + 0.5 * frac(phase * 13.7 + bright * 5.1);
 
 	float gw = 2.0 * PI * GUST_N / WRAP;
 	float t = TIME + GUST / gw * sin(gw * TIME + (i.wpos.x + i.wpos.y * 0.7) * GUST_K);
 	float f = -i.wpos.z / PERIOD + phase * SLOTS;
-	float salt = frac(phase * 13.1 + bright * 7.9);
+	float hashSeed = frac(phase * 13.1 + bright * 7.9);
 
 	float fa = f - t * SPEED * (0.8 + sp);
 	float fb = f - t * SPEED * (0.9 + sp) + 0.37;
 	float fd = f - t * SPEED * (0.7 + sp) + 0.71;
-	float2 a = drop(fa, i.uv.x, 0.5, salt, SEG, WIDTH * size, px, pv);
-	float2 b = drop(fb, i.uv.x, 0.5, salt + 0.41, SEG * 0.8, WIDTH * 0.8 * size, px, pv);
-	float2 d = drop(fd, i.uv.x, 0.5, salt + 0.83, SEG * 0.65, WIDTH * 0.7 * size, px, pv);
+	float2 a = drop(fa, i.uv.x, 0.5, hashSeed, SEG, WIDTH * size, px, pv);
+	float2 b = drop(fb, i.uv.x, 0.5, hashSeed + 0.41, SEG * 0.8, WIDTH * 0.8 * size, px, pv);
+	float2 d = drop(fd, i.uv.x, 0.5, hashSeed + 0.83, SEG * 0.65, WIDTH * 0.7 * size, px, pv);
 	float win = a.x > b.x ? 0.0 : 1.0;
 	a = a.x > b.x ? a : b;
 	win = a.x > d.x ? win : 2.0;
@@ -114,7 +114,7 @@ float4 main(PS_IN i) : COLOR
 	float fown = j < 0.5 ? fa : (j < 1.5 ? fb : fd);
 	float slot = floor(fown);
 	float own = frac(slot / SLOTS) * SLOTS;
-	bool mine = abs(win - j) < 0.5 && abs(own - m) < 0.5 && i.wpos.z >= i.owner.z && i.wpos.z <= i.owner.w && i.wpos.z >= cut;
+	bool mine = abs(win - j) < 0.5 && abs(own - m) < 0.5 && i.wpos.z >= i.tileData.z && i.wpos.z <= i.tileData.w && i.wpos.z >= coverZ;
 
 	float dist = distance(i.wpos, EYE);
 	float fade = (1.0 - smoothstep(FADE_START, FADE_END, dist)) * smoothstep(NEAR * 0.3, NEAR, dist);

@@ -65,10 +65,10 @@ sampler CoverTex : register(s5);
 
 #define COVER_COLUMN 24.0
 #define COVER_COLUMNS 64.0
-#define COVER_REACH 30.0
+#define COVER_RANGE 30.0
 #define COVER_Z_MIN -16384.0
 #define COVER_Z_RANGE 32768.0
-#define COVER_SLACK 2.0
+#define COVER_MARGIN 2.0
 
 struct PS_IN
 {
@@ -101,13 +101,13 @@ float2 ClipToUV(float4 pixel) {
 float RainExposure(float3 pos, float3 eye) {
     float2 col = floor(pos.xy / COVER_COLUMN);
     float2 eyeCol = floor(eye.xy / COVER_COLUMN);
-    if (max(abs(col.x - eyeCol.x), abs(col.y - eyeCol.y)) > COVER_REACH - 1.0)
+    if (max(abs(col.x - eyeCol.x), abs(col.y - eyeCol.y)) > COVER_RANGE - 1.0)
         return OPENNESS;
 
     float2 c = tex2Dlod(CoverTex, float4(frac(col / COVER_COLUMNS) + 0.5 / COVER_COLUMNS, 0.0, 0.0)).rg;
-    float cut = (c.r * 65280.0 + c.g * 255.0) / 65535.0 * COVER_Z_RANGE + COVER_Z_MIN;
+    float coverZ = (c.r * 65280.0 + c.g * 255.0) / 65535.0 * COVER_Z_RANGE + COVER_Z_MIN;
 
-    return cut <= pos.z + COVER_SLACK ? 1.0 : 0.0;
+    return coverZ <= pos.z + COVER_MARGIN ? 1.0 : 0.0;
 }
 
 float3 SkyColor(float3 dir, float3 horizon, float3 zenith) {

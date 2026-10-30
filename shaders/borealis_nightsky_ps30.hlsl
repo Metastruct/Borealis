@@ -74,9 +74,9 @@ float4 main(PS_IN i) : COLOR
 	float3 up = normalize(cross(RIGHT_S, FWD)) * HALF_H;
 	float3 dir = normalize(FWD + RIGHT_S * ndc.x + up * ndc.y);
 
-	float elev = dot(dir, WORLD_UP);
+	float elevation = dot(dir, WORLD_UP);
 
-	if (elev < 0.0)
+	if (elevation < 0.0)
 	{
 		return float4(0.0, 0.0, 0.0, 1.0);
 	}
@@ -88,11 +88,11 @@ float4 main(PS_IN i) : COLOR
 	st += starLayer(dir, 130.0, 0.18 + 0.5 * mw.a) * 0.75;
 	col += st * STARS;
 
-	float h = saturate(1.0 - elev);
+	float h = saturate(1.0 - elevation);
 	float3 haze = unpackColor(AIRGLOW) * 0.25 * pow(h, 5.0) * 0.14;
 
-	col *= smoothstep(0.04, 0.38, elev);
-	col += haze * smoothstep(0.0, 0.16, elev);
+	col *= smoothstep(0.04, 0.38, elevation);
+	col += haze * smoothstep(0.0, 0.16, elevation);
 
 	return float4(col, 1.0);
 }

@@ -23,7 +23,7 @@ local DROP_CODES = 2 * 3 * DROP_WINDOW
 local DROP_CHUNK = 138
 local HALF_H = 560
 local PERIOD = 80
-local FIELD_SLACK = 160
+local FIELD_TOLERANCE = 160
 local HALF_W = 2.6
 local CROSS_SPREAD = 24
 local RAIN_LEAN, RAIN_LEAN_WIND = 0.1, 0.2
@@ -109,7 +109,7 @@ local function densityLevel(amount)
 end
 
 local function updateField(eye)
-	if not fieldZ or math.abs(eye.z - fieldZ) > FIELD_SLACK then
+	if not fieldZ or math.abs(eye.z - fieldZ) > FIELD_TOLERANCE then
 		fieldZ = math.floor(eye.z / PERIOD + 0.5) * PERIOD
 	end
 
@@ -175,11 +175,11 @@ local function buildSnowTile(tx, ty)
 	for p = 0, SNOW_COUNT - 1 do
 		local x = (tx + snowRand(tx, ty, p, 0)) * DROP_TILE
 		local y = (ty + snowRand(tx, ty, p, 1)) * DROP_TILE
-		local cut = cover.CutAt(x, y) or Z_MIN
+		local coverZ = cover.HeightAt(x, y) or Z_MIN
 
 		for rep = 0, SNOW_REPS - 1 do
 			for corner = 0, 3 do
-				mesh.Position(x, y, cut)
+				mesh.Position(x, y, coverZ)
 				mesh.TexCoord(0, p, rep * 4 + corner)
 				mesh.AdvanceVertex()
 			end
@@ -191,7 +191,7 @@ local function buildSnowTile(tx, ty)
 	return m
 end
 
-local function dropSnowTiles()
+local function removeSnowTiles()
 	for key, m in pairs(snowTiles) do
 		m:Destroy()
 		snowTiles[key] = nil
@@ -208,9 +208,9 @@ end
 
 local function updateSnowTiles(eye)
 	local _, _, margin = snowDrift()
-	local reach = FADE_END + margin
-	local tx0, tx1 = math.floor((eye.x - reach) / DROP_TILE), math.floor((eye.x + reach) / DROP_TILE)
-	local ty0, ty1 = math.floor((eye.y - reach) / DROP_TILE), math.floor((eye.y + reach) / DROP_TILE)
+	local tileRange = FADE_END + margin
+	local tx0, tx1 = math.floor((eye.x - tileRange) / DROP_TILE), math.floor((eye.x + tileRange) / DROP_TILE)
+	local ty0, ty1 = math.floor((eye.y - tileRange) / DROP_TILE), math.floor((eye.y + tileRange) / DROP_TILE)
 
 	for key, m in pairs(snowTiles) do
 		local tx, ty = columnFromKey(key)
@@ -242,7 +242,7 @@ local function packNormal(v)
 	return math.floor(math.Clamp(v / SPLASH_NSCALE * 0.5 + 0.5, 0, 1) * 255 + 0.5)
 end
 
-local function dropSplashes()
+local function removeSplashes()
 	if not splashMesh then return end
 	splashMesh:Destroy()
 	splashMesh = nil
@@ -265,10 +265,10 @@ local function buildSplashes()
 				local seed = (cx * 73856093 + cy * 19349663) % 65536
 				local dzdx, dzdy = (z10 - z00 + z11 - z01) * 0.5 / q, (z01 - z00 + z11 - z10) * 0.5 / q
 				local nz = 1 / math.sqrt(dzdx * dzdx + dzdy * dzdy + 1)
-				local lift = seed % 7 * 0.15
+				local zOffset = seed % 7 * 0.15
 				count = count + 1
 				quads[count] = { (cx + SPLASH_C0 + 0.5) * COLUMN, (cy + SPLASH_C0 + 0.5) * COLUMN,
-					z00 + lift, z10 + lift, z11 + lift, z01 + lift,
+					z00 + zOffset, z10 + zOffset, z11 + zOffset, z01 + zOffset,
 					seed % 256, math.floor(seed / 256), packNormal(-dzdx * nz), packNormal(-dzdy * nz) }
 			end
 		end
@@ -297,7 +297,7 @@ local function prepare()
 	local raining = rain and rain.amount > 0.001
 	local snowing = snow and snow.amount > 0.001
 	if not raining then
-		dropSplashes()
+		removeSplashes()
 		ripplesDirty = true
 		if not snowing then return end
 	end
@@ -318,7 +318,7 @@ local function prepare()
 
 	if ripplesDirty and RealTime() >= nextRipple then
 		ripplesDirty, nextRipple = false, RealTime() + SPLASH_REBUILD
-		dropSplashes()
+		removeSplashes()
 		splashMesh = buildSplashes()
 	end
 end
@@ -495,13 +495,13 @@ local function stop()
 	surfacewater.above.borealis_precipitations = nil
 	hook.Remove("PreRender", "borealis_precipitations")
 	hook.Remove("PostDrawTranslucentRenderables", "borealis_precipitations")
-	dropSplashes()
+	removeSplashes()
 	for i = #dropChunks, 1, -1 do
 		dropChunks[i].mesh:Destroy()
 		dropChunks[i] = nil
 	end
 
-	dropSnowTiles()
+	removeSnowTiles()
 end
 
 local materialSerial = 0
@@ -535,8 +535,8 @@ function build()
 	SNOW_MAT:SetTexture("$basetexture", cover.Texture())
 end
 
-local function onColumn(cx, cy, cutChanged, groundChanged)
-	if cutChanged then
+local function onColumn(cx, cy, coverChanged, groundChanged)
+	if coverChanged then
 		markSnowDirty(cx, cy)
 	end
 
@@ -546,7 +546,7 @@ local function onColumn(cx, cy, cutChanged, groundChanged)
 end
 
 local function onReset()
-	dropSnowTiles()
+	removeSnowTiles()
 	ripplesDirty = true
 end
 

@@ -36,8 +36,8 @@ VS_OUTPUT main(VS_INPUT i)
 	float phase = i.color.a * 6.2832;
 
 	float2 side = float2(-CURRENT.y, CURRENT.x);
-	float reach = h * 0.001;
-	float bend = reach * sqrt(reach);
+	float heightFrac = h * 0.001;
+	float bend = heightFrac * sqrt(heightFrac);
 	float along = SWAY * bend * (sin(TIME * SWAY_SPEED - h * SWAY_LENGTH + phase) + 0.6 * sin(TIME * DRIFT_SPEED + phase * 1.7));
 	float across = SWAY * 0.4 * bend * sin(TIME * CROSS_SPEED + phase * 2.3 - h * SWAY_LENGTH);
 	float flutter = min(kind, 1.0) * v * FLUTTER * sin(TIME * FLUTTER_SPEED + phase * 5.0 + kind * 0.37 + h * 0.05);

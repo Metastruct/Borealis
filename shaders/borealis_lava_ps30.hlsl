@@ -47,8 +47,8 @@ sampler3D Noise : register(s3);
 #define SURFACE_COVER 0.003
 #define SURFACE_FLAT 0.99
 #define FALLOFF 260.0
-#define LIFT 48.0
-#define SIDE_REACH 700.0
+#define HEIGHT_OFFSET 48.0
+#define SIDE_DISTANCE 700.0
 #define WRAP 0.3
 #define EDGE_HEIGHT 28.0
 #define EDGE_GLOW 1.6
@@ -151,13 +151,13 @@ float4 main(PS_IN i) : COLOR0
 	float flo = max(max(band.x, 0.0), span.x);
 	float fhi = min(min(band.y, d), span.y);
 	fhi = min(fhi, flo + FUME_MAX / len);
-	float reach = 0.0;
+	float lavaNearby = 0.0;
 	[branch] if (FUME > 0.0 && fhi > flo)
 	{
-		reach = CAVE_HAZE > 0.0 ? 1.0 : max(max(lavaMask((EYE + view * flo).xy).a, lavaMask((EYE + view * fhi).xy).a), lavaMask((EYE + view * ((flo + fhi) * 0.5)).xy).a);
+		lavaNearby = CAVE_HAZE > 0.0 ? 1.0 : max(max(lavaMask((EYE + view * flo).xy).a, lavaMask((EYE + view * fhi).xy).a), lavaMask((EYE + view * ((flo + fhi) * 0.5)).xy).a);
 	}
 
-	[branch] if (reach > 0.003)
+	[branch] if (lavaNearby > 0.003)
 	{
 		float ds = (fhi - flo) / FUME_STEPS;
 		float stepLen = ds * len;
@@ -195,8 +195,8 @@ float4 main(PS_IN i) : COLOR0
 	float texel = MASK_SIZE / MASK_RES;
 	float2 grad = float2(lavaMask(p.xy + float2(texel, 0.0)).g, lavaMask(p.xy + float2(0.0, texel)).g) - m.g;
 	float gl = length(grad);
-	float2 side = gl > 1e-4 ? grad / gl * (1.0 - m.g) * SIDE_REACH : float2(0.0, 0.0);
-	float3 toLava = normalize(float3(side, -(hp + LIFT)));
+	float2 side = gl > 1e-4 ? grad / gl * (1.0 - m.g) * SIDE_DISTANCE : float2(0.0, 0.0);
+	float3 toLava = normalize(float3(side, -(hp + HEIGHT_OFFSET)));
 	float facing = WRAP + (1.0 - WRAP) * saturate(dot(n, toLava));
 	float fall = 1.0 / (1.0 + (hp / FALLOFF) * (hp / FALLOFF));
 	float edge = smoothstep(0.02, 0.45, m.r) * exp(-hp / EDGE_HEIGHT);

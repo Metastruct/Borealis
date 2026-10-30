@@ -28,10 +28,10 @@ local RADIUS = 3072
 local FADE_START, FADE_END = RADIUS * 0.75, RADIUS * 0.95
 local MESH_TRIS = 10000
 local MESH_CACHE_TRIS = jit.arch == "x64" and math.huge or 300000
-local SKY_REACH = 16384
+local SKY_TRACE_DISTANCE = 16384
 local SKY_CELL, LIGHT_CELL, CLUSTER_CELL = 16, 16, 64
 local SMALL_TRI = CELL * 2
-local SKIRT_DROP = 1
+local SKIRT_DEPTH = 1
 local FILL_K = 0.5
 local SNOWY = { "grass", "mud", "sand", "snow" }
 local NOT_SNOWY = { "water", "gm_flatgrass" }
@@ -40,7 +40,7 @@ local TRAIL_TEXELS, TRAIL_SPAN = 1024, 2048
 local TEXEL = TRAIL_SPAN / TRAIL_TEXELS
 local TRAIL_STEP = 128
 local REFILL_INTERVAL = 1
-local SETTLE_TIME, SNOWFALL_TIME = 1200, 120
+local REFILL_TIME, SNOWFALL_TIME = 1200, 120
 local CAPTURE_PAD = 4
 local STAMP_BLUR = 2
 local CAPTURE_HEIGHT = 4096
@@ -105,7 +105,7 @@ local function load()
 	grid, why = bspdata.Triangles(classify, MIN_NZ)
 	if not grid then return false, why end
 
-	grid = bspdata.DropSkybox(grid)
+	grid = bspdata.RemoveSkybox(grid)
 
 	local yieldIfOverBudget = bspdata.FrameBudget()
 	local seen, edges, normals, up = {}, {}, {}, {}
@@ -212,7 +212,7 @@ local function snowAt(x, y, z, nonSnow, cache)
 	local open = cache.sky[skyKey]
 	if open == nil then
 		skyTrace.start:SetUnpacked(x, y, z + 4)
-		skyTrace.endpos:SetUnpacked(x, y, z + SKY_REACH)
+		skyTrace.endpos:SetUnpacked(x, y, z + SKY_TRACE_DISTANCE)
 		local tr = util.TraceLine(skyTrace)
 		samplePos:SetUnpacked(x, y, z + 2)
 		open = (not tr.Hit or tr.HitSky) and not tr.StartSolid and bit.band(util.PointContents(samplePos), MASK_WATER) == 0
@@ -263,7 +263,7 @@ local function buildVerts(ch)
 	local cache = { sky = {}, light = {}, cluster = {} }
 	local clusters, clusterSet = {}, {}
 	local zmin, zmax = math.huge, -math.huge
-	local budget = chunks.Pace
+	local yieldIfOverBudget = chunks.YieldIfOverBudget
 
 	local function emit(x, y, z, nx, ny, cover, light)
 		verts[n + 1], verts[n + 2], verts[n + 3], verts[n + 4], verts[n + 5], verts[n + 6], verts[n + 7] = x, y, z, nx, ny, light, cover
@@ -308,7 +308,7 @@ local function buildVerts(ch)
 					addCluster(mx, my, t[3])
 				end
 
-				budget()
+				yieldIfOverBudget()
 			else
 				local ix0 = math.floor(math.max(t[13], x0) / CELL)
 				local ix1 = math.floor((math.min(t[15], x1) - 1e-3) / CELL)
@@ -328,7 +328,7 @@ local function buildVerts(ch)
 						end
 
 						if any then addCluster(poly[1][1], poly[1][2], poly[1][3]) end
-						budget()
+						yieldIfOverBudget()
 					end
 				end
 			end
@@ -363,17 +363,17 @@ local function buildVerts(ch)
 				if pc + qc > 0 then
 					emit(px, py, pz + pc * DEPTH, e[9], e[10], pc, pl)
 					emit(qx, qy, qz + qc * DEPTH, e[9], e[10], qc, ql)
-					emit(qx, qy, qz - SKIRT_DROP, e[9], e[10], 0, ql)
+					emit(qx, qy, qz - SKIRT_DEPTH, e[9], e[10], 0, ql)
 					emit(px, py, pz + pc * DEPTH, e[9], e[10], pc, pl)
-					emit(qx, qy, qz - SKIRT_DROP, e[9], e[10], 0, ql)
-					emit(px, py, pz - SKIRT_DROP, e[9], e[10], 0, pl)
+					emit(qx, qy, qz - SKIRT_DEPTH, e[9], e[10], 0, ql)
+					emit(px, py, pz - SKIRT_DEPTH, e[9], e[10], 0, pl)
 				end
 
 				px, py, pz, pc, pl = qx, qy, qz, qc, ql
 			end
 		end
 
-		budget()
+		yieldIfOverBudget()
 	end
 
 	ch.clusters = clusters
@@ -393,7 +393,7 @@ local function buildChunk(ch)
 	ch.meshes = meshes
 	local o = 0
 	while tris > 0 do
-		chunks.Pace()
+		chunks.YieldIfOverBudget()
 		local count = math.min(tris, MESH_TRIS)
 		local m = Mesh()
 		mesh.Begin(m, MATERIAL_TRIANGLES, count)
@@ -476,7 +476,7 @@ local function refill()
 	nextRefill = now + REFILL_INTERVAL
 
 	local snow = tod and tod.snow and tod.snow.amount or 0
-	local dec = (1 / SETTLE_TIME + snow / SNOWFALL_TIME) * REFILL_INTERVAL
+	local dec = (1 / REFILL_TIME + snow / SNOWFALL_TIME) * REFILL_INTERVAL
 	local c, err = 1, math.huge
 	for v = 1, 255 do
 		local e = math.abs(toLinear(v) - dec)

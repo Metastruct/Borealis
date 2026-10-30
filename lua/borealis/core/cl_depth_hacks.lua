@@ -16,7 +16,7 @@ local SEE_THROUGH = WIREFRAME + ADDITIVE + TRANSLUCENT
 local SEE = 1
 local CYCLE = 4
 local HIDDEN_MIN, HIDDEN_MAX = Vector(0, 0, -100001), Vector(0, 0, -100000)
-local HOLDER_EXTENT = Vector(32768, 32768, 32768)
+local SCREEN_MODEL_EXTENT = Vector(32768, 32768, 32768)
 
 local STATE_RESET = CreateMaterial("borealis_opacity_alphatestreset", "UnlitGeneric", {
 	["$basetexture"] = "color/white",
@@ -29,7 +29,7 @@ opacity.depth = opacity.depth or setmetatable({}, { __mode = "k" })
 opacity.brushes = opacity.brushes or setmetatable({}, { __mode = "k" })
 opacity.sents = opacity.sents or setmetatable({}, { __mode = "k" })
 opacity.screens = opacity.screens or setmetatable({}, { __mode = "k" })
-opacity.regrouped = opacity.regrouped or setmetatable({}, { __mode = "k" })
+opacity.forcedOpaque = opacity.forcedOpaque or setmetatable({}, { __mode = "k" })
 opacity.world = opacity.world or {}
 opacity.cutouts = opacity.cutouts or {}
 opacity.models = opacity.models or {}
@@ -106,7 +106,7 @@ local function inspect(ent)
 	if not model then return false end
 
 	local mats = materialsOf(ent, model)
-	local plan
+	local depthMats
 	for i = 1, #mats do
 		local sub = ent:GetSubMaterial(i - 1)
 		local info
@@ -123,12 +123,12 @@ local function inspect(ent)
 		end
 
 		if info then
-			plan = plan or {}
-			plan[i - 1] = info
+			depthMats = depthMats or {}
+			depthMats[i - 1] = info
 		end
 	end
 
-	return false, plan
+	return false, depthMats
 end
 
 opacity.wrappers = opacity.wrappers or setmetatable({}, { __mode = "k" })
@@ -136,9 +136,9 @@ local wrappers = opacity.wrappers
 
 local function wrap(prev)
 	local function draw(self, flags)
-		local plan = depth[self]
-		if plan and flags and bit.band(flags, STUDIO_SSAODEPTHTEXTURE) ~= 0 then
-			for i, dw in pairs(plan) do
+		local depthMats = depth[self]
+		if depthMats and flags and bit.band(flags, STUDIO_SSAODEPTHTEXTURE) ~= 0 then
+			for i, dw in pairs(depthMats) do
 				render.MaterialOverrideByIndex(i, dw)
 			end
 
@@ -167,9 +167,9 @@ for ent in pairs(depth) do
 	end
 end
 
-local function setDepthPlan(ent, plan)
+local function setDepthMats(ent, depthMats)
 	local current = ent.RenderOverride
-	if not plan then
+	if not depthMats then
 		if depth[ent] then
 			depth[ent] = nil
 			if isWrapper(current) then
@@ -180,7 +180,7 @@ local function setDepthPlan(ent, plan)
 		return
 	end
 
-	depth[ent] = plan
+	depth[ent] = depthMats
 	if not isWrapper(current) then
 		ent.RenderOverride = wrap(current)
 	end
@@ -252,29 +252,29 @@ local function drawScreens(depthPass)
 	end
 end
 
-local function drawHolder(_, flags)
+local function drawScreenModel(_, flags)
 	drawScreens(bit.band(flags, STUDIO_SSAODEPTHTEXTURE) ~= 0)
 end
 
-local function updateHolder()
-	local holder = opacity.holder
+local function updateScreenModel()
+	local screenModel = opacity.screenModel
 	if not next(screens) then
-		if IsValid(holder) then
-			holder:Remove()
+		if IsValid(screenModel) then
+			screenModel:Remove()
 		end
 
-		opacity.holder = nil
+		opacity.screenModel = nil
 
 		return
 	end
 
-	if not IsValid(holder) then
-		holder = ClientsideModel("models/hunter/plates/plate.mdl", RENDERGROUP_OPAQUE)
-		holder:SetRenderBounds(-HOLDER_EXTENT, HOLDER_EXTENT)
-		opacity.holder = holder
+	if not IsValid(screenModel) then
+		screenModel = ClientsideModel("models/hunter/plates/plate.mdl", RENDERGROUP_OPAQUE)
+		screenModel:SetRenderBounds(-SCREEN_MODEL_EXTENT, SCREEN_MODEL_EXTENT)
+		opacity.screenModel = screenModel
 	end
 
-	holder.RenderOverride = drawHolder
+	screenModel.RenderOverride = drawScreenModel
 end
 
 local function setScreen(ent, wanted)
@@ -293,7 +293,7 @@ local function setScreen(ent, wanted)
 		screens[ent] = nil
 	end
 
-	updateHolder()
+	updateScreenModel()
 end
 
 local function opaqueScreen(ent)
@@ -395,51 +395,51 @@ local drawn, drawWrappers = opacity.drawn, opacity.drawWrappers
 local DEPTH_SOLID = CreateMaterial("borealis_opacity_depth_solid", "DepthWrite", { ["$color_depth"] = 1 })
 local entityMeta = FindMetaTable("Entity")
 local innerDrawModel = entityMeta.DrawModel
-local modelPlans = {}
+local modelDepthMats = {}
 
 local function depthOf(name)
 	local info = classify(name)
 	return info == SEE and NO_DRAW or info or DEPTH_SOLID
 end
 
-local function depthPlan(ent, model, override)
+local function buildDepthMats(ent, model, override)
 	local mats = materialsOf(ent, model)
-	local plan = {}
+	local depthMats = {}
 	for i = 1, #mats do
 		local sub = ent:GetSubMaterial(i - 1)
-		plan[i] = depthOf(sub ~= "" and sub or override ~= "" and override or mats[i])
+		depthMats[i] = depthOf(sub ~= "" and sub or override ~= "" and override or mats[i])
 	end
 
-	return plan
+	return depthMats
 end
 
-local function fullPlan(ent)
+local function fullDepthMats(ent)
 	local model = ent:GetModel()
 	if not model then return nil end
 
-	local plan
-	for i, mat in ipairs(depthPlan(ent, model, ent:GetMaterial())) do
-		plan = plan or {}
-		plan[i - 1] = mat
+	local depthMats
+	for i, mat in ipairs(buildDepthMats(ent, model, ent:GetMaterial())) do
+		depthMats = depthMats or {}
+		depthMats[i - 1] = mat
 	end
 
-	return plan
+	return depthMats
 end
 
-local function planOf(ent)
+local function depthMatsOf(ent)
 	local state = drawn[ent]
-	if state and state.plan then return state.plan end
+	if state and state.depthMats then return state.depthMats end
 
 	local model = ent:GetModel()
 	if not model then return nil end
 
-	local plan = modelPlans[model]
-	if not plan then
-		plan = depthPlan(ent, model, "")
-		modelPlans[model] = plan
+	local depthMats = modelDepthMats[model]
+	if not depthMats then
+		depthMats = buildDepthMats(ent, model, "")
+		modelDepthMats[model] = depthMats
 	end
 
-	return plan
+	return depthMats
 end
 
 local innerSetMaterial = render.SetMaterial
@@ -509,16 +509,16 @@ local function depthDrawModel(ent, flags)
 	flags = flags or depthFlags
 	setWrites(true)
 
-	local plan = not ent.GetRenderMesh and planOf(ent)
-	if not plan or #plan == 0 then
+	local depthMats = not ent.GetRenderMesh and depthMatsOf(ent)
+	if not depthMats or #depthMats == 0 then
 		local r = innerDrawModel(ent, flags)
 		applyWrites()
 
 		return r
 	end
 
-	for i = 1, #plan do
-		render.MaterialOverrideByIndex(i - 1, plan[i])
+	for i = 1, #depthMats do
+		render.MaterialOverrideByIndex(i - 1, depthMats[i])
 	end
 
 	local r = innerDrawModel(ent, flags)
@@ -607,7 +607,7 @@ local function setDrawn(ent, wanted)
 	end
 
 	local model = ent:GetModel()
-	state.plan = model and depthPlan(ent, model, ent:GetMaterial()) or nil
+	state.depthMats = model and buildDepthMats(ent, model, ent:GetMaterial()) or nil
 end
 
 local function isBrush(ent)
@@ -733,19 +733,19 @@ local function pacDraw(self, flags)
 	if whole and depthOf(whole) == NO_DRAW then return end
 
 	local model = self:GetModel()
-	local plan = model and depthPlan(self, model, self:GetMaterial())
-	if plan and part then
-		for i = 1, #plan do
+	local depthMats = model and buildDepthMats(self, model, self:GetMaterial())
+	if depthMats and part then
+		for i = 1, #depthMats do
 			local name = whole or pacMaterial(part, i)
 			if name then
-				plan[i] = depthOf(name)
+				depthMats[i] = depthOf(name)
 			end
 		end
 	end
 
-	if plan then
-		for i = 1, #plan do
-			render.MaterialOverrideByIndex(i - 1, plan[i])
+	if depthMats then
+		for i = 1, #depthMats do
+			render.MaterialOverrideByIndex(i - 1, depthMats[i])
 		end
 	end
 
@@ -815,12 +815,12 @@ end
 
 local function setGroup(ent, wanted)
 	if wanted then
-		if not opacity.regrouped[ent] then
-			opacity.regrouped[ent] = true
+		if not opacity.forcedOpaque[ent] then
+			opacity.forcedOpaque[ent] = true
 			ent.RenderGroup = RENDERGROUP_OPAQUE
 		end
-	elseif opacity.regrouped[ent] then
-		opacity.regrouped[ent] = nil
+	elseif opacity.forcedOpaque[ent] then
+		opacity.forcedOpaque[ent] = nil
 		ent.RenderGroup = nil
 	end
 end
@@ -829,13 +829,13 @@ local function update(ent)
 	if not IsValid(ent) then return end
 
 	if isBrush(ent) then
-		local _, plan = inspect(ent)
-		setBrush(ent, plan ~= nil)
+		local _, depthMats = inspect(ent)
+		setBrush(ent, depthMats ~= nil)
 
 		return
 	end
 
-	local see, plan = inspect(ent)
+	local see, depthMats = inspect(ent)
 	local mode = ent:GetRenderMode()
 	if fixed[ent] then
 		if mode ~= RENDERMODE_TRANSALPHA then
@@ -853,13 +853,13 @@ local function update(ent)
 	end
 
 	if see or not overridable(ent) then
-		plan = nil
+		depthMats = nil
 	elseif IsValid(ent:GetParent()) then
-		plan = fullPlan(ent)
+		depthMats = fullDepthMats(ent)
 	end
 
 	updatePac(ent)
-	setDepthPlan(ent, plan)
+	setDepthMats(ent, depthMats)
 
 	if ent.Draw ~= nil then
 		setGroup(ent, not see and convertedOpaque(ent))
@@ -1074,7 +1074,7 @@ local function convertModel(name)
 	opacity.models[name] = flags
 	mat:SetInt("$flags", bit.band(flags, bit.bnot(TRANSLUCENT)))
 	materialInfo[name] = nil
-	modelPlans = {}
+	modelDepthMats = {}
 end
 
 local function restoreModels()
@@ -1084,7 +1084,7 @@ local function restoreModels()
 		materialInfo[name] = nil
 	end
 
-	modelPlans = {}
+	modelDepthMats = {}
 end
 
 local function saveModelCache()
@@ -1181,12 +1181,12 @@ local function stop()
 	modelQueue, modelQueued = {}, {}
 	restoreModels()
 
-	for ent in pairs(opacity.regrouped) do
+	for ent in pairs(opacity.forcedOpaque) do
 		if IsValid(ent) then
 			setGroup(ent, false)
 		end
 
-		opacity.regrouped[ent] = nil
+		opacity.forcedOpaque[ent] = nil
 	end
 
 	for ent in pairs(fixed) do
@@ -1199,7 +1199,7 @@ local function stop()
 
 	for ent in pairs(depth) do
 		if IsValid(ent) then
-			setDepthPlan(ent, nil)
+			setDepthMats(ent, nil)
 		end
 
 		depth[ent] = nil
@@ -1247,13 +1247,13 @@ local function stop()
 		pacOverrides[ent] = nil
 	end
 
-	modelPlans = {}
-	updateHolder()
+	modelDepthMats = {}
+	updateScreenModel()
 	queue, cursor = {}, 1
 end
 
 local function start()
-	updateHolder()
+	updateScreenModel()
 	queue, cursor = {}, 1
 	hook.Add("Think", "borealis_opacity", step)
 	hook.Add("NotifyShouldTransmit", "borealis_opacity", entered)

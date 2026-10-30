@@ -15,10 +15,10 @@ local WARP_CELL, WARP = 1200, 900
 local PATCH_CELL, DETAIL_CELL, FINE_CELL = 1000, 350, 120
 local PATCH_FROM, PATCH_TO = 0.5, 0.66
 local MAX_DENSITY = 0.3
-local STRAY = 0.015
+local LONE_TUFT_CHANCE = 0.015
 local MIN_LIGHT = 0.15
 local SWAY = 0.22
-local SURFACE_REACH = 4096
+local SURFACE_TRACE_DISTANCE = 4096
 local ROOT_COLOR = { 0.03, 0.05, 0.02 }
 local TIP_COLOR = { 0.09, 0.14, 0.05 }
 
@@ -50,7 +50,7 @@ local function keep(x, y, z, r)
 	local fade = smoothstep(MIN_DEPTH, MIN_DEPTH + DEPTH_FADE, depth) * (1 - smoothstep(MAX_DEPTH - DEPTH_FADE, MAX_DEPTH, depth))
 	local density = patchDensity(x, y) * fade
 	if r <= density * MAX_DENSITY then return 0.35 + 0.65 * density end
-	if r <= STRAY * fade then return 0.3 end
+	if r <= LONE_TUFT_CHANCE * fade then return 0.3 end
 
 	return false
 end
@@ -67,7 +67,7 @@ local surfaceTraceEnd = Vector()
 local function surfaceNear(eye)
 	if bit.band(util.PointContents(eye), CONTENTS_WATER) ~= 0 then return bspdata.WaterSurfaceAt(eye.x, eye.y, eye.z) end
 
-	surfaceTraceEnd:SetUnpacked(eye.x, eye.y, eye.z - SURFACE_REACH)
+	surfaceTraceEnd:SetUnpacked(eye.x, eye.y, eye.z - SURFACE_TRACE_DISTANCE)
 	surfaceTrace.start, surfaceTrace.endpos = eye, surfaceTraceEnd
 	util.TraceLine(surfaceTrace)
 

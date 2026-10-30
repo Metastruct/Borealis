@@ -4,7 +4,7 @@ shaderpack.ice = ice
 local bspdata = shaderpack.bspdata
 
 local CLASS = "borealis_ice"
-local LIFT, THICKNESS = 2, 12
+local HEIGHT_OFFSET, THICKNESS = 2, 12
 local WATER_SURFACEPROPS = { water = true, slime = true, wade = true }
 
 function ice.Winter()
@@ -28,7 +28,7 @@ local function convexes()
 		if ice.Freezes(face.model, face.name) then
 			local hull = {}
 			for _, v in ipairs(face.poly) do
-				hull[#hull + 1] = Vector(v.x, v.y, v.z + LIFT)
+				hull[#hull + 1] = Vector(v.x, v.y, v.z + HEIGHT_OFFSET)
 				hull[#hull + 1] = Vector(v.x, v.y, v.z - THICKNESS)
 			end
 			list[#list + 1] = hull

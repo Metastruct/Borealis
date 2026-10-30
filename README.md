@@ -100,7 +100,7 @@ Detection of things that are drawing into the translucent pass even though they 
 
 Shared lifecycle for world-grid effects: request within a radius, build queue (nearest first, chunks behind the eye last), frustum culling, eviction, pause and teardown. All grids share one adaptive build budget (4 to 8 ms per frame), so adding a grid cannot stack another budget on the frame. One grid loads at a time.
 
-`chunks.Grid({ name, size, radius, pad, cacheLimit, load, build, destroy, failed })` returns a grid with `Start`, `Stop`, `SetPaused` and `Visible(chunks.View())`. `load` and `build(ch)` run in coroutines and call `chunks.Pace()` in their loops. `build` sets `ch.cz` and `ch.radius` and returns a cost, 0 for an empty chunk. Finish `mesh.Begin` before calling `Pace`. The effect keeps its materials, draw calls and finer occlusion.
+`chunks.Grid({ name, size, radius, pad, cacheLimit, load, build, destroy, failed })` returns a grid with `Start`, `Stop`, `SetPaused` and `Visible(chunks.View())`. `load` and `build(ch)` run in coroutines and call `chunks.YieldIfOverBudget()` in their loops. `build` sets `ch.cz` and `ch.radius` and returns a cost, 0 for an empty chunk. Finish `mesh.Begin` before calling `YieldIfOverBudget`. The effect keeps its materials, draw calls and finer occlusion.
 
 ### cl_bench
 
@@ -121,7 +121,7 @@ Shared lifecycle for world-grid effects: request within a radius, build queue (n
 ### Weather
 
 - **Fog** `cl_draw_fog`: a ray-marched height layer at order 20. tod's fog (ground layer) and rain (taller haze) profiles are blended by share. The base eases to the ground under the player plus 40 units, the colour is the engine fog colour.
-- **Rain and snow** `cl_draw_precipitations`: one quad per drop placed by the vertex shader from a template mesh, over a 3x3 grid of 512-unit tiles around the eye. The streak shader discards below the cover window's cut, so rain stops at roofs and doorways. Ripples are one quad per block of level ground, shaded as a height field mirroring the horizon colour. Constants are set once per frame and tile positions ride in the model matrix: with the threaded material system, per-draw constants land on the wrong draws.
+- **Rain and snow** `cl_draw_precipitations`: one quad per drop placed by the vertex shader from a template mesh, over a 3x3 grid of 512-unit tiles around the eye. The streak shader discards below the cover window's height, so rain stops at roofs and doorways. Ripples are one quad per block of level ground, shaded as a height field mirroring the horizon colour. Constants are set once per frame and tile positions ride in the model matrix: with the threaded material system, per-draw constants land on the wrong draws.
 - **Wetness** `cl_draw_wetness`: darkens and glosses up-facing surfaces the rain reaches (cover window, far gloss map beyond it), with puddles on level ground using screen-space reflections and the procsky LUT as fallback. Wets toward tod's rain amount and dries slowly.
 - **Deep snow** `cl_draw_snowcover`: winter only. A 10-unit snow layer built from the BSP triangles tod turns to snow (`grass`, `mud`, `sand`, plus `snow`), so feet, wheels and props sink into it.
   - Mesh: triangles are clipped to a 32-unit grid in 512-unit chunks, lifted along z, given welded vertex normals and skirts on open edges. Vertices under a roof or in water get no snow. Light is baked per vertex like foliage. It draws in `PostDrawOpaqueRenderables` and writes the engine depth pass with `borealis_waterdepth_ps30`.

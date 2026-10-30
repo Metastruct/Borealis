@@ -38,14 +38,14 @@ float surfaceDepth(float raw, float2 uv)
 		return d > SLICE_NEAR * pow(SLICE_RATIO, code - SLICE_EXACT + 1.0) ? SLICE_NEAR * pow(SLICE_RATIO, code - SLICE_EXACT - 0.5) : d;
 	}
 
-	d = max(d, SLICE_NEAR * pow(SLICE_RATIO, SLICES - 1.0 - max(SAMPLES, 1.0) * (SLICES - code)) / SLICE_SLACK);
+	d = max(d, SLICE_NEAR * pow(SLICE_RATIO, SLICES - 1.0 - max(SAMPLES, 1.0) * (SLICES - code)) / SLICE_MARGIN);
 	float ks = floor(code + 0.5) - 1.0;
 	if (ks < 0.0)
 	{
 		return d > SLICE_NEAR ? ZNEAR : d;
 	}
 	float sliceFar = SLICE_NEAR * pow(SLICE_RATIO, ks + 1.0);
-	if (ks < SLICES - 1.0 && d > sliceFar * SLICE_SLACK)
+	if (ks < SLICES - 1.0 && d > sliceFar * SLICE_MARGIN)
 	{
 		return sliceFar / SLICE_RATIO;
 	}

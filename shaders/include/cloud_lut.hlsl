@@ -13,9 +13,9 @@ float2 cloudLutUV(float3 dir, float side)
 float3 cloudLutDir(float2 uv, float side)
 {
 	float e = uv.y >= CLOUD_LUT_SPLIT ? (uv.y - CLOUD_LUT_SPLIT) / (1.0 - CLOUD_LUT_SPLIT) : uv.y / CLOUD_LUT_SPLIT - 1.0;
-	float elev = e * (CLOUD_LUT_PI * 0.5);
+	float elevation = e * (CLOUD_LUT_PI * 0.5);
 	float az = (uv.x - 0.5) * (2.0 * CLOUD_LUT_PI);
-	float ce = cos(elev);
+	float ce = cos(elevation);
 
-	return float3(ce * cos(az), ce * sin(az), sin(elev) * side);
+	return float3(ce * cos(az), ce * sin(az), sin(elevation) * side);
 }

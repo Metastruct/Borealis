@@ -421,25 +421,25 @@ local function inSkybox(skybox, x, y, z)
 	return c >= 0 and skybox[c] or false
 end
 
-function bspdata.DropSkybox(triGrid)
+function bspdata.RemoveSkybox(triGrid)
 	local skybox = bspdata.SkyboxPVS()
 	if not skybox then return triGrid end
 
 	local yieldIfOverBudget = frameBudget()
-	local dropped = {}
+	local removed = {}
 	for key, cell in pairs(triGrid) do
 		local kept = {}
 		for _, t in ipairs(cell) do
-			local drop = dropped[t]
-			if drop == nil then
-				drop = inSkybox(skybox, (t[1] + t[4] + t[7]) / 3, (t[2] + t[5] + t[8]) / 3, (t[3] + t[6] + t[9]) / 3)
+			local remove = removed[t]
+			if remove == nil then
+				remove = inSkybox(skybox, (t[1] + t[4] + t[7]) / 3, (t[2] + t[5] + t[8]) / 3, (t[3] + t[6] + t[9]) / 3)
 					or inSkybox(skybox, t[1], t[2], t[3])
 					or inSkybox(skybox, t[4], t[5], t[6])
 					or inSkybox(skybox, t[7], t[8], t[9])
-				dropped[t] = drop
+				removed[t] = remove
 			end
 
-			if not drop then kept[#kept + 1] = t end
+			if not remove then kept[#kept + 1] = t end
 			yieldIfOverBudget()
 		end
 

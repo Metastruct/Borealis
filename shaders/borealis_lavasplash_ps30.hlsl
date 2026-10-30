@@ -20,7 +20,7 @@ sampler3D Noise : register(s1);
 #define RING_WIDTH 0.06
 #define RING_FADE 0.8
 #define ECHO_DELAY 0.25
-#define ECHO_REACH 0.6
+#define ECHO_DISTANCE 0.6
 #define ECHO_WIDTH 0.05
 #define ECHO_FADE 0.7
 #define ECHO_GAIN 0.6
@@ -55,7 +55,7 @@ float4 main(PS_IN i) : COLOR0
 	float front = RING_START + (1.0 - RING_START) * (1.0 - exp(-AGE * RING_SPEED * RATE));
 	float ring = band(rn, front, RING_WIDTH) * exp(-AGE / RING_FADE);
 	float echoAge = max(AGE - ECHO_DELAY, 0.0);
-	float echoFront = RING_START + ECHO_REACH * (1.0 - exp(-echoAge * RING_SPEED * RATE));
+	float echoFront = RING_START + ECHO_DISTANCE * (1.0 - exp(-echoAge * RING_SPEED * RATE));
 	float echo = step(ECHO_DELAY, AGE) * band(rn, echoFront, ECHO_WIDTH) * exp(-echoAge / ECHO_FADE) * ECHO_GAIN;
 	float edge = saturate((1.0 - r) / EDGE);
 

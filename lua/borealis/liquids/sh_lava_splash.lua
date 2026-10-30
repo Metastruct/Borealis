@@ -46,7 +46,7 @@ end
 local IGNITE = "ambient/fire/ignite.wav"
 local MATERIAL_VAR_NO_DRAW = 4
 
-local SURFACE_SLACK = 4
+local SURFACE_TOLERANCE = 4
 local BULLET_SCALE = 0.6
 local MIN_SCALE, MAX_SCALE = 0.3, 3
 local ENTITY_RADIUS, ENTITY_SPEED = 24, 600
@@ -54,14 +54,14 @@ local GRAVITY = 750
 local DROPS, DROPS_MAX, DROP_LIFE = 22, 80, 1.4
 local CORE, SMOKE, SMOKE_MAX = 3, 3, 8
 local LIGHTS, LIGHT_KEY = 4, 0x1A7A0
-local IMPACT_RADIUS, IMPACT_LIFE, IMPACT_LIFT, IMPACTS_MAX = 90, 2.5, 1.5, 24
+local IMPACT_RADIUS, IMPACT_LIFE, IMPACT_HEIGHT, IMPACTS_MAX = 90, 2.5, 1.5, 24
 local CROWN_SEGMENTS, CROWN_RINGS, CROWNS_MAX, CROWN_VARIANTS = 18, 5, 16, 8
 local CROWN_RADIUS, CROWN_HEIGHT, CROWN_LIFE, CROWN_FLARE, CROWN_FLING = 22, 70, 0.8, 0.8, 0.45
 local SPATTER_LIFE, SPATTER_SIZE, SPATTERS_MAX = 3, 10, 64
 local TRACE_STEPS, TRACE_TAIL = 5, 0.4
 local EMISSIVE, GLOW_BOOST, CROWN_BOOST, LIGHT_BRIGHTNESS = 2.2, Vector(2.5, 2.5, 2.5), Vector(2.6, 2.6, 2.6), 5
 local SCALE_JITTER, LEAN_MAX, JET_CHANCE, JET_BOOST = 0.25, 0.5, 0.15, 1.6
-local FOLLOW_CHANCE, FOLLOW_MAX, FOLLOW_REACH = 0.4, 3, 60
+local FOLLOW_CHANCE, FOLLOW_MAX, FOLLOW_DISTANCE = 0.4, 3, 60
 
 local impacts, crowns, spatters, pending, later = {}, {}, {}, {}, {}
 local emitter
@@ -359,8 +359,8 @@ local function splash(pos, scale, follow)
 	if follow or math.random() > FOLLOW_CHANCE then return end
 
 	for _ = 1, math.random(1, FOLLOW_MAX) do
-		local r, b = math.Rand(0.3, 1) * FOLLOW_REACH * math.sqrt(scale), math.Rand(0, math.pi * 2)
-		later[#later + 1] = { at = now + math.Rand(0.15, 0.4), x = pos.x + math.cos(b) * r + leanDir.x * FOLLOW_REACH, y = pos.y + math.sin(b) * r + leanDir.y * FOLLOW_REACH, scale = scale * math.Rand(0.25, 0.45) }
+		local r, b = math.Rand(0.3, 1) * FOLLOW_DISTANCE * math.sqrt(scale), math.Rand(0, math.pi * 2)
+		later[#later + 1] = { at = now + math.Rand(0.15, 0.4), x = pos.x + math.cos(b) * r + leanDir.x * FOLLOW_DISTANCE, y = pos.y + math.sin(b) * r + leanDir.y * FOLLOW_DISTANCE, scale = scale * math.Rand(0.25, 0.45) }
 	end
 end
 
@@ -430,7 +430,7 @@ local function drawImpacts(now)
 		else
 			setConstant(IMPACT_MAT, "$c0", im.pos.x, im.pos.y, im.pos.z, age)
 			setConstant(IMPACT_MAT, "$c1", im.radius, im.intensity, im.seed, im.rate)
-			quadPos:SetUnpacked(im.pos.x, im.pos.y, im.pos.z + IMPACT_LIFT)
+			quadPos:SetUnpacked(im.pos.x, im.pos.y, im.pos.z + IMPACT_HEIGHT)
 			render.DrawQuadEasy(quadPos, vector_up, im.radius * 2, im.radius * 2, color_white, 0)
 		end
 	end
@@ -509,7 +509,7 @@ local function emitSound(t)
 	if lava.Fade() <= 0 or not t.Pos or not t.SoundName:find(SPLASH_SOUND) then return end
 
 	local surface = lava.Surface(t.Pos.x, t.Pos.y)
-	if not surface or math.abs(t.Pos.z - surface) > SURFACE_SLACK then return end
+	if not surface or math.abs(t.Pos.z - surface) > SURFACE_TOLERANCE then return end
 
 	splash(Vector(t.Pos.x, t.Pos.y, surface), BULLET_SCALE)
 

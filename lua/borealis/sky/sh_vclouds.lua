@@ -22,7 +22,7 @@ local COVERAGE_OVERCAST = 0.8
 local COVERAGE_PERIOD_A = 1200
 local COVERAGE_PERIOD_B = 1900
 local NIGHT_GAIN = 0.2
-local NIGHT_ELEV = -6
+local NIGHT_ELEVATION = -6
 local LOG_RANGE = 12
 local EXPOSURE = 0.8
 local OVERCAST_LIGHT = 0.3
@@ -158,9 +158,9 @@ local litLight, litAmb = { 0, 0, 0 }, { 0, 0, 0 }
 local function lighting()
 	if procsky and procsky.GetCloudLighting then
 		local dir, light, amb = procsky.GetCloudLighting()
-		local _, _, elev = procsky.GetLights()
+		local _, _, elevation = procsky.GetLights()
 		local overcast = shaderpack.Overcast()
-		local gain = Lerp(math.Clamp(elev / NIGHT_ELEV, 0, 1), 1, NIGHT_GAIN) * Lerp(overcast, 1, OVERCAST_LIGHT) * EXPOSURE
+		local gain = Lerp(math.Clamp(elevation / NIGHT_ELEVATION, 0, 1), 1, NIGHT_GAIN) * Lerp(overcast, 1, OVERCAST_LIGHT) * EXPOSURE
 		local ambGain = Lerp(overcast, 1, OVERCAST_AMB) * EXPOSURE
 		for i = 1, 3 do
 			litLight[i] = light[i] * gain

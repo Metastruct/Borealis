@@ -93,7 +93,7 @@ local function startShader()
 	local rows = LUT_H / BANDS
 	local fogHue, fogPacked, fogScale = 0, 0, 0
 	local eye, eyeFrame = Vector(), -1
-	local anchor, anchorLevel = Vector(), nil
+	local cloudCenter, cloudCenterLevel = Vector(), nil
 
 	local function cacheFog(depth, skybox)
 		if depth or skybox then return end
@@ -104,10 +104,10 @@ local function startShader()
 		local lut = luts[back]
 		if band == 0 then
 			local o = lut.origin
-			o:Set(anchor)
+			o:Set(cloudCenter)
 			local sun, lightHue, lightScale, ambHue, ambScale, _, coverage = vclouds.Layer(render.GetToneMappingScaleLinear().x)
 			local overcast = shaderpack.Overcast()
-			local base = deckHeight(anchorLevel, overcast)
+			local base = deckHeight(cloudCenterLevel, overcast)
 			coverage = coverage * Lerp(overcast, CLEAR_COVERAGE, 1)
 			lut.mid = base + SLAB_MID
 			lut.side = o.z > lut.mid and -1 or 1
@@ -171,11 +171,11 @@ local function startShader()
 		end
 
 		local lvl = level()
-		if not ready or lvl ~= anchorLevel then
+		if not ready or lvl ~= cloudCenterLevel then
 			if eyeFrame < 0 then eye:Set(EyePos()) end
-			anchor:Set(eye)
-			if lvl then anchor.z = lvl.floor end
-			anchorLevel = lvl
+			cloudCenter:Set(eye)
+			if lvl then cloudCenter.z = lvl.floor end
+			cloudCenterLevel = lvl
 			ready, band = false, 0
 		end
 

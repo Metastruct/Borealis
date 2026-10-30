@@ -19,8 +19,8 @@ float3 lutDir(float2 uv)
 {
 	float az = (uv.x - 0.5) * 2.0 * LUT_PI;
 	float s = uv.y * 2.0 - 1.0;
-	float elev = sign(s) * s * s * lutRange(s) + LUT_HORIZON;
-	float ce = cos(elev);
+	float elevation = sign(s) * s * s * lutRange(s) + LUT_HORIZON;
+	float ce = cos(elevation);
 
-	return float3(ce * cos(az), ce * sin(az), sin(elev));
+	return float3(ce * cos(az), ce * sin(az), sin(elevation));
 }

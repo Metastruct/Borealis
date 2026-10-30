@@ -40,7 +40,7 @@ const float4 Constants12 : register(c12);
 #define THIN 1e-6
 #define COLUMN 24.0
 #define COLUMNS 64.0
-#define COVER_REACH 30.0
+#define COVER_RANGE 30.0
 #define Z_MIN -16384.0
 #define Z_RANGE 32768.0
 #define EXPOSED_MIN 0.2
@@ -74,7 +74,7 @@ bool sheltered(float3 p, float2 eyeCol)
 	float2 col = floor(p.xy / COLUMN);
 	float2 off = abs(col - eyeCol);
 	bool covered = false;
-	[branch] if (max(off.x, off.y) <= COVER_REACH)
+	[branch] if (max(off.x, off.y) <= COVER_RANGE)
 	{
 		float2 c = tex2Dlod(CoverTex, float4(frac(col / COLUMNS) + 0.5 / COLUMNS, 0.0, 0.0)).rg;
 		covered = p.z < (c.r * 65280.0 + c.g * 255.0) / 65535.0 * Z_RANGE + Z_MIN;

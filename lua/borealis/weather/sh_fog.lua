@@ -20,7 +20,7 @@ local PROFILES = {
 }
 local SUN_GAIN = 1
 local VOLUMETRIC_WEATHERS = { rain = true, fog = true, snow = true }
-local BASE_LIFT = 40
+local BASE_HEIGHT = 40
 local BASE_RATE = 0.5
 local BASE_TRACE_INTERVAL = 0.25
 
@@ -78,7 +78,7 @@ local function currentBase()
 		nextTrace = now + BASE_TRACE_INTERVAL
 		local eye = EyePos()
 		local tr = util.TraceLine({ start = eye, endpos = eye - Vector(0, 0, 4000), mask = MASK_SOLID_BRUSHONLY })
-		if tr.Hit then targetBase = tr.HitPos.z + BASE_LIFT end
+		if tr.Hit then targetBase = tr.HitPos.z + BASE_HEIGHT end
 	end
 	if not targetBase then return base or EyePos().z - 24 end
 	if not base then base = targetBase end

@@ -58,28 +58,28 @@ local function quadNear(vs)
 	return math.max(QUAD_NEAR, vs.znear * 1.5)
 end
 
-local heldFrame = -1
-local heldEye, heldFwd, heldW, heldH, heldVs
+local cachedFrame = -1
+local cachedEye, cachedFwd, cachedW, cachedH, cachedVs
 
 local function viewFan()
-	if heldFrame == FrameNumber() then return heldEye, heldFwd, heldW, heldH, heldVs end
+	if cachedFrame == FrameNumber() then return cachedEye, cachedFwd, cachedW, cachedH, cachedVs end
 	local halfW, halfH, vs = shaderpack.ViewTan()
 
 	return EyePos(), EyeAngles():Forward(), halfW, halfH, vs
 end
 
-local function holdView()
-	heldFrame = -1
-	heldEye, heldFwd, heldW, heldH, heldVs = viewFan()
-	heldFrame = FrameNumber()
+local function cacheView()
+	cachedFrame = -1
+	cachedEye, cachedFwd, cachedW, cachedH, cachedVs = viewFan()
+	cachedFrame = FrameNumber()
 end
 
-local function releaseView()
-	heldFrame = -1
+local function clearViewCache()
+	cachedFrame = -1
 end
 
 function depthslices.ViewTan()
-	if heldFrame == FrameNumber() then return heldW, heldH, heldVs end
+	if cachedFrame == FrameNumber() then return cachedW, cachedH, cachedVs end
 
 	return shaderpack.ViewTan()
 end
@@ -296,7 +296,7 @@ end)
 hook.Add("PreDrawTranslucentRenderables", "borealis_depthslices_effects", function(bDepth, bSkybox, b3DSky)
 	if bDepth or bSkybox or b3DSky or render.GetRenderTarget() then return end
 	depthslices.Invalidate()
-	holdView()
+	cacheView()
 	local t = depthslices.effects
 	local wantsRefog = false
 	for i = 1, #t do
@@ -304,7 +304,7 @@ hook.Add("PreDrawTranslucentRenderables", "borealis_depthslices_effects", functi
 			wantsRefog = true
 		end
 	end
-	releaseView()
+	clearViewCache()
 
 	if wantsRefog and markReady() then
 		refogFrame = FrameNumber()
@@ -322,7 +322,7 @@ end)
 hook.Add("PreDrawViewModels", "borealis_depthslices_refog", function()
 	if refogFrame ~= FrameNumber() or render.GetRenderTarget() then return end
 	refogFrame = -1
-	holdView()
+	cacheView()
 	refog()
-	releaseView()
+	clearViewCache()
 end)

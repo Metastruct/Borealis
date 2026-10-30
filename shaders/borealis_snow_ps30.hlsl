@@ -30,7 +30,7 @@ float4 main(PS_IN i) : COLOR
 	float2 col = floor(i.centre.xy / COLUMN);
 	float2 cuv = frac(col / COLUMNS) + 0.5 / COLUMNS;
 	float2 c = tex2D(CoverTex, cuv).rg;
-	float cut = (c.r * 65280.0 + c.g * 255.0) / 65535.0 * Z_RANGE + Z_MIN;
+	float coverZ = (c.r * 65280.0 + c.g * 255.0) / 65535.0 * Z_RANGE + Z_MIN;
 
 	float r = length(i.uv);
 	float disc = 1.0 - smoothstep(0.3, 1.0, r);
@@ -39,7 +39,7 @@ float4 main(PS_IN i) : COLOR
 	float fade = (1.0 - smoothstep(FADE_START, FADE_END, dist)) * smoothstep(NEAR * 0.3, NEAR, dist);
 	fade *= 1.0 - smoothstep(Z_FADE_START, Z_FADE_END, abs(i.centre.z - EYE.z));
 
-	float a = i.centre.z >= cut - 1.0 ? disc * fade * i.info.x * i.info.y * INTENSITY : 0.0;
+	float a = i.centre.z >= coverZ - 1.0 ? disc * fade * i.info.x * i.info.y * INTENSITY : 0.0;
 
 	return float4(unpackColor(Constants1.w), a);
 }

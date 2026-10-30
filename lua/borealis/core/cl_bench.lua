@@ -1,6 +1,6 @@
 local procsky, foliage = shaderpack.procsky, shaderpack.foliage
 local TAG = "borealis_shaderpack_bench"
-local SETTLE, MEASURE = 20, 30
+local WARMUP_FRAMES, MEASURE = 20, 30
 local VIEWS = { { "horizon", 0 }, { "up", -30 } }
 local GENERAL = { "cl_draw_procsky", "cl_draw_clouds", "cl_draw_skyterrain", "cl_draw_sunshafts", "cl_draw_water", "cl_draw_grass", "cl_draw_seagrass", "cl_draw_kelp", "cl_draw_vclouds", "cl_draw_ssao", "cl_draw_leaves", "cl_draw_lava", "cl_draw_grade" }
 local RAIN = { "cl_draw_precipitations", "cl_draw_fog", "cl_draw_wetness" }
@@ -272,11 +272,11 @@ local function start()
 
 		frame = frame + 1
 		local b = blocks[bi]
-		if frame > SETTLE then
+		if frame > WARMUP_FRAMES then
 			local store = results[b.cond][b.view]
 			store[b.key] = store[b.key] or {}
 			table.insert(store[b.key], dt * 1000)
-			if frame == SETTLE + 1 and b.key == "base1" then
+			if frame == WARMUP_FRAMES + 1 and b.key == "base1" then
 				local c = conds[b.cond]
 				c.sun = procsky and procsky.GetLights and select(3, procsky.GetLights()) or 0
 				c.rain = tod and tod.rain and tod.rain.amount or 0
@@ -285,7 +285,7 @@ local function start()
 			end
 		end
 
-		if frame < SETTLE + MEASURE then return end
+		if frame < WARMUP_FRAMES + MEASURE then return end
 
 		frame = 0
 		bi = bi + 1

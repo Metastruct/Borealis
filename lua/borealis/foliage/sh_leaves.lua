@@ -103,8 +103,8 @@ end
 local groundTrace = { mask = MASK_SOLID_BRUSHONLY }
 
 local function groundAt(x, y, z)
-	for _, lift in ipairs({ 1024, 128 }) do
-		groundTrace.start = Vector(x, y, z + lift)
+	for _, height in ipairs({ 1024, 128 }) do
+		groundTrace.start = Vector(x, y, z + height)
 		groundTrace.endpos = Vector(x, y, z - 3000)
 		local tr = util.TraceLine(groundTrace)
 		if not tr.StartSolid then

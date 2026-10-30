@@ -15,7 +15,7 @@ local INTENSITY = 1
 local MOON_INTENSITY = 0.012
 local moonGain = 1
 local UPDATE_INTERVAL = 0.2
-local HORIZON_ELEV = math.rad(2)
+local HORIZON_ELEVATION = math.rad(2)
 local CLOUD_H = 2
 
 local procsky = shaderpack.procsky or {}
@@ -175,7 +175,7 @@ local function toSRGB(v)
 end
 
 local state = {
-	sun = Vector(0, 0, 1), moon = Vector(0, 0, -1), elev = 90,
+	sun = Vector(0, 0, 1), moon = Vector(0, 0, -1), elevation = 90,
 	fog = { 255, 255, 255 }, overcast = 0,
 	horizon = { 0.5, 0.6, 0.7 }, zenith = { 0.2, 0.35, 0.7 },
 	light = { 1, 1, 1 }, amb = { 0.3, 0.4, 0.6 }, lightDir = Vector(0, 0, 1),
@@ -203,13 +203,13 @@ local function updateState()
 	local mul, fogK = theme.tintMul or ONE, theme.fogScale or 1
 	moonGain = theme.moonVisible == false and 0 or 1
 
-	local sun, moon, elev = todLights()
-	state.sun, state.moon, state.elev = sun, moon, elev
+	local sun, moon, elevation = todLights()
+	state.sun, state.moon, state.elevation = sun, moon, elevation
 	local o = overcastLevel()
 	state.overcast = o
 
 	local fr, fg, fb = 0, 0, 0
-	local ce, se = math.cos(HORIZON_ELEV), math.sin(HORIZON_ELEV)
+	local ce, se = math.cos(HORIZON_ELEVATION), math.sin(HORIZON_ELEVATION)
 	for i = 0, 7 do
 		local a = i * math.pi / 4
 		local r, g, b = radiance(math.cos(a) * ce, math.sin(a) * ce, se, sun, moon)
@@ -225,7 +225,7 @@ local function updateState()
 
 	local s1, s2, s3 = transmittance(CLOUD_H, sun)
 	local m1, m2, m3 = transmittance(CLOUD_H, moon)
-	local sunUp = max(0, min(1, (elev + 2) / 6))
+	local sunUp = max(0, min(1, (elevation + 2) / 6))
 	local moonUp = max(0, min(1, (moon.z + 0.02) / 0.1)) * moonGain
 	local light = state.light
 	light[1] = (SUN_COL[1] * s1 * sunUp + MOON_COL[1] * m1 * moonUp * 0.25) * mul[1]
@@ -260,7 +260,7 @@ function procsky.IsActive()
 end
 
 function procsky.GetLights()
-	return state.sun, state.moon, state.elev
+	return state.sun, state.moon, state.elevation
 end
 
 function procsky.GetCloudLighting()

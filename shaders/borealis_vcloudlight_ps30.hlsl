@@ -21,7 +21,7 @@ sampler3D Detail : register(s3);
 
 #include "include/cloud_volume.hlsl"
 
-#define MAP_REACH 2724.0
+#define MAP_DISTANCE 2724.0
 #define MAP_STEPS 6
 
 struct PS_IN
@@ -32,7 +32,7 @@ struct PS_IN
 float layerTransmittance(float2 xy, float layer, float cover)
 {
 	float3 q = float3(xy, BASE_Z + (layer + 0.5) * 0.25 * THICK);
-	float ds = MAP_REACH / MAP_STEPS;
+	float ds = MAP_DISTANCE / MAP_STEPS;
 	float tau = 0.0;
 	[loop] for (int k = 0; k < MAP_STEPS; k++)
 	{

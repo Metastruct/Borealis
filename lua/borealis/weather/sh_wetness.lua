@@ -81,23 +81,23 @@ end
 local FAR_COLUMN, FAR_COLUMNS = 128, 64
 local FAR_TRACES_PER_FRAME = 32
 local FAR_DEFAULT = 0.7
-local FAR_LIFT, FAR_LIFT_LOW, FAR_DROP = 1024, 128, 4096
+local FAR_TRACE_HEIGHT, FAR_TRACE_HEIGHT_LOW, FAR_TRACE_DEPTH = 1024, 128, 4096
 local FAR_RETRACE_Z = 1024
 local SHORE_DEPTH = 8
 local Z_MIN, Z_RANGE = cover.Z_MIN, cover.Z_RANGE
 
 local farRT, farX, farY, farZ
-local farQueue, farOwner = {}, {}
+local farQueue, farTexelColumn = {}, {}
 local farTrace = { mask = MASK_SOLID_BRUSHONLY, start = Vector(), endpos = Vector(), output = {} }
 local farWater = { mask = MASK_WATER, start = Vector(), endpos = Vector(), output = {} }
 
 local function farColumn(cx, cy, z)
 	local x, y = (cx + 0.5) * FAR_COLUMN, (cy + 0.5) * FAR_COLUMN
-	farTrace.start:SetUnpacked(x, y, z + FAR_LIFT)
-	farTrace.endpos:SetUnpacked(x, y, z - FAR_DROP)
+	farTrace.start:SetUnpacked(x, y, z + FAR_TRACE_HEIGHT)
+	farTrace.endpos:SetUnpacked(x, y, z - FAR_TRACE_DEPTH)
 	local tr = util.TraceLine(farTrace)
 	if tr.StartSolid then
-		farTrace.start:SetUnpacked(x, y, z + FAR_LIFT_LOW)
+		farTrace.start:SetUnpacked(x, y, z + FAR_TRACE_HEIGHT_LOW)
 		tr = util.TraceLine(farTrace)
 		if tr.StartSolid then return FAR_DEFAULT end
 	end
@@ -115,7 +115,7 @@ local function clearFar(z)
 	render.PushRenderTarget(farRT)
 	render.Clear(0, 0, math.floor(FAR_DEFAULT * 255 + 0.5), 255)
 	render.PopRenderTarget()
-	farQueue, farOwner = {}, {}
+	farQueue, farTexelColumn = {}, {}
 	farX, farY, farZ = nil, nil, z
 end
 
@@ -144,7 +144,7 @@ local function updateFar(eye)
 		for cy = y0, y0 + FAR_COLUMNS - 1 do
 			for cx = x0, x0 + FAR_COLUMNS - 1 do
 				local key = cover.ColumnKey(cx, cy)
-				if farOwner[cx % FAR_COLUMNS * FAR_COLUMNS + cy % FAR_COLUMNS] ~= key then
+				if farTexelColumn[cx % FAR_COLUMNS * FAR_COLUMNS + cy % FAR_COLUMNS] ~= key then
 					pending[#pending + 1] = { key, math.max(math.abs(cx - ex), math.abs(cy - ey)) }
 				end
 			end
@@ -171,7 +171,7 @@ local function updateFar(eye)
 			local hi = math.floor(v / 256)
 			render.SetViewPort(cx % FAR_COLUMNS, cy % FAR_COLUMNS, 1, 1)
 			render.Clear(hi, v - hi * 256, math.floor(gloss * 255 + 0.5), level and 0 or 255)
-			farOwner[cx % FAR_COLUMNS * FAR_COLUMNS + cy % FAR_COLUMNS] = key
+			farTexelColumn[cx % FAR_COLUMNS * FAR_COLUMNS + cy % FAR_COLUMNS] = key
 		end
 	end
 	render.SetViewPort(0, 0, FAR_COLUMNS, FAR_COLUMNS)

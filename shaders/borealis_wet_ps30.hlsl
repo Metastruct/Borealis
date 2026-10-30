@@ -50,18 +50,18 @@ sampler CoverSpans : register(s6);
 
 #define COLUMN 24.0
 #define COLUMNS 64.0
-#define COVER_REACH 30.0
+#define COVER_RANGE 30.0
 #define Z_MIN -16384.0
 #define Z_RANGE 32768.0
-#define COVER_SLACK 12.0
+#define COVER_MARGIN 12.0
 #define WATERLINE 2.0
 #define SHALLOW 128.0
 #define SOAK_DEPTH 48.0
 #define SHORE_FADE 16.0
 #define SHORE_DEPTH 8.0
 #define SWASH 4.0
-#define SLOPE_SLACK 34.0
-#define SLOPE_SLACK_MAX 64.0
+#define SLOPE_MARGIN 34.0
+#define SLOPE_MARGIN_MAX 64.0
 #define UNTRACED_MIN 3.0
 #define UNTRACED_MAX 8.0
 #define GLOSS_FAR 0.7
@@ -116,7 +116,7 @@ sampler CoverSpans : register(s6);
 #define FROST_CRYSTAL_SIZE 10.0
 #define FROST_CRYSTAL_SMALL 4.0
 #define FROST_FEATHER float2(7.0, 0.7)
-#define FROST_REACH 0.85
+#define FROST_RADIUS 0.85
 #define FROST_DETAIL_START 250.0
 #define FROST_DETAIL_END 900.0
 #define FROST_BASE 0.45
@@ -124,7 +124,7 @@ sampler CoverSpans : register(s6);
 #define FROST_LUMA float3(0.2126, 0.7152, 0.0722)
 #define FROST_WHITE float3(0.95, 0.98, 1.04)
 #define FROST_GAIN 2.2
-#define FROST_LIFT 0.04
+#define FROST_BRIGHTNESS_OFFSET 0.04
 #define FROST_SPARKLE_CELL 1.0
 #define FROST_SPARKLE_SIZE 0.14
 #define FROST_SPARKLE_RATE 0.9
@@ -141,9 +141,9 @@ float FrostFeathers(sampler3D noise, float2 p, float size)
 	float2 axis = float2(cos(angle), sin(angle));
 	float2 local = float2(dot(p, axis), dot(p, float2(-axis.y, axis.x)));
 	float feather = tex3Dlod(noise, float4(local / (FROST_FEATHER * size / FROST_CRYSTAL_SIZE), h.y, 0.0)).r;
-	float reach = 1.0 - saturate(length(c.xy) / (size * FROST_REACH));
+	float radialFade = 1.0 - saturate(length(c.xy) / (size * FROST_RADIUS));
 
-	return smoothstep(0.45, 0.75, feather) * reach;
+	return smoothstep(0.45, 0.75, feather) * radialFade;
 }
 
 #define SSR_STEPS 32
@@ -152,7 +152,7 @@ float FrostFeathers(sampler3D noise, float2 p, float size)
 #define SSR_MAX 6000.0
 #define SSR_MIN_THICKNESS 40.0
 #define SSR_THICKNESS_RATIO 0.03
-#define SSR_HIT_SLACK 8.0
+#define SSR_HIT_TOLERANCE 8.0
 #define SSR_HIT_RATIO 0.005
 #define FOG_DENSITY_MAX 0.001
 #define FOG_FALLOFF_MAX 1000.0
@@ -186,10 +186,10 @@ PS_OUT output(float3 color, float depth)
 
 float3 decodeColumn(float4 c)
 {
-	float cut = (c.r * 65280.0 + c.g * 255.0) / 65535.0 * Z_RANGE + Z_MIN;
+	float coverZ = (c.r * 65280.0 + c.g * 255.0) / 65535.0 * Z_RANGE + Z_MIN;
 	float offset = c.a * 255.0;
 
-	return float3(cut, c.b, offset < 254.5 ? cut - offset / 254.0 * SHORE_DEPTH : Z_MIN);
+	return float3(coverZ, c.b, offset < 254.5 ? coverZ - offset / 254.0 * SHORE_DEPTH : Z_MIN);
 }
 
 float3 coverAt(float2 col)
@@ -208,10 +208,10 @@ float4 exposure(float3 p, float3 n, float2 eyeCol)
 	float2 col = floor(g);
 	float2 f = g - col;
 	float open = 1.0;
-	float reach = COVER_REACH - 1.0 - max(abs(col.x - eyeCol.x), abs(col.y - eyeCol.y));
+	float columnsLeft = COVER_RANGE - 1.0 - max(abs(col.x - eyeCol.x), abs(col.y - eyeCol.y));
 	float far = 0.0;
 	float level = Z_MIN;
-	[branch] if (reach < GLOSS_FADE)
+	[branch] if (columnsLeft < GLOSS_FADE)
 	{
 		float2 off = abs(p.xy - FAR_CENTER) / FAR_COLUMN;
 		float window = saturate(FAR_COLUMNS * 0.5 - 1.0 - max(off.x, off.y));
@@ -227,9 +227,9 @@ float4 exposure(float3 p, float3 n, float2 eyeCol)
 	}
 
 	float gloss = far;
-	[branch] if (reach > 0.0)
+	[branch] if (columnsLeft > 0.0)
 	{
-		float z = p.z + COVER_SLACK + min(SLOPE_SLACK * length(n.xy) / max(n.z, 0.01), SLOPE_SLACK_MAX);
+		float z = p.z + COVER_MARGIN + min(SLOPE_MARGIN * length(n.xy) / max(n.z, 0.01), SLOPE_MARGIN_MAX);
 		float3 c00 = coverAt(col);
 		float3 c10 = coverAt(col + float2(1.0, 0.0));
 		float3 c01 = coverAt(col + float2(0.0, 1.0));
@@ -237,11 +237,11 @@ float4 exposure(float3 p, float3 n, float2 eyeCol)
 		open = lerp(lerp(step(c00.x, z), step(c10.x, z), f.x), lerp(step(c01.x, z), step(c11.x, z), f.x), f.y);
 		open *= 1.0 - smoothstep(UNTRACED_MIN, UNTRACED_MAX, p.z - max(max(c00.x, c10.x), max(c01.x, c11.x)));
 		level = max(level, max(max(c00.z, c10.z), max(c01.z, c11.z)));
-		gloss = lerp(far, lerp(lerp(c00.y, c10.y, f.x), lerp(c01.y, c11.y, f.x), f.y), saturate(reach / GLOSS_FADE));
+		gloss = lerp(far, lerp(lerp(c00.y, c10.y, f.x), lerp(c01.y, c11.y, f.x), f.y), saturate(columnsLeft / GLOSS_FADE));
 	}
 	else if (SPANS_ON > 0.5)
 	{
-		open = CoverSpansOpen(CoverSpans, p, COVER_SLACK + min(SLOPE_SLACK * length(n.xy) / max(n.z, 0.01), SLOPE_SLACK_MAX));
+		open = CoverSpansOpen(CoverSpans, p, COVER_MARGIN + min(SLOPE_MARGIN * length(n.xy) / max(n.z, 0.01), SLOPE_MARGIN_MAX));
 	}
 
 	float below = level - p.z;
@@ -335,7 +335,7 @@ float4 puddleReflection(float3 p, float3 dir, float3 fallback, float2 halfTexel,
 				}
 			}
 
-			if (farBehind < max(SSR_HIT_SLACK, max((tFar - tNear) * 2.0, farZ * SSR_HIT_RATIO)))
+			if (farBehind < max(SSR_HIT_TOLERANCE, max((tFar - tNear) * 2.0, farZ * SSR_HIT_RATIO)))
 			{
 				float2 hitUV = project(p + dir * tFar).xy;
 				float4 hitFrame = tex2Dlod(Frame, float4(hitUV + halfTexel, 0.0, 0.0));
@@ -481,7 +481,7 @@ PS_OUT main(PS_IN i)
 		}
 
 		float grain = IceNoise(Noise, p.xy, FROST_GRAIN_TILE, 0.47);
-		float3 white = FROST_WHITE * saturate(dot(lit, FROST_LUMA) * FROST_GAIN + FROST_LIFT);
+		float3 white = FROST_WHITE * saturate(dot(lit, FROST_LUMA) * FROST_GAIN + FROST_BRIGHTNESS_OFFSET);
 		color = lerp(color, white, saturate(amount * lerp(FROST_BASE, FROST_CRYSTAL, crystal) * (0.75 + 0.5 * (grain - 0.5))));
 
 		float2 sp = p.xy / FROST_SPARKLE_CELL;

@@ -168,7 +168,7 @@ local SURF_MAT, DEPTH_MAT
 local meshes = {}
 local visibleClusters = function() end
 
-local function dropMeshes()
+local function removeMeshes()
 	for k, m in pairs(meshes) do
 		if m.mesh then m.mesh:Destroy() end
 		meshes[k] = nil
@@ -176,7 +176,7 @@ local function dropMeshes()
 end
 
 local OPENNESS_GRID = 6
-local OPENNESS_LIFT = 4
+local OPENNESS_HEIGHT = 4
 local OPENNESS_LENGTH = 32768
 local opennessTrace = { mask = MASK_SOLID_BRUSHONLY, start = Vector(), endpos = Vector(), output = {} }
 
@@ -188,7 +188,7 @@ local function bodyOpenness(g)
 			start:SetUnpacked(
 				g.minX + (x + 0.5) / OPENNESS_GRID * (g.maxX - g.minX),
 				g.minY + (y + 0.5) / OPENNESS_GRID * (g.maxY - g.minY),
-				g.surfaceZ + OPENNESS_LIFT
+				g.surfaceZ + OPENNESS_HEIGHT
 			)
 			endpos:Set(start)
 			endpos.z = endpos.z + OPENNESS_LENGTH
@@ -236,7 +236,7 @@ local function isWaterMaterial(name)
 end
 
 local function buildMeshes()
-	dropMeshes()
+	removeMeshes()
 
 	if not SURF_MAT then return end
 
@@ -247,14 +247,14 @@ local function buildMeshes()
 
 	for key, g in pairs(groups) do
 		if #g.verts >= 3 then
-			local foreign = not isWaterMaterial(g.materials[1])
-			local fogEnd = not foreign and prepareWaterBodyMaterials(g.materials) or nil
+			local nonWater = not isWaterMaterial(g.materials[1])
+			local fogEnd = not nonWater and prepareWaterBodyMaterials(g.materials) or nil
 			local normalmap = Material(g.materials[1]):GetString("$normalmap") or "dev/water_normal"
 			local murk = fogEnd and math.Clamp(MURK_REF_FOG_END / fogEnd, MURK_MIN, MURK_MAX) or 1
 
 			local body = {
 				verts = g.verts, model = g.model, normalmap = normalmap, body = g.body, su = g.su, ou = g.ou, sv = g.sv, ov = g.ov,
-				murk = math.floor(murk / MURK_MAX * 255 + 0.5) / 255 * MURK_MAX, clusters = g.clusters, foreign = foreign,
+				murk = math.floor(murk / MURK_MAX * 255 + 0.5) / 255 * MURK_MAX, clusters = g.clusters, nonWater = nonWater,
 				frozen = winter and ice.Freezes(g.model, g.materials[1]) or false,
 			}
 			if g.model == 0 then writeBodyMesh(body) end
@@ -288,7 +288,7 @@ local function updateEntityBodies()
 end
 
 local function bodyDrawable(g, pvs)
-	if not g.mesh or g.hidden or g.foreign then return false end
+	if not g.mesh or g.hidden or g.nonWater then return false end
 	if g.model ~= 0 or not pvs then return true end
 
 	for cluster in pairs(g.clusters) do
@@ -372,7 +372,7 @@ end
 local toLinear, sunDir, setConstant = shaderpack.ToLinear, shaderpack.SunDir, shaderpack.SetConstant
 
 local SUN_TRACE_LENGTH = 32768
-local SUN_TRACE_LIFT = 4
+local SUN_TRACE_HEIGHT = 4
 local SUN_TRACE_INTERVAL = 0.25
 local sunTrace = { mask = MASK_SOLID_BRUSHONLY, output = {} }
 local sunTraceEnd = Vector()
@@ -393,7 +393,7 @@ local function bodySunlit(g, sun)
 	local now = RealTime()
 	if not g.sunlitAt or now - g.sunlitAt > SUN_TRACE_INTERVAL then
 		g.sunlitAt = now
-		g.center = g.center or Vector((g.minX + g.maxX) * 0.5, (g.minY + g.maxY) * 0.5, g.surfaceZ + SUN_TRACE_LIFT)
+		g.center = g.center or Vector((g.minX + g.maxX) * 0.5, (g.minY + g.maxY) * 0.5, g.surfaceZ + SUN_TRACE_HEIGHT)
 		g.sunlit = sunReaches(g.center, sun)
 	end
 
@@ -406,7 +406,7 @@ local function bodyAmbient(g)
 	local now = RealTime()
 	if not g.ambientAt or now - g.ambientAt > SUN_TRACE_INTERVAL then
 		g.ambientAt = now
-		g.center = g.center or Vector((g.minX + g.maxX) * 0.5, (g.minY + g.maxY) * 0.5, g.surfaceZ + SUN_TRACE_LIFT)
+		g.center = g.center or Vector((g.minX + g.maxX) * 0.5, (g.minY + g.maxY) * 0.5, g.surfaceZ + SUN_TRACE_HEIGHT)
 		g.ambient = render.GetLightColor(g.center) * AMBIENT_REFLECTANCE
 	end
 
@@ -622,17 +622,17 @@ end
 
 function surfacewater.CausticSource(pos, surfaceZ)
 	local body = bodyAt(pos, surfaceZ)
-	if not body or body.foreign then return nil end
+	if not body or body.nonWater then return nil end
 
 	local sun = sunDir()
 
 	return body.normalmap, sun, bodySunlit(body, sun)
 end
 
-local function inForeignLiquid(pos)
+local function inNonWaterLiquid(pos)
 	local body = bodyAt(pos, waterSurfaceZ(pos))
 
-	return body ~= nil and body.foreign
+	return body ~= nil and body.nonWater
 end
 
 local function drawOpaque(bDepth, bSkybox, bSkybox3D)
@@ -645,7 +645,7 @@ local function drawOpaque(bDepth, bSkybox, bSkybox3D)
 
 	local eyePos = EyePos()
 	local eyeUnderwater = isUnderwater(eyePos)
-	if eyeUnderwater and inForeignLiquid(eyePos) then
+	if eyeUnderwater and inNonWaterLiquid(eyePos) then
 		hideSun(false)
 		depthWanted = false
 		return
@@ -691,7 +691,7 @@ local function drawTranslucent(bDepth, bSkybox, bSkybox3D)
 
 	local surfaceZ = waterSurfaceZ(waterPos)
 	local body = bodyAt(waterPos, surfaceZ)
-	if body and body.foreign then return end
+	if body and body.nonWater then return end
 
 	depthWanted = true
 	depthslices.SkipRefog()
@@ -719,7 +719,7 @@ local function drawTranslucent(bDepth, bSkybox, bSkybox3D)
 	setConstant(UNDER_MAT, "$c2", zr, zg, zb, body and body.murk or 1)
 
 	local sun = sunDir()
-	eyeSurfacePoint:SetUnpacked(eyePos.x, eyePos.y, surfaceZ + SUN_TRACE_LIFT)
+	eyeSurfacePoint:SetUnpacked(eyePos.x, eyePos.y, surfaceZ + SUN_TRACE_HEIGHT)
 	local sunlit = sunReaches(eyeSurfacePoint, sun)
 	setConstant(UNDER_MAT, "$c3", sun.x, sun.y, sun.z, sunlit)
 
@@ -741,7 +741,7 @@ local function stop()
 	hook.Remove("PostDrawTranslucentRenderables", "borealis_water_underwater")
 	depthslices.RemoveEffect("borealis_water")
 	hideSun(false)
-	dropMeshes()
+	removeMeshes()
 	restoreWaterMaterials()
 end
 

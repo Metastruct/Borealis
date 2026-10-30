@@ -32,8 +32,8 @@ local MARGIN = 1024
 local WIDE_SIGMA = 320
 local HEIGHT_RANGE = 255
 local CEILING_SEARCH = 4096
-local REACH = 1500
-local REACH_BELOW, REACH_ABOVE = 512, 2048
+local ACTIVE_RANGE = 1500
+local ACTIVE_RANGE_BELOW, ACTIVE_RANGE_ABOVE = 512, 2048
 local AREA_MARGIN = 1500
 local NO_AREA_MINS, NO_AREA_MAXS = Vector(-32768, -32768, -32768), Vector(32768, 32768, 32768)
 local FADE_RATE = 1.5
@@ -43,8 +43,8 @@ local FUME, CAVE_HAZE = 0.003, 0.35
 local EMBER_RATE, EMBER_RANGE, EMBER_TRIES = 24, 2500, 8
 local EMBER_MAT = "sprites/light_glow02_add"
 local SURFACE_COVER = 0.5
-local HEAT_SIGMA, HEAT_REACH, HEAT_SWEEPS = 120, 3, 2
-local HEAT_LIFTS = { 64, 256 }
+local HEAT_SIGMA, HEAT_RANGE, HEAT_SWEEPS = 120, 3, 2
+local HEAT_TRACE_HEIGHTS = { 64, 256 }
 local MASK_DIR = "shaderpack/lava"
 local VTF_FLAGS = 0x4 + 0x8 + 0x100 + 0x200 + 0x2000
 local VTF_FORMAT = 0
@@ -250,9 +250,9 @@ end
 local heatTrace = { mask = MASK_SOLID_BRUSHONLY, start = Vector(), endpos = Vector(), output = {} }
 
 local function openBetween(x0, y0, x1, y1, top)
-	for _, lift in ipairs(HEAT_LIFTS) do
-		heatTrace.start:SetUnpacked(x0, y0, top + lift)
-		heatTrace.endpos:SetUnpacked(x1, y1, top + lift)
+	for _, height in ipairs(HEAT_TRACE_HEIGHTS) do
+		heatTrace.start:SetUnpacked(x0, y0, top + height)
+		heatTrace.endpos:SetUnpacked(x1, y1, top + height)
 		if not util.TraceLine(heatTrace).Hit then return true end
 	end
 
@@ -261,12 +261,12 @@ end
 
 local function airEdges(near, height, minTop, ox, oy, texel, budget)
 	local passE, passN = setmetatable({}, getmetatable(OPEN)), setmetatable({}, getmetatable(OPEN))
-	local reach = HEAT_REACH * HEAT_SIGMA / texel
+	local rangeTexels = HEAT_RANGE * HEAT_SIGMA / texel
 	for cy = 0, RES - 1 do
 		local y = oy + (cy + 0.5) * texel
 		for cx = 0, RES - 1 do
 			local i = cy * RES + cx + 1
-			if near[i] <= reach then
+			if near[i] <= rangeTexels then
 				local x = ox + (cx + 0.5) * texel
 				local top = minTop + height[i] * HEIGHT_RANGE
 				if cx < RES - 1 then
@@ -476,7 +476,7 @@ local function build()
 	})
 end
 
-local fade, level, spawnDebt = 0, 0, 0
+local fade, level, pendingSpawns = 0, 0, 0
 
 local function findEntity(pool)
 	local now = RealTime()
@@ -506,8 +506,8 @@ local function nearLava(eye)
 		if eye.z < mins.z - AREA_MARGIN or eye.z > maxs.z + AREA_MARGIN then return false end
 	else
 		local m = lava.data
-		if eye.x < m.x0 - REACH or eye.x > m.x1 + REACH or eye.y < m.y0 - REACH or eye.y > m.y1 + REACH then return false end
-		if eye.z < m.minTop - REACH_BELOW or eye.z > m.maxTop + REACH_ABOVE then return false end
+		if eye.x < m.x0 - ACTIVE_RANGE or eye.x > m.x1 + ACTIVE_RANGE or eye.y < m.y0 - ACTIVE_RANGE or eye.y > m.y1 + ACTIVE_RANGE then return false end
+		if eye.z < m.minTop - ACTIVE_RANGE_BELOW or eye.z > m.maxTop + ACTIVE_RANGE_ABOVE then return false end
 	end
 
 	for _, pool in ipairs(lava.pools) do
@@ -579,9 +579,9 @@ local function think()
 	if fade <= 0 or #lava.data.lavaTexels == 0 then return end
 
 	lava.emitter:SetPos(eye)
-	spawnDebt = spawnDebt + EMBER_RATE * fade * dt
-	while spawnDebt >= 1 do
-		spawnDebt = spawnDebt - 1
+	pendingSpawns = pendingSpawns + EMBER_RATE * fade * dt
+	while pendingSpawns >= 1 do
+		pendingSpawns = pendingSpawns - 1
 		spawnEmber(eye)
 	end
 end

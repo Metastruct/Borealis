@@ -142,7 +142,7 @@ function Layer:raster(ch, cand)
 	end
 
 	for gy = y0, y1 - 1, spacing do
-		chunks.Pace()
+		chunks.YieldIfOverBudget()
 
 		for gx = x0, x1 - 1, spacing do
 			local x = gx + spacing * 0.5 + (rand() - 0.5) * 2 * jitter
@@ -241,7 +241,7 @@ function Layer:buildMesh(tufts, first, last)
 		local o = (i - 1) * STRIDE
 		local x, y, z, seed, hs, light, cluster = tufts[o + 1], tufts[o + 2], tufts[o + 3] + 0.5, tufts[o + 4], tufts[o + 5], tufts[o + 6], tufts[o + 7]
 		if not g or cluster ~= g.cluster then
-			g = { cluster = cluster, n = 0, x = 0, y = 0, z = 0, ax = x, ay = y, az = z, sightEpoch = -1, blocked = false }
+			g = { cluster = cluster, n = 0, x = 0, y = 0, z = 0, ax = x, ay = y, az = z, sightTestRound = -1, blocked = false }
 			groups[#groups + 1] = g
 		end
 
@@ -256,10 +256,10 @@ function Layer:buildMesh(tufts, first, last)
 
 	mesh.End()
 
-	local lift = quadH * height * 0.5
+	local midHeight = quadH * height * 0.5
 	for _, gr in ipairs(groups) do
-		gr.x, gr.y, gr.z = gr.x / gr.n, gr.y / gr.n, gr.z / gr.n + lift
-		gr.az, gr.bz = gr.az + lift, gr.bz + lift
+		gr.x, gr.y, gr.z = gr.x / gr.n, gr.y / gr.n, gr.z / gr.n + midHeight
+		gr.az, gr.bz = gr.az + midHeight, gr.bz + midHeight
 	end
 
 	return { m = m, groups = groups }
@@ -312,7 +312,7 @@ function Layer:buildChunk(ch)
 	local batch = self.cfg.meshBatch or MESH_BATCH
 	ch.meshes = {}
 	for first = 1, total, batch do
-		chunks.Pace()
+		chunks.YieldIfOverBudget()
 		ch.meshes[#ch.meshes + 1] = self:buildMesh(tufts, first, math.min(first + batch - 1, total))
 	end
 
@@ -327,7 +327,7 @@ function Layer:load()
 	grid, why = bspdata.Triangles(self.cfg.classify, self.cfg.minNormalZ)
 	if not grid then return false, why end
 
-	self.triGrid = bspdata.DropSkybox(grid)
+	self.triGrid = bspdata.RemoveSkybox(grid)
 
 	return true
 end
@@ -361,11 +361,11 @@ function Layer:draw(sky3d)
 	local eyeCluster = bspdata.ClusterAt(eye.x, eye.y, eye.z)
 	local pvs = bspdata.PVS(eyeCluster)
 	if RealTime() > self.sightNext or eye:DistToSqr(self.sightEye) > 64 * 64 then
-		self.sightEpoch, self.sightNext = self.sightEpoch + 1, RealTime() + 0.5
+		self.sightTestRound, self.sightNext = self.sightTestRound + 1, RealTime() + 0.5
 		self.sightEye:Set(eye)
 	end
 
-	local sightEpoch = self.sightEpoch
+	local sightTestRound = self.sightTestRound
 	local drawn = self.drawn
 	sightStart:Set(eye)
 	local tests = 0
@@ -380,9 +380,9 @@ function Layer:draw(sky3d)
 					show = true
 					break
 				elseif pvs == nil or c < 0 or pvs[c] then
-					if g.sightEpoch ~= sightEpoch and tests < SIGHT_TESTS_PER_FRAME then
+					if g.sightTestRound ~= sightTestRound and tests < SIGHT_TESTS_PER_FRAME then
 						tests = tests + 1
-						g.sightEpoch = sightEpoch
+						g.sightTestRound = sightTestRound
 						g.blocked = sightBlocked(g.x, g.y, g.z) and sightBlocked(g.ax, g.ay, g.az) and sightBlocked(g.bx, g.by, g.bz)
 					end
 
@@ -477,7 +477,7 @@ function foliage.Layer(cfg)
 	local layer = setmetatable({
 		cfg = cfg, height = 1, radius = 3072,
 		drawn = {},
-		sightEpoch = 0, sightEye = Vector(), sightNext = 0,
+		sightTestRound = 0, sightEye = Vector(), sightNext = 0,
 	}, Layer)
 	layer.grid = chunks.Grid({
 		name = cfg.name, size = CHUNK, radius = layer.radius, pad = cfg.sway, cacheLimit = MESH_CACHE_TUFTS,

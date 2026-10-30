@@ -16,7 +16,7 @@ local SOLID = MASK_SOLID
 local WATER = MASK_WATER
 local IN_WATER = CONTENTS_WATER
 local SHORE_DEPTH = 8
-local SPAN_OPEN_SLACK, SPAN_COLUMN_OFFSET, SPAN_MIN_NORMAL = 16, 24, 0.1
+local SPAN_OPEN_MARGIN, SPAN_COLUMN_OFFSET, SPAN_MIN_NORMAL = 16, 24, 0.1
 local GLOSS = {
 	[MAT_GRASS] = 0.05,
 	[MAT_FOLIAGE] = 0.05,
@@ -45,7 +45,7 @@ local IGNORED_FLAGS = bit.bor(SURF_TRIGGER, SURF_HINT, SURF_SKIP)
 local MSG_KEY, MSG_CHUNK = 0, 1
 local EXPOSURE_PS, EXPOSURE_VS = "borealis_coverexposure_ps30", "borealis_passthrough_vs30"
 local EXPOSURE_SIZE, EXPOSURE_EXTENT = 256, 4096
-local EXPOSURE_DROP, EXPOSURE_SNAP = 384, 64
+local EXPOSURE_DEPTH, EXPOSURE_SNAP = 384, 64
 local EXPOSURE_EVERY = 4
 
 cover.COLUMN, cover.COLUMNS, cover.Z_MIN, cover.Z_RANGE = COLUMN, COLUMNS, Z_MIN, Z_RANGE
@@ -466,7 +466,7 @@ local function spanSlot(base, s)
 	return spanHeight(pos), spanHeight(pos + 2)
 end
 
-local function spanCut(x, y, top)
+local function spanCoverZ(x, y, top)
 	local base = spanBase(x, y)
 	for s = 0, SPAN_SLOTS - 1 do
 		local spanTop, spanBottom = spanSlot(base, s)
@@ -490,11 +490,11 @@ local function spanOpen(x, y, z)
 	return false
 end
 
-local LEVEL_SLACK_BELOW, LEVEL_SLACK_ABOVE = 1000, 64
+local LEVEL_MARGIN_BELOW, LEVEL_MARGIN_ABOVE = 1000, 64
 local LEVEL_TOLERANCE = 64
 local LEVEL_SEARCH_STEP, LEVEL_SEARCH_RINGS, LEVEL_SEARCH_CELL = 64, 16, 256
 local LEVEL_GROUND_TOLERANCE = 32
-local unsettledLevel = {}
+local airborneLevel = {}
 
 local function skyAbove(x, y, z)
 	local base = spanBase(x, y)
@@ -510,8 +510,8 @@ local function skyAbove(x, y, z)
 end
 
 local function skyReachable(x, y, eye)
-	local top, bottom = skyAbove(x, y, eye.z - LEVEL_SLACK_ABOVE)
-	if top and eye.z >= bottom - LEVEL_SLACK_BELOW then return top end
+	local top, bottom = skyAbove(x, y, eye.z - LEVEL_MARGIN_ABOVE)
+	if top and eye.z >= bottom - LEVEL_MARGIN_BELOW then return top end
 end
 
 local function skyNear(eye)
@@ -556,9 +556,9 @@ local function resolveLevel(eye)
 		return levels[key]
 	end
 
-	unsettledLevel.floor, unsettledLevel.ceiling = floor, top
+	airborneLevel.floor, airborneLevel.ceiling = floor, top
 
-	return unsettledLevel
+	return airborneLevel
 end
 
 function cover.SkyLevel()
@@ -570,7 +570,7 @@ function cover.SkyLevel()
 
 	local eye = render.GetViewSetup().origin
 	local lvl = resolveLevel(eye)
-	levelResult = lvl and eye.z >= lvl.floor - LEVEL_SLACK_BELOW and lvl or nil
+	levelResult = lvl and eye.z >= lvl.floor - LEVEL_MARGIN_BELOW and lvl or nil
 
 	return levelResult
 end
@@ -623,9 +623,9 @@ net.Receive(SPAN_NET, function()
 end)
 
 local coverRT
-local owner, ground, cuts, pending, queued = {}, {}, {}, {}, {}
+local texelColumn, ground, coverZs, pending, queued = {}, {}, {}, {}, {}
 local traceZ, winX, winY
-local sweep, urgent = 1, true
+local sweep, fastSweep = 1, true
 local updatedFrame = -1
 local upTrace = { mask = SOLID, start = Vector(), endpos = Vector(), output = {} }
 local downTrace = { mask = SOLID, start = Vector(), endpos = Vector(), output = {} }
@@ -699,27 +699,27 @@ local function traceOpenColumn(cx, cy, top, bottom)
 		return down.HitPos.z, false, GLOSS[down.MatType] or 1, false, down.HitNormal.z
 	end
 
-	return spanData and spanCut(x, y, top) or Z_MIN, false, SEED_GLOSS, false
+	return spanData and spanCoverZ(x, y, top) or Z_MIN, false, SEED_GLOSS, false
 end
 
 local function traceColumn(cx, cy, top, bottom)
-	local cut, level, gloss, waterLevel, normalZ = traceOpenColumn(cx, cy, top, bottom)
-	if spanData and cut < Z_MIN + Z_RANGE then
+	local coverZ, level, gloss, waterLevel, normalZ = traceOpenColumn(cx, cy, top, bottom)
+	if spanData and coverZ < Z_MIN + Z_RANGE then
 		local nz = math.max(normalZ or 1, SPAN_MIN_NORMAL)
-		local slack = SPAN_OPEN_SLACK + SPAN_COLUMN_OFFSET * math.sqrt(1 - nz * nz) / nz
-		if not spanOpen((cx + 0.5) * COLUMN, (cy + 0.5) * COLUMN, cut + slack) then
+		local margin = SPAN_OPEN_MARGIN + SPAN_COLUMN_OFFSET * math.sqrt(1 - nz * nz) / nz
+		if not spanOpen((cx + 0.5) * COLUMN, (cy + 0.5) * COLUMN, coverZ + margin) then
 			return Z_MIN + Z_RANGE, false, 1, false
 		end
 	end
 
-	return cut, level, gloss, waterLevel
+	return coverZ, level, gloss, waterLevel
 end
 
-local function writeTexel(cx, cy, cut, gloss, level)
-	local v = math.floor(math.Clamp((cut - Z_MIN) / Z_RANGE, 0, 1) * 65535 + 0.5)
+local function writeTexel(cx, cy, coverZ, gloss, level)
+	local v = math.floor(math.Clamp((coverZ - Z_MIN) / Z_RANGE, 0, 1) * 65535 + 0.5)
 	local hi = math.floor(v / 256)
 	render.SetViewPort(cx % COLUMNS, cy % COLUMNS, 1, 1)
-	render.Clear(hi, v - hi * 256, math.floor(gloss * 255 + 0.5), level and math.floor(math.Clamp((cut - level) / SHORE_DEPTH, 0, 1) * 254 + 0.5) or 255)
+	render.Clear(hi, v - hi * 256, math.floor(gloss * 255 + 0.5), level and math.floor(math.Clamp((coverZ - level) / SHORE_DEPTH, 0, 1) * 254 + 0.5) or 255)
 end
 
 local sweepX, sweepY = {}, {}
@@ -739,15 +739,15 @@ do
 	end
 end
 
-local function claim(cx, cy, key)
+local function assignTexel(cx, cy, key)
 	local texel = cx % COLUMNS * COLUMNS + cy % COLUMNS
-	local prev = owner[texel]
+	local prev = texelColumn[texel]
 	if prev and prev ~= key then
 		ground[prev] = nil
-		cuts[prev] = nil
+		coverZs[prev] = nil
 	end
 
-	owner[texel] = key
+	texelColumn[texel] = key
 end
 
 local function seedColumns(keys)
@@ -758,8 +758,8 @@ local function seedColumns(keys)
 	for i = 1, #keys do
 		local key = keys[i]
 		local cx, cy = columnFromKey(key)
-		claim(cx, cy, key)
-		writeTexel(cx, cy, spanCut((cx + 0.5) * COLUMN, (cy + 0.5) * COLUMN, top), SEED_GLOSS)
+		assignTexel(cx, cy, key)
+		writeTexel(cx, cy, spanCoverZ((cx + 0.5) * COLUMN, (cy + 0.5) * COLUMN, top), SEED_GLOSS)
 	end
 
 	render.SetViewPort(0, 0, COLUMNS, COLUMNS)
@@ -768,9 +768,9 @@ end
 
 local function enter(cx, cy, fresh, queue)
 	local key = columnKey(cx, cy)
-	if owner[cx % COLUMNS * COLUMNS + cy % COLUMNS] ~= key then
+	if texelColumn[cx % COLUMNS * COLUMNS + cy % COLUMNS] ~= key then
 		fresh[#fresh + 1] = key
-	elseif cuts[key] then
+	elseif coverZs[key] then
 		return
 	end
 
@@ -806,29 +806,29 @@ local function enterWindow(fresh)
 	end
 end
 
-local function notify(cx, cy, cutChanged, groundChanged)
+local function notify(cx, cy, coverChanged, groundChanged)
 	for _, l in pairs(cover.listeners) do
 		if l.column then
-			l.column(cx, cy, cutChanged, groundChanged)
+			l.column(cx, cy, coverChanged, groundChanged)
 		end
 	end
 end
 
 local function traceOne(cx, cy, top, bottom)
 	local key = columnKey(cx, cy)
-	local cut, level, gloss, waterLevel = traceColumn(cx, cy, top, bottom)
-	claim(cx, cy, key)
-	local cutChanged = cuts[key] ~= cut
-	cuts[key] = cut
+	local coverZ, level, gloss, waterLevel = traceColumn(cx, cy, top, bottom)
+	assignTexel(cx, cy, key)
+	local coverChanged = coverZs[key] ~= coverZ
+	coverZs[key] = coverZ
 
 	local groundChanged = (ground[key] or false) ~= level
 	ground[key] = level or nil
 
-	if cutChanged or groundChanged then
-		notify(cx, cy, cutChanged, groundChanged)
+	if coverChanged or groundChanged then
+		notify(cx, cy, coverChanged, groundChanged)
 	end
 
-	writeTexel(cx, cy, cut, gloss, waterLevel)
+	writeTexel(cx, cy, coverZ, gloss, waterLevel)
 end
 
 local function moveWindow(eye)
@@ -836,7 +836,7 @@ local function moveWindow(eye)
 	local cx0, cy0 = math.floor(eye.x / COLUMN) - half, math.floor(eye.y / COLUMN) - half
 	if not traceZ or math.abs(eye.z - traceZ) > TRACE_SLOT then
 		traceZ = eye.z
-		sweep, urgent = 1, true
+		sweep, fastSweep = 1, true
 	end
 
 	if cx0 == winX and cy0 == winY then return end
@@ -849,7 +849,7 @@ local function moveWindow(eye)
 	else
 		pending, queued = {}, {}
 		enterWindow(fresh)
-		sweep, urgent = 1, true
+		sweep, fastSweep = 1, true
 	end
 
 	seedColumns(fresh)
@@ -863,7 +863,7 @@ local function updateColumns(eye)
 		players, playerCount = player.GetAll(), player.GetCount()
 		upTrace.filter, downTrace.filter = players, players
 	end
-	local budget = (urgent or #pending > 0) and TRACES_PER_FRAME or IDLE_TRACES_PER_FRAME
+	local budget = (fastSweep or #pending > 0) and TRACES_PER_FRAME or IDLE_TRACES_PER_FRAME
 	render.PushRenderTarget(coverRT)
 	while budget > 0 and #pending > 0 do
 		local key = table.remove(pending)
@@ -879,7 +879,7 @@ local function updateColumns(eye)
 		traceOne(winX + sweepX[sweep], winY + sweepY[sweep], top, bottom)
 		sweep = sweep % #sweepX + 1
 		if sweep == 1 then
-			urgent = false
+			fastSweep = false
 		end
 	end
 
@@ -898,9 +898,9 @@ local function build()
 	render.PushRenderTarget(coverRT)
 	render.Clear(0, 0, 0, 255)
 	render.PopRenderTarget()
-	owner, ground, cuts, pending, queued = {}, {}, {}, {}, {}
+	texelColumn, ground, coverZs, pending, queued = {}, {}, {}, {}, {}
 	traceZ, winX, winY = nil, nil, nil
-	sweep, urgent = 1, true
+	sweep, fastSweep = 1, true
 	for _, l in pairs(cover.listeners) do
 		if l.reset then
 			l.reset()
@@ -936,12 +936,12 @@ function cover.Ground(cx, cy)
 	return ground[columnKey(cx, cy)]
 end
 
-function cover.CutAt(x, y)
+function cover.HeightAt(x, y)
 	local cx, cy = math.floor(x / COLUMN), math.floor(y / COLUMN)
 	local key = columnKey(cx, cy)
-	if owner[cx % COLUMNS * COLUMNS + cy % COLUMNS] ~= key then return nil end
+	if texelColumn[cx % COLUMNS * COLUMNS + cy % COLUMNS] ~= key then return nil end
 
-	return cuts[key]
+	return coverZs[key]
 end
 
 local exposureRT, exposureMat
@@ -983,7 +983,7 @@ function cover.UpdateExposure(eye)
 	local texel = EXPOSURE_EXTENT / EXPOSURE_SIZE
 	exposureX = math.Round(eye.x / texel) * texel
 	exposureY = math.Round(eye.y / texel) * texel
-	exposureZ = math.Round(eye.z / EXPOSURE_SNAP) * EXPOSURE_SNAP - EXPOSURE_DROP
+	exposureZ = math.Round(eye.z / EXPOSURE_SNAP) * EXPOSURE_SNAP - EXPOSURE_DEPTH
 
 	exposureMat:SetTexture("$texture2", spanTexture)
 	shaderpack.SetConstant(exposureMat, "$c0", exposureX, exposureY)
