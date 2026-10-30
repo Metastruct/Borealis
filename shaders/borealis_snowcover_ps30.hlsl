@@ -35,7 +35,7 @@ sampler3D Noise : register(s1);
 #define POM_REFINE 5
 #define POM_REACH 48.0
 #define POM_MIN_SLOPE 0.12
-#define PROBE_MIN 0.01
+#define TRAIL_PEAK_MIN 0.01
 #define SOFT_A float2(1.8, 0.7)
 #define SOFT_B float2(-0.7, 1.8)
 #define GRAD_STEP 2.0
@@ -122,8 +122,8 @@ PS_OUT main(PS_IN i)
 		float descent = -dot(v, n);
 		float reach = min(thick / max(descent, POM_MIN_SLOPE), POM_REACH);
 		float3 dir = v * reach;
-		float probe = max(trailAt(p.xy), max(trailAt(p.xy + dir.xy * 0.5), trailAt(p.xy + dir.xy)));
-		[branch] if (probe > PROBE_MIN)
+		float trailPeak = max(trailAt(p.xy), max(trailAt(p.xy + dir.xy * 0.5), trailAt(p.xy + dir.xy)));
+		[branch] if (trailPeak > TRAIL_PEAK_MIN)
 		{
 			float drop = reach * max(descent, 0.0);
 			float s = 1.0;

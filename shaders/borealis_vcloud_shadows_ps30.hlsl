@@ -31,8 +31,8 @@ sampler Exposure : register(s4);
 #define MIN_SUN_Z 0.03
 #define MAP_EDGE 0.05
 
-#define SUN_PROBE 48.0
-#define PROBE_BELOW 32.0
+#define SUN_OFFSET 48.0
+#define OPEN_BELOW 32.0
 #define RING_RADIUS 128.0
 #define RING_BELOW 56.0
 #define RING_TWIST 0.3
@@ -97,7 +97,7 @@ float4 main(PS_IN i) : COLOR
 		shade *= smoothstep(EXPOSED_MIN, EXPOSED_MAX, exposed);
 		[branch] if (shade > 0.0 && exposed > CLEAR_MIN)
 		{
-			shade *= lerp(1.0, CoverSpansOpenSmooth(CoverSpans, p + SUN_DIR * SUN_PROBE, PROBE_BELOW), smoothstep(CLEAR_MIN, 1.0, exposed));
+			shade *= lerp(1.0, CoverSpansOpenSmooth(CoverSpans, p + SUN_DIR * SUN_OFFSET, OPEN_BELOW), smoothstep(CLEAR_MIN, 1.0, exposed));
 		}
 	}
 

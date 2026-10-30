@@ -436,24 +436,24 @@ local function isUnderwater(pos)
 end
 
 local SURFACE_SEARCH_MAX = 16384
-local surfaceProbe = Vector()
+local surfacePos = Vector()
 
 local function waterSurfaceZ(pos)
-	surfaceProbe:Set(pos)
+	surfacePos:Set(pos)
 	local lo, step = pos.z, 64
 	local hi = lo + step
-	surfaceProbe.z = hi
-	while isUnderwater(surfaceProbe) do
+	surfacePos.z = hi
+	while isUnderwater(surfacePos) do
 		if hi - pos.z > SURFACE_SEARCH_MAX then return hi end
 		lo, step = hi, step * 2
 		hi = lo + step
-		surfaceProbe.z = hi
+		surfacePos.z = hi
 	end
 
 	for _ = 1, 12 do
 		local mid = (lo + hi) * 0.5
-		surfaceProbe.z = mid
-		if isUnderwater(surfaceProbe) then lo = mid else hi = mid end
+		surfacePos.z = mid
+		if isUnderwater(surfacePos) then lo = mid else hi = mid end
 	end
 
 	return (lo + hi) * 0.5
@@ -671,7 +671,7 @@ local function drawSurfaceAbove()
 end
 
 local WATERLINE_BAND = 16
-local waterlineProbe = Vector()
+local waterlinePos = Vector()
 
 local function drawTranslucent(bDepth, bSkybox, bSkybox3D)
 	if not UNDER_MAT then return end
@@ -681,16 +681,16 @@ local function drawTranslucent(bDepth, bSkybox, bSkybox3D)
 
 	local eyePos = EyePos()
 	local eyeUnderwater = isUnderwater(eyePos)
-	local probe = eyePos
+	local waterPos = eyePos
 	if not eyeUnderwater then
-		waterlineProbe:Set(eyePos)
-		waterlineProbe.z = waterlineProbe.z - WATERLINE_BAND
-		if not isUnderwater(waterlineProbe) then return end
-		probe = waterlineProbe
+		waterlinePos:Set(eyePos)
+		waterlinePos.z = waterlinePos.z - WATERLINE_BAND
+		if not isUnderwater(waterlinePos) then return end
+		waterPos = waterlinePos
 	end
 
-	local surfaceZ = waterSurfaceZ(probe)
-	local body = bodyAt(probe, surfaceZ)
+	local surfaceZ = waterSurfaceZ(waterPos)
+	local body = bodyAt(waterPos, surfaceZ)
 	if body and body.foreign then return end
 
 	depthWanted = true

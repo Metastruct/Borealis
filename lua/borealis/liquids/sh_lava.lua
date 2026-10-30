@@ -44,7 +44,7 @@ local EMBER_RATE, EMBER_RANGE, EMBER_TRIES = 24, 2500, 8
 local EMBER_MAT = "sprites/light_glow02_add"
 local SURFACE_COVER = 0.5
 local HEAT_SIGMA, HEAT_REACH, HEAT_SWEEPS = 120, 3, 2
-local HEAT_PROBES = { 64, 256 }
+local HEAT_LIFTS = { 64, 256 }
 local MASK_DIR = "shaderpack/lava"
 local VTF_FLAGS = 0x4 + 0x8 + 0x100 + 0x200 + 0x2000
 local VTF_FORMAT = 0
@@ -250,7 +250,7 @@ end
 local heatTrace = { mask = MASK_SOLID_BRUSHONLY, start = Vector(), endpos = Vector(), output = {} }
 
 local function openBetween(x0, y0, x1, y1, top)
-	for _, lift in ipairs(HEAT_PROBES) do
+	for _, lift in ipairs(HEAT_LIFTS) do
 		heatTrace.start:SetUnpacked(x0, y0, top + lift)
 		heatTrace.endpos:SetUnpacked(x1, y1, top + lift)
 		if not util.TraceLine(heatTrace).Hit then return true end

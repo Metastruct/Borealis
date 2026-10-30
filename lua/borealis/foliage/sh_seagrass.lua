@@ -18,7 +18,7 @@ local MAX_DENSITY = 0.3
 local STRAY = 0.015
 local MIN_LIGHT = 0.15
 local SWAY = 0.22
-local SURFACE_PROBE = 4096
+local SURFACE_REACH = 4096
 local ROOT_COLOR = { 0.03, 0.05, 0.02 }
 local TIP_COLOR = { 0.09, 0.14, 0.05 }
 
@@ -61,17 +61,17 @@ local function palette(mat, depthMat)
 	if depthMat then depthMat:SetFloat("$c1_z", SWAY) end
 end
 
-local probeRes = {}
-local probe = { mask = MASK_WATER, output = probeRes }
-local probeEnd = Vector()
+local surfaceTraceRes = {}
+local surfaceTrace = { mask = MASK_WATER, output = surfaceTraceRes }
+local surfaceTraceEnd = Vector()
 local function surfaceNear(eye)
 	if bit.band(util.PointContents(eye), CONTENTS_WATER) ~= 0 then return bspdata.WaterSurfaceAt(eye.x, eye.y, eye.z) end
 
-	probeEnd:SetUnpacked(eye.x, eye.y, eye.z - SURFACE_PROBE)
-	probe.start, probe.endpos = eye, probeEnd
-	util.TraceLine(probe)
+	surfaceTraceEnd:SetUnpacked(eye.x, eye.y, eye.z - SURFACE_REACH)
+	surfaceTrace.start, surfaceTrace.endpos = eye, surfaceTraceEnd
+	util.TraceLine(surfaceTrace)
 
-	return probeRes.Hit and probeRes.HitPos.z or nil
+	return surfaceTraceRes.Hit and surfaceTraceRes.HitPos.z or nil
 end
 
 local lastNormalMap

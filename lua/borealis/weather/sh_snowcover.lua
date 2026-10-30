@@ -197,7 +197,7 @@ local function load()
 end
 
 local UP = Vector(0, 0, 1)
-local probePos = Vector()
+local samplePos = Vector()
 local skyTrace = { mask = MASK_SOLID_BRUSHONLY, start = Vector(), endpos = Vector(), output = {} }
 
 local function cellKey(x, y, z, size)
@@ -214,8 +214,8 @@ local function snowAt(x, y, z, nonSnow, cache)
 		skyTrace.start:SetUnpacked(x, y, z + 4)
 		skyTrace.endpos:SetUnpacked(x, y, z + SKY_REACH)
 		local tr = util.TraceLine(skyTrace)
-		probePos:SetUnpacked(x, y, z + 2)
-		open = (not tr.Hit or tr.HitSky) and not tr.StartSolid and bit.band(util.PointContents(probePos), MASK_WATER) == 0
+		samplePos:SetUnpacked(x, y, z + 2)
+		open = (not tr.Hit or tr.HitSky) and not tr.StartSolid and bit.band(util.PointContents(samplePos), MASK_WATER) == 0
 		cache.sky[skyKey] = open
 	end
 
@@ -224,8 +224,8 @@ local function snowAt(x, y, z, nonSnow, cache)
 	local lightKey = cellKey(x, y, z, LIGHT_CELL)
 	local light = cache.light[lightKey]
 	if not light then
-		probePos:SetUnpacked(x, y, z + DEPTH + 2)
-		local l = render.ComputeLighting(probePos, UP)
+		samplePos:SetUnpacked(x, y, z + DEPTH + 2)
+		local l = render.ComputeLighting(samplePos, UP)
 		light = math.Clamp(math.floor(l.x * 127.5), 0, 255) * 65536 + math.Clamp(math.floor(l.y * 127.5), 0, 255) * 256 + math.Clamp(math.floor(l.z * 127.5), 0, 255)
 		cache.light[lightKey] = light
 	end

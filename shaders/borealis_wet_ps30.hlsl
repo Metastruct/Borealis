@@ -58,7 +58,7 @@ sampler CoverSpans : register(s6);
 #define SHALLOW 128.0
 #define SOAK_DEPTH 48.0
 #define SHORE_FADE 16.0
-#define SHORE_PROBE 8.0
+#define SHORE_DEPTH 8.0
 #define SWASH 4.0
 #define SLOPE_SLACK 34.0
 #define SLOPE_SLACK_MAX 64.0
@@ -189,7 +189,7 @@ float3 decodeColumn(float4 c)
 	float cut = (c.r * 65280.0 + c.g * 255.0) / 65535.0 * Z_RANGE + Z_MIN;
 	float offset = c.a * 255.0;
 
-	return float3(cut, c.b, offset < 254.5 ? cut - offset / 254.0 * SHORE_PROBE : Z_MIN);
+	return float3(cut, c.b, offset < 254.5 ? cut - offset / 254.0 * SHORE_DEPTH : Z_MIN);
 }
 
 float3 coverAt(float2 col)

@@ -15,7 +15,7 @@ local SEED_GLOSS = 0.7
 local SOLID = MASK_SOLID
 local WATER = MASK_WATER
 local IN_WATER = CONTENTS_WATER
-local SHORE_PROBE = 8
+local SHORE_DEPTH = 8
 local SPAN_OPEN_SLACK, SPAN_COLUMN_OFFSET, SPAN_MIN_NORMAL = 16, 24, 0.1
 local GLOSS = {
 	[MAT_GRASS] = 0.05,
@@ -631,7 +631,7 @@ local upTrace = { mask = SOLID, start = Vector(), endpos = Vector(), output = {}
 local downTrace = { mask = SOLID, start = Vector(), endpos = Vector(), output = {} }
 local waterTrace = { mask = WATER, start = Vector(), endpos = Vector(), output = {} }
 local players, playerCount = {}, -1
-local probe = Vector()
+local contentsPos = Vector()
 
 local KEY_OFFSET = 32768
 
@@ -669,13 +669,13 @@ local function traceOpenColumn(cx, cy, top, bottom)
 	local down = util.TraceLine(downTrace)
 	if down.Hit then
 		local hit = down.HitPos
-		probe:SetUnpacked(hit.x, hit.y, hit.z + 1)
-		if bit.band(util.PointContents(probe), IN_WATER) == 0 then
+		contentsPos:SetUnpacked(hit.x, hit.y, hit.z + 1)
+		if bit.band(util.PointContents(contentsPos), IN_WATER) == 0 then
 			local level = false
-			probe.z = hit.z - SHORE_PROBE
-			if bit.band(util.PointContents(probe), IN_WATER) ~= 0 then
+			contentsPos.z = hit.z - SHORE_DEPTH
+			if bit.band(util.PointContents(contentsPos), IN_WATER) ~= 0 then
 				waterTrace.start:SetUnpacked(x, y, hit.z + 1)
-				waterTrace.endpos:Set(probe)
+				waterTrace.endpos:Set(contentsPos)
 				local shore = util.TraceLine(waterTrace)
 				level = shore.Hit and not shore.StartSolid and shore.HitPos.z
 			end
@@ -719,7 +719,7 @@ local function writeTexel(cx, cy, cut, gloss, level)
 	local v = math.floor(math.Clamp((cut - Z_MIN) / Z_RANGE, 0, 1) * 65535 + 0.5)
 	local hi = math.floor(v / 256)
 	render.SetViewPort(cx % COLUMNS, cy % COLUMNS, 1, 1)
-	render.Clear(hi, v - hi * 256, math.floor(gloss * 255 + 0.5), level and math.floor(math.Clamp((cut - level) / SHORE_PROBE, 0, 1) * 254 + 0.5) or 255)
+	render.Clear(hi, v - hi * 256, math.floor(gloss * 255 + 0.5), level and math.floor(math.Clamp((cut - level) / SHORE_DEPTH, 0, 1) * 254 + 0.5) or 255)
 end
 
 local sweepX, sweepY = {}, {}

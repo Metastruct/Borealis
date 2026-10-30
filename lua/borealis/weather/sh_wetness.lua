@@ -83,7 +83,7 @@ local FAR_TRACES_PER_FRAME = 32
 local FAR_DEFAULT = 0.7
 local FAR_LIFT, FAR_LIFT_LOW, FAR_DROP = 1024, 128, 4096
 local FAR_RETRACE_Z = 1024
-local SHORE_PROBE = 8
+local SHORE_DEPTH = 8
 local Z_MIN, Z_RANGE = cover.Z_MIN, cover.Z_RANGE
 
 local farRT, farX, farY, farZ
@@ -105,7 +105,7 @@ local function farColumn(cx, cy, z)
 	if not tr.Hit or tr.HitSky then return FAR_DEFAULT end
 
 	farWater.start:Set(farTrace.start)
-	farWater.endpos:SetUnpacked(x, y, tr.HitPos.z - SHORE_PROBE)
+	farWater.endpos:SetUnpacked(x, y, tr.HitPos.z - SHORE_DEPTH)
 	local water = util.TraceLine(farWater)
 
 	return cover.GLOSS[tr.MatType] or 1, water.Hit and not water.StartSolid and water.HitPos.z or nil

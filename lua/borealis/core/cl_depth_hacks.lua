@@ -871,7 +871,7 @@ end
 
 local SKIP_PREFIXES = { "tools/", "decals/", "overlays/", "signs/" }
 local CACHE_DIR = "shaderpack/opacity"
-local alphaRT, alphaProbe
+local alphaRT, alphaMeasureMat
 local worldQueue = {}
 local verdictCache, cacheDirty = {}, false
 
@@ -935,7 +935,7 @@ end
 
 local function measureAlpha(tex)
 	local tw, th = math.min(tex:Width(), 1024), math.min(tex:Height(), 1024)
-	alphaProbe:SetTexture("$basetexture", tex)
+	alphaMeasureMat:SetTexture("$basetexture", tex)
 
 	render.PushRenderTarget(alphaRT)
 	render.Clear(0, 0, 0, 0)
@@ -943,7 +943,7 @@ local function measureAlpha(tex)
 	render.PushFilterMag(TEXFILTER.POINT)
 	render.PushFilterMin(TEXFILTER.POINT)
 	cam.Start2D()
-	surface.SetMaterial(alphaProbe)
+	surface.SetMaterial(alphaMeasureMat)
 	surface.SetDrawColor(255, 255, 255, 255)
 	surface.DrawTexturedRect(0, 0, tw, th)
 	cam.End2D()
@@ -999,7 +999,7 @@ local function alphaReady()
 		return false
 	end
 
-	alphaProbe = alphaProbe or CreateMaterial("borealis_opacity_alphaprobe", "UnlitGeneric", {
+	alphaMeasureMat = alphaMeasureMat or CreateMaterial("borealis_opacity_alphameasure", "UnlitGeneric", {
 		["$basetexture"] = "color/white",
 		["$vertexalpha"] = 1,
 		["$translucent"] = 1,
