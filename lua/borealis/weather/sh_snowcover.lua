@@ -32,6 +32,8 @@ local SKY_TRACE_DISTANCE = 16384
 local SKY_CELL, LIGHT_CELL, CLUSTER_CELL = 16, 16, 64
 local SMALL_TRI = CELL * 2
 local SKIRT_DEPTH = 1
+local SLOPE_WIDTH, SLOPE_CELL = 48, 64
+local EDGE_CHECK_DISTANCE, EDGE_MATCH_Z = 2, 4
 local FILL_K = 0.5
 local SNOWY = { "grass", "mud", "sand", "snow" }
 local NOT_SNOWY = { "water", "gm_flatgrass" }
@@ -87,7 +89,7 @@ local function vertexKey(x, y, z)
 	return math.floor(x * 8 + 0.5) .. "," .. math.floor(y * 8 + 0.5) .. "," .. math.floor(z * 8 + 0.5)
 end
 
-local triGrid, edgeGrid
+local triGrid, edgeGrid, snowEndGrid
 
 local wetPos = Vector()
 
@@ -95,6 +97,37 @@ local function submerged(x, y, z)
 	wetPos:SetUnpacked(x, y, z + 2)
 
 	return bit.band(util.PointContents(wetPos), MASK_WATER) ~= 0
+end
+
+local function snowEndsAt(grid, x, y, z, ox, oy)
+	local px, py = x + ox * EDGE_CHECK_DISTANCE, y + oy * EDGE_CHECK_DISTANCE
+	wetPos:SetUnpacked(px, py, z + DEPTH + 1)
+	if bit.band(util.PointContents(wetPos), CONTENTS_SOLID) ~= 0 then return false end
+
+	for _, t in ipairs(bspdata.Candidates(grid, px - 1, py - 1, px + 1, py + 1)) do
+		if t.vn then
+			local sz = bspdata.Sample(t, px, py)
+			if sz and math.abs(sz - z) <= EDGE_MATCH_Z then return false end
+		end
+	end
+
+	return true
+end
+
+local function addSnowEnd(endGrid, seg)
+	local ax, ay, bx, by = seg[1], seg[2], seg[4], seg[5]
+	for cy = math.floor((math.min(ay, by) - SLOPE_WIDTH) / SLOPE_CELL), math.floor((math.max(ay, by) + SLOPE_WIDTH) / SLOPE_CELL) do
+		for cx = math.floor((math.min(ax, bx) - SLOPE_WIDTH) / SLOPE_CELL), math.floor((math.max(ax, bx) + SLOPE_WIDTH) / SLOPE_CELL) do
+			local key = chunkKey(cx, cy)
+			local list = endGrid[key]
+			if not list then
+				list = {}
+				endGrid[key] = list
+			end
+
+			list[#list + 1] = seg
+		end
+	end
 end
 
 local function load()
@@ -160,7 +193,7 @@ local function load()
 		yieldIfOverBudget()
 	end
 
-	local egrid = {}
+	local egrid, endGrid = {}, {}
 	for _, rec in pairs(edges) do
 		if rec then
 			local t, e = rec[1], rec[2]
@@ -185,13 +218,23 @@ local function load()
 						list[#list + 1] = edge
 					end
 				end
+
+				local pieces = math.max(1, math.ceil(len / CELL))
+				for k = 1, pieces do
+					local f0, f1 = (k - 1) / pieces, k / pieces
+					local px, py, pz = ax + (bx - ax) * f0, ay + (by - ay) * f0, az + (bz - az) * f0
+					local qx, qy, qz = ax + (bx - ax) * f1, ay + (by - ay) * f1, az + (bz - az) * f1
+					if snowEndsAt(grid, (px + qx) * 0.5, (py + qy) * 0.5, (pz + qz) * 0.5, ox, oy) then
+						addSnowEnd(endGrid, { px, py, pz, qx, qy, qz, ox, oy })
+					end
+				end
 			end
 		end
 
 		yieldIfOverBudget()
 	end
 
-	triGrid, edgeGrid = grid, egrid
+	triGrid, edgeGrid, snowEndGrid = grid, egrid, endGrid
 
 	return true
 end
@@ -204,9 +247,63 @@ local function cellKey(x, y, z, size)
 	return (math.floor(x / size) + 4096) * 67108864 + (math.floor(y / size) + 4096) * 8192 + math.floor(z / size) + 4096
 end
 
+local edgeRes = {}
+local edgeTrace = { mask = MASK_SOLID_BRUSHONLY, start = Vector(), endpos = Vector(), output = edgeRes }
+
+local function edgeSlopeAt(x, y, z)
+	local list = snowEndGrid[chunkKey(math.floor(x / SLOPE_CELL), math.floor(y / SLOPE_CELL))]
+	if not list then return 1, 0, 0 end
+
+	local best, gx, gy = SLOPE_WIDTH * SLOPE_WIDTH, 0, 0
+	for _, seg in ipairs(list) do
+		local ax, ay, bx, by = seg[1], seg[2], seg[4], seg[5]
+		local dx, dy = bx - ax, by - ay
+		local len2 = dx * dx + dy * dy
+		local f = len2 > 0 and math.Clamp(((x - ax) * dx + (y - ay) * dy) / len2, 0, 1) or 0
+		local px, py = ax + dx * f, ay + dy * f
+		local ex, ey = x - px, y - py
+		local d2 = ex * ex + ey * ey
+		if d2 < best then
+			local unobstructed = d2 < 1
+			if not unobstructed then
+				edgeTrace.start:SetUnpacked(x, y, z + 2)
+				edgeTrace.endpos:SetUnpacked(px, py, seg[3] + (seg[6] - seg[3]) * f + 2)
+				util.TraceLine(edgeTrace)
+				unobstructed = not edgeRes.Hit
+			end
+
+			if unobstructed then
+				best = d2
+				if d2 < 1 then
+					gx, gy = -seg[7], -seg[8]
+				else
+					local d = math.sqrt(d2)
+					gx, gy = ex / d, ey / d
+				end
+			end
+		end
+	end
+
+	if gx == 0 and gy == 0 then return 1, 0, 0 end
+
+	local rise = DEPTH / SLOPE_WIDTH
+
+	return math.sqrt(best) / SLOPE_WIDTH, gx * rise, gy * rise
+end
+
+local function slopedNormal(nx, ny, gx, gy)
+	if gx == 0 and gy == 0 then return nx, ny end
+
+	local nz = math.sqrt(math.max(1 - nx * nx - ny * ny, 0))
+	nx, ny = nx - gx, ny - gy
+	local len = math.sqrt(nx * nx + ny * ny + nz * nz)
+
+	return nx / len, ny / len
+end
+
 local function snowAt(x, y, z, nonSnow, cache)
 	local cover = 1 - nonSnow / 255
-	if cover <= 0 then return 0, 0 end
+	if cover <= 0 then return 0, 0, 0, 0 end
 
 	local skyKey = cellKey(x, y, z, SKY_CELL)
 	local open = cache.sky[skyKey]
@@ -219,7 +316,7 @@ local function snowAt(x, y, z, nonSnow, cache)
 		cache.sky[skyKey] = open
 	end
 
-	if not open then return 0, 0 end
+	if not open then return 0, 0, 0, 0 end
 
 	local lightKey = cellKey(x, y, z, LIGHT_CELL)
 	local light = cache.light[lightKey]
@@ -230,7 +327,9 @@ local function snowAt(x, y, z, nonSnow, cache)
 		cache.light[lightKey] = light
 	end
 
-	return cover, light
+	local height, gx, gy = edgeSlopeAt(x, y, z)
+
+	return cover * height, light, gx * cover, gy * cover
 end
 
 local function clipPoly(poly, axis, value, sign)
@@ -286,14 +385,17 @@ local function buildVerts(ch)
 
 	local function emitTri(poly, i1, i2, i3)
 		local a, b, c = poly[i1], poly[i2], poly[i3]
-		local ca, la = snowAt(a[1], a[2], a[3], a[4], cache)
-		local cb, lb = snowAt(b[1], b[2], b[3], b[4], cache)
-		local cc, lc = snowAt(c[1], c[2], c[3], c[4], cache)
+		local ca, la, gax, gay = snowAt(a[1], a[2], a[3], a[4], cache)
+		local cb, lb, gbx, gby = snowAt(b[1], b[2], b[3], b[4], cache)
+		local cc, lc, gcx, gcy = snowAt(c[1], c[2], c[3], c[4], cache)
 		if ca + cb + cc <= 0 then return false end
 
-		emit(a[1], a[2], a[3] + ca * DEPTH, a[5], a[6], ca, la)
-		emit(b[1], b[2], b[3] + cb * DEPTH, b[5], b[6], cb, lb)
-		emit(c[1], c[2], c[3] + cc * DEPTH, c[5], c[6], cc, lc)
+		local nax, nay = slopedNormal(a[5], a[6], gax, gay)
+		local nbx, nby = slopedNormal(b[5], b[6], gbx, gby)
+		local ncx, ncy = slopedNormal(c[5], c[6], gcx, gcy)
+		emit(a[1], a[2], a[3] + ca * DEPTH, nax, nay, ca, la)
+		emit(b[1], b[2], b[3] + cb * DEPTH, nbx, nby, cb, lb)
+		emit(c[1], c[2], c[3] + cc * DEPTH, ncx, ncy, cc, lc)
 
 		return true
 	end
@@ -733,7 +835,7 @@ local function stop()
 	hook.Remove("PostDrawOpaqueRenderables", "borealis_snowcover")
 	hook.Remove("ShouldDrawLocalPlayer", "borealis_snowcover")
 	grid:Stop()
-	triGrid, edgeGrid = nil, nil
+	triGrid, edgeGrid, snowEndGrid = nil, nil, nil
 	winX, winY = nil, nil
 end
 
