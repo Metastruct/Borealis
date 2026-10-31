@@ -65,16 +65,15 @@ function ENT:Initialize()
 		return
 	end
 
-	self:PhysicsInitMultiConvex(hulls)
+	self:PhysicsInitMultiConvex(hulls, util.GetSurfaceIndex(SURFACE) >= 0 and SURFACE or "ice")
 	self:SetSolid(SOLID_VPHYSICS)
-	self:SetMoveType(MOVETYPE_NONE)
+	self:SetMoveType(MOVETYPE_VPHYSICS)
 	self:EnableCustomCollisions(true)
 	self:DrawShadow(false)
 
 	local phys = self:GetPhysicsObject()
 	if IsValid(phys) then
 		phys:EnableMotion(false)
-		phys:SetMaterial(util.GetSurfaceIndex(SURFACE) >= 0 and SURFACE or "ice")
 	end
 end
 
