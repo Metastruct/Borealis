@@ -5,6 +5,9 @@ local SHADERS = { ROWS_PS, OUTLINE_PS, QUAD_VS }
 
 local FLAGS = bit.bor(STUDIO_RENDER, STUDIO_SKIP_DECALS or 0)
 local MAX_WIDTH = 15
+local PHYSGUN_WIDTH = 2
+local DEPTH_BIAS = 8
+local MAX_DEPTH_SHIFT = 0.01
 local GROUPS_PER_PASS = 6
 local CODE_BASE, CODE_STEP = 225, 5
 local RETRY = 5
@@ -137,9 +140,19 @@ local function drawEntity(ent)
 	RenderEnt = NULL
 end
 
-local function drawEntities(entities)
+local function depthBias(ent, zNear)
+	local bias = DEPTH_BIAS * zNear / EyePos():DistToSqr(ent:WorldSpaceCenter())
+	render.DepthRange(0, 1 - math.min(bias, MAX_DEPTH_SHIFT))
+end
+
+local function drawEntities(entities, ignorez)
+	local zNear = render.GetViewSetup().znear
+	render.OverrideDepthEnable(true, false)
 	for _, ent in pairs(entities) do
 		if IsValid(ent) then
+			if not ignorez then
+				depthBias(ent, zNear)
+			end
 			local ok, err = pcall(drawEntity, ent)
 			if not ok then
 				RenderEnt = NULL
@@ -151,6 +164,8 @@ local function drawEntities(entities)
 			end
 		end
 	end
+	render.DepthRange(0, 1)
+	render.OverrideDepthEnable(false, false)
 	table.Empty(drawing)
 end
 
@@ -193,7 +208,7 @@ local function renderBlur(entry)
 		render.SetStencilReferenceValue(1)
 		render.SuppressEngineLighting(true)
 		cam.IgnoreZ(entry.IgnoreZ)
-		drawEntities(entry.Ents)
+		drawEntities(entry.Ents, entry.IgnoreZ)
 		cam.IgnoreZ(false)
 		render.SuppressEngineLighting(false)
 
@@ -318,7 +333,7 @@ local function renderOutlines(list, first, last)
 		for i = first, last do
 			render.SetStencilReferenceValue(i - first + 1)
 			cam.IgnoreZ(list[i].IgnoreZ)
-			drawEntities(list[i].Ents)
+			drawEntities(list[i].Ents, list[i].IgnoreZ)
 		end
 		cam.IgnoreZ(false)
 		render.SuppressEngineLighting(false)
