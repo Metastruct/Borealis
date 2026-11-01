@@ -316,7 +316,7 @@ end
 
 bspdata.Displacement = addDisplacement
 
-function bspdata.Triangles(classify, minNormalZ)
+function bspdata.Triangles(classify, minNormalZ, worldOnly)
 	local f, lump = openLumps()
 	if not f then return nil, "cannot open maps/" .. game.GetMap() .. ".bsp" end
 
@@ -331,6 +331,12 @@ function bspdata.Triangles(classify, minNormalZ)
 	local edges = lump(12)
 	local surfedges = lump(13)
 	local planes = lump(1)
+	local firstFace, lastFace = 0, faLen / 56 - 1
+	if worldOnly then
+		local models = lump(14)
+		firstFace = i32(models, 41)
+		lastFace = firstFace + i32(models, 45) - 1
+	end
 	f:Close()
 
 	local yieldIfOverBudget = frameBudget()
@@ -361,7 +367,7 @@ function bspdata.Triangles(classify, minNormalZ)
 		addTri(triGrid, ...)
 	end
 
-	for i = 0, faLen / 56 - 1 do
+	for i = firstFace, lastFace do
 		if i % 512 == 0 then yieldIfOverBudget() end
 		local fp = i * 56 + 1
 		local ti = i16(faces, fp + 10)

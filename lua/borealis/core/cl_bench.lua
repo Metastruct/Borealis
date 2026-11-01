@@ -5,7 +5,7 @@ local VIEWS = { { "horizon", 0 }, { "up", -30 } }
 local GENERAL = { "cl_draw_procsky", "cl_draw_clouds", "cl_draw_skyterrain", "cl_draw_sunshafts", "cl_draw_water", "cl_draw_grass", "cl_draw_seagrass", "cl_draw_kelp", "cl_draw_vclouds", "cl_draw_ssao", "cl_draw_leaves", "cl_draw_lava", "cl_draw_grade" }
 local RAIN = { "cl_draw_precipitations", "cl_draw_fog", "cl_draw_wetness" }
 local SNOW = { "cl_draw_precipitations", "cl_draw_fog" }
-local WINTER = { "cl_draw_snowcover", "cl_draw_wetness" }
+local WINTER = { "cl_draw_snowcover" }
 local NIGHT = { "cl_draw_auroras" }
 local LISTS = { GENERAL, RAIN, SNOW, WINTER, NIGHT }
 

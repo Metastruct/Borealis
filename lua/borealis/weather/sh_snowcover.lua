@@ -8,8 +8,8 @@ if SERVER then
 	return
 end
 
-local bspdata, depthslices, foliage, chunks = shaderpack.bspdata, shaderpack.depthslices, shaderpack.foliage, shaderpack.chunks
-local ENABLED = CreateClientConVar("cl_draw_snowcover", "1", true, false, "draw deep snow with footprints on snowy ground in winter")
+local bspdata, depthslices, foliage, chunks, dynamiclights = shaderpack.bspdata, shaderpack.depthslices, shaderpack.foliage, shaderpack.chunks, shaderpack.dynamiclights
+local ENABLED = CreateClientConVar("cl_draw_snowcover", "1", true, false, "draw deep snow with footprints in winter")
 local snowcover = shaderpack.snowcover or {}
 shaderpack.snowcover = snowcover
 
@@ -23,7 +23,7 @@ end
 
 local DEPTH = 10
 local CHUNK, CELL = 512, 32
-local MIN_NZ = 0.6
+local MIN_NZ = 0.3
 local RADIUS = 3072
 local FADE_START, FADE_END = RADIUS * 0.75, RADIUS * 0.95
 local MESH_TRIS = 10000
@@ -35,8 +35,7 @@ local SKIRT_DEPTH = 1
 local SLOPE_WIDTH, SLOPE_CELL = 48, 64
 local EDGE_CHECK_DISTANCE, EDGE_MATCH_Z = 2, 4
 local FILL_K = 0.5
-local SNOWY = { "grass", "mud", "sand", "snow" }
-local NOT_SNOWY = { "water", "gm_flatgrass" }
+local FLASHLIGHT_ALBEDO = "[0.6 0.6 0.62]"
 
 local TRAIL_TEXELS, TRAIL_SPAN = 1024, 2048
 local TEXEL = TRAIL_SPAN / TRAIL_TEXELS
@@ -51,25 +50,10 @@ local RESTAMP_INTERVAL = 1
 
 local setConstant, packColor, toLinear = shaderpack.SetConstant, shaderpack.PackColor, shaderpack.ToLinear
 
-local function snowy(name)
-	if not name then return false end
-	local lower = name:lower()
-	for _, s in ipairs(NOT_SNOWY) do
-		if lower:find(s, 1, true) then return false end
-	end
-
-	for _, s in ipairs(SNOWY) do
-		if lower:find(s, 1, true) then return true end
-	end
-
-	return false
-end
-
 local function classify(name)
-	if not snowy(name) then return end
-	local base2 = Material(name):GetString("$basetexture2")
+	if name:lower():find("^tools/") or Material(name):GetShader():lower():find("water", 1, true) then return end
 
-	return (not base2 or snowy(base2)) and 1 or 2
+	return 1
 end
 
 local chunkKey = chunks.Key
@@ -135,7 +119,7 @@ local function load()
 	if not vis then return false, why end
 
 	local grid
-	grid, why = bspdata.Triangles(classify, MIN_NZ)
+	grid, why = bspdata.Triangles(classify, MIN_NZ, true)
 	if not grid then return false, why end
 
 	grid = bspdata.RemoveSkybox(grid)
@@ -486,7 +470,7 @@ local function buildVerts(ch)
 	return verts, n / STRIDE / 3
 end
 
-local vpos = Vector()
+local vpos, vnormal = Vector(), Vector()
 
 local function buildChunk(ch)
 	local verts, tris = buildVerts(ch)
@@ -501,9 +485,12 @@ local function buildChunk(ch)
 		mesh.Begin(m, MATERIAL_TRIANGLES, count)
 		for _ = 1, count * 3 do
 			local light = verts[o + 6]
+			local nx, ny = verts[o + 4], verts[o + 5]
 			vpos:SetUnpacked(verts[o + 1], verts[o + 2], verts[o + 3])
+			vnormal:SetUnpacked(nx, ny, math.sqrt(math.max(1 - nx * nx - ny * ny, 0)))
 			mesh.Position(vpos)
-			mesh.TexCoord(0, verts[o + 4], verts[o + 5])
+			mesh.Normal(vnormal)
+			mesh.TexCoord(0, nx, ny)
 			mesh.Color(math.floor(light / 65536), math.floor(light / 256) % 256, light % 256, math.floor(verts[o + 7] * 255 + 0.5))
 			mesh.AdvanceVertex()
 			o = o + STRIDE
@@ -737,7 +724,7 @@ local function prepare()
 	capture()
 end
 
-local MAT, DEPTH_MAT
+local MAT, DEPTH_MAT, FLASHLIGHT_MAT
 local materialSerial = 0
 local extra = Matrix()
 
@@ -755,6 +742,16 @@ local function skyTint(tonemap)
 end
 
 local visible = {}
+local visibleCount = 0
+
+local function drawVisible()
+	render.SetMaterial(FLASHLIGHT_MAT)
+	for i = 1, visibleCount do
+		for _, m in ipairs(visible[i].meshes) do
+			m:Draw()
+		end
+	end
+end
 
 local function draw(depth, skybox, sky3d)
 	if paused or not grid.ready or depth or skybox or sky3d or render.GetRenderTarget() then return end
@@ -783,6 +780,8 @@ local function draw(depth, skybox, sky3d)
 	end
 
 	if nvis == 0 then return end
+
+	dynamiclights.Update(eye)
 
 	local tonemap = render.GetToneMappingScaleLinear().x
 	local amb = render.GetAmbientLightColor()
@@ -815,6 +814,9 @@ local function draw(depth, skybox, sky3d)
 		end
 	end
 	render.OverrideDepthEnable(false, false)
+
+	visibleCount = nvis
+	render.RenderFlashlights(drawVisible)
 
 	if DEPTH_MAT and depthslices.BeginDepthWrite() then
 		render.SetMaterial(DEPTH_MAT)
@@ -850,7 +852,8 @@ local function start()
 
 	trailRT = GetRenderTargetEx("borealis_snowcover_trail_" .. TRAIL_TEXELS, TRAIL_TEXELS, TRAIL_TEXELS, RT_SIZE_LITERAL, MATERIAL_RT_DEPTH_NONE, 0, 0, IMAGE_FORMAT_RGBA16161616F)
 	stampRT = GetRenderTargetEx("borealis_snowcover_stamp_" .. TRAIL_TEXELS, TRAIL_TEXELS, TRAIL_TEXELS, RT_SIZE_LITERAL, MATERIAL_RT_DEPTH_NONE, 0, 0, IMAGE_FORMAT_RGBA8888)
-	if not shaderpack.UsableRT(trailRT, TRAIL_TEXELS) or not shaderpack.UsableRT(stampRT, TRAIL_TEXELS) then
+	local dynamicLightsRT = dynamiclights.Texture()
+	if not dynamicLightsRT or not shaderpack.UsableRT(trailRT, TRAIL_TEXELS) or not shaderpack.UsableRT(stampRT, TRAIL_TEXELS) then
 		trailRT, stampRT = nil, nil
 
 		return
@@ -877,6 +880,7 @@ local function start()
 		["$texture1"] = NOISE,
 		["$linearread_basetexture"] = 1,
 		["$linearread_texture1"] = 1,
+		["$linearread_texture2"] = 1,
 		["$linearwrite"] = 0,
 		["$alpha_blend"] = 0,
 		["$additive"] = 0,
@@ -889,11 +893,18 @@ local function start()
 		["$c3_x"] = 0, ["$c3_y"] = 0, ["$c3_z"] = 0, ["$c3_w"] = 0,
 	}, "screenspace_general_8tex")
 	MAT:SetTexture("$basetexture", trailRT)
+	MAT:SetTexture("$texture2", dynamicLightsRT)
 	blurMat:SetTexture("$basetexture", stampRT)
 	DEPTH_MAT = CreateShaderMaterial("borealis_snowcoverdepth_" .. suffix, {
 		["$pixshader"] = DEPTH_PS,
 		["$vertexshader"] = VS,
 		["$alpha_blend"] = 0,
+		["$nocull"] = 1,
+	})
+	FLASHLIGHT_MAT = CreateMaterial("borealis_snowcoverflashlight_" .. suffix, "VertexLitGeneric", {
+		["$basetexture"] = "color/white",
+		["$color2"] = FLASHLIGHT_ALBEDO,
+		["$model"] = 1,
 		["$nocull"] = 1,
 	})
 

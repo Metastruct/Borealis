@@ -10,6 +10,9 @@ const float4 Constants13 : register(c13);
 
 sampler Trail : register(s0);
 sampler3D Noise : register(s1);
+sampler DynamicLights : register(s2);
+
+#include "include/dynamic_lights.hlsl"
 
 #define EYE         Constants0.xyz
 #define TIME        Constants0.w
@@ -183,7 +186,7 @@ PS_OUT main(PS_IN i)
 
 	float flatLight = share * saturate(sunDir.z) + (1.0 - share);
 	float slopeLight = share * saturate(dot(nrm, sunDir)) * (1.0 - sunShadow) + (1.0 - share) * (0.5 + 0.5 * nrm.z);
-	float3 light = (i.color.rgb * 2.0 * LIGHT_SCALE + unpackColor(FILL)) * (slopeLight / max(flatLight, 1e-3));
+	float3 light = (i.color.rgb * 2.0 * LIGHT_SCALE + unpackColor(FILL)) * (slopeLight / max(flatLight, 1e-3)) + DynamicLightAt(DynamicLights, q.xy, EYE.xy);
 
 	float3 color = albedo * light * (1.0 - CAVITY * carve) * BRIGHTNESS;
 	color += SKY_TINT * SSS * carve * saturate(1.0 - nrm.z);

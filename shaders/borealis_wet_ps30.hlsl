@@ -103,48 +103,6 @@ sampler CoverSpans : register(s6);
 #define FLOW_TILT 0.15
 
 #include "include/rain_ripples.hlsl"
-#include "include/ice.hlsl"
-
-#define FROZEN (RAIN < 0.0)
-#define FROST_GLOSS_MIN 0.4
-#define FROST_GLOSS_FULL 0.6
-#define FROST_PATCH_TILE 500.0
-#define FROST_PATCH_MIN 0.35
-#define FROST_GRAIN_TILE 60.0
-#define FROST_WARP_TILE 120.0
-#define FROST_WARP 6.0
-#define FROST_CRYSTAL_SIZE 10.0
-#define FROST_CRYSTAL_SMALL 4.0
-#define FROST_FEATHER float2(7.0, 0.7)
-#define FROST_RADIUS 0.85
-#define FROST_DETAIL_START 250.0
-#define FROST_DETAIL_END 900.0
-#define FROST_BASE 0.45
-#define FROST_CRYSTAL 0.95
-#define FROST_LUMA float3(0.2126, 0.7152, 0.0722)
-#define FROST_WHITE float3(0.95, 0.98, 1.04)
-#define FROST_GAIN 2.2
-#define FROST_BRIGHTNESS_OFFSET 0.04
-#define FROST_SPARKLE_CELL 1.0
-#define FROST_SPARKLE_SIZE 0.14
-#define FROST_SPARKLE_RATE 0.9
-#define FROST_SPARKLE_RANGE 300.0
-#define FROST_SPARKLE_TILT 0.9
-#define FROST_SPARKLE_POWER 48.0
-#define FROST_SPARKLE_GAIN 4.0
-
-float FrostFeathers(sampler3D noise, float2 p, float size)
-{
-	float4 c = IceCell(p, size);
-	float2 h = IceHash2(c.zw + 0.5);
-	float angle = h.x * 6.2831853;
-	float2 axis = float2(cos(angle), sin(angle));
-	float2 local = float2(dot(p, axis), dot(p, float2(-axis.y, axis.x)));
-	float feather = tex3Dlod(noise, float4(local / (FROST_FEATHER * size / FROST_CRYSTAL_SIZE), h.y, 0.0)).r;
-	float radialFade = 1.0 - saturate(length(c.xy) / (size * FROST_RADIUS));
-
-	return smoothstep(0.45, 0.75, feather) * radialFade;
-}
 
 #define SSR_STEPS 32
 #define SSR_REFINE 5
@@ -399,15 +357,14 @@ PS_OUT main(PS_IN i)
 
 	float4 cover = exposure(p, n, floor(EYE.xy / COLUMN));
 	float gloss = cover.y;
-	float rainWet = FROZEN ? 0.0 : WET;
-	float wet = rainWet * upward * cover.x;
+	float wet = WET * upward * cover.x;
 	float patch = tex3Dlod(Noise, float4(p.xy * PATCH_SCALE, 0.5, 0.0)).r;
 	float patchWet = lerp(1.0 - PATCH_DRY, 1.0, smoothstep(0.3, 0.7, patch));
 	float damp = wet * patchWet;
-	float soaked = max(damp, rainWet * upward * cover.z * patchWet);
-	float shore = max(damp, rainWet * upward * cover.w * patchWet);
+	float soaked = max(damp, WET * upward * cover.z * patchWet);
+	float shore = max(damp, WET * upward * cover.w * patchWet);
 
-	float film = shore * gloss * smoothstep(FILM_START, FILM_FULL, rainWet) * saturate(remap(t, PUDDLE_FADE_END, PUDDLE_FADE_START, 0.0, 1.0));
+	float film = shore * gloss * smoothstep(FILM_START, FILM_FULL, WET) * saturate(remap(t, PUDDLE_FADE_END, PUDDLE_FADE_START, 0.0, 1.0));
 
 	float share = length(SUN);
 	float3 sunDir = SUN / max(share, 1e-4);
@@ -428,7 +385,7 @@ PS_OUT main(PS_IN i)
 	}
 
 	float puddle = smoothstep(threshold, threshold + PUDDLE_EDGE, level)
-		* upward * cover.x * (FROZEN ? 0.0 : 1.0)
+		* upward * cover.x
 		* saturate(remap(t, PUDDLE_FADE_END, PUDDLE_FADE_START, 0.0, 1.0));
 
 	[branch] if (puddle > 0.01 || film > 0.01)
@@ -464,36 +421,6 @@ PS_OUT main(PS_IN i)
 		color = lerp(color, mirror, (FILM_F0 + (1.0 - FILM_F0) * facing) * sheet * troubled);
 		float3 pool = lerp(lit * PUDDLE_DARK, mirror, (PUDDLE_F0 + (1.0 - PUDDLE_F0) * facing) * lerp(ABSORB_REFLECT, 1.0, gloss) * troubled);
 		color = lerp(color, pool, puddle);
-	}
-
-	[branch] if (FROZEN)
-	{
-		float gate = smoothstep(FROST_GLOSS_MIN, FROST_GLOSS_FULL, gloss);
-		float density = lerp(FROST_PATCH_MIN, 1.0, smoothstep(0.35, 0.65, IceNoise(Noise, p.xy, FROST_PATCH_TILE, 0.33)));
-		float amount = WET * upward * cover.x * gate * density;
-		float detail = saturate(remap(t, FROST_DETAIL_END, FROST_DETAIL_START, 0.0, 1.0));
-		float crystal = 0.0;
-		[branch] if (amount > 0.001 && detail > 0.0)
-		{
-			float2 warp = float2(IceNoise(Noise, p.xy, FROST_WARP_TILE, 0.15), IceNoise(Noise, p.xy, FROST_WARP_TILE, 0.85)) - 0.5;
-			float2 q = p.xy + warp * FROST_WARP;
-			crystal = max(FrostFeathers(Noise, q, FROST_CRYSTAL_SIZE), FrostFeathers(Noise, q + 17.0, FROST_CRYSTAL_SMALL) * 0.7) * detail;
-		}
-
-		float grain = IceNoise(Noise, p.xy, FROST_GRAIN_TILE, 0.47);
-		float3 white = FROST_WHITE * saturate(dot(lit, FROST_LUMA) * FROST_GAIN + FROST_BRIGHTNESS_OFFSET);
-		color = lerp(color, white, saturate(amount * lerp(FROST_BASE, FROST_CRYSTAL, crystal) * (0.75 + 0.5 * (grain - 0.5))));
-
-		float2 sp = p.xy / FROST_SPARKLE_CELL;
-		float2 cell = floor(sp);
-		[branch] if (amount > 0.001 && t < FROST_SPARKLE_RANGE && hash(cell) > FROST_SPARKLE_RATE)
-		{
-			float dotMask = 1.0 - smoothstep(FROST_SPARKLE_SIZE * 0.5, FROST_SPARKLE_SIZE, length(sp - cell - IceHash2(cell)));
-			float3 tilt = float3(hash(cell + 1.7), hash(cell + 3.1), hash(cell + 5.3)) - 0.5;
-			float3 facet = normalize(n + tilt * FROST_SPARKLE_TILT);
-			float glint = pow(saturate(dot(reflect(ray, facet), sunDir)), FROST_SPARKLE_POWER) * share;
-			color += white * glint * dotMask * FROST_SPARKLE_GAIN * amount * (1.0 - t / FROST_SPARKLE_RANGE);
-		}
 	}
 
 	return output(color, depth);

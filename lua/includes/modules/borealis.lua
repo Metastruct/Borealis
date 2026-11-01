@@ -8,6 +8,7 @@ local FILES = {
 	"sky/sh_sunshafts",
 	"core/sh_bsp",
 	"core/cl_chunks",
+	"core/cl_dynamic_lights",
 	"core/cl_depth_hacks",
 	"core/sh_cover",
 	"core/sv_halo",

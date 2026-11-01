@@ -12,7 +12,6 @@ local ENABLED = CreateClientConVar("cl_draw_wetness", "1", true, false, "darken 
 
 local WET_RATE, DRY_RATE = 1 / 20, 1 / 60
 local POOL_RATE, POOL_DRY_RATE = 1 / 40, 1 / 180
-local FROST = 0.8
 local ORDER = 0.5
 local PUDDLE_LEVELS = {
 	{ 0, 1.1 }, { 0.01, 0.81 }, { 0.05, 0.73 }, { 0.1, 0.68 }, { 0.25, 0.6 }, { 0.5, 0.5 },
@@ -71,10 +70,10 @@ local function ease(value, target, rise, fall, dt)
 end
 
 local function think()
-	local rain = tod and tod.rain and tod.rain.amount or 0
+	local rain = not frozen and tod and tod.rain and tod.rain.amount or 0
 	local dt = RealFrameTime()
-	wet = ease(wet, frozen and FROST or rain, WET_RATE, DRY_RATE, dt)
-	pool = ease(pool, frozen and 0 or rain, POOL_RATE, POOL_DRY_RATE, dt)
+	wet = ease(wet, rain, WET_RATE, DRY_RATE, dt)
+	pool = ease(pool, rain, POOL_RATE, POOL_DRY_RATE, dt)
 	active = wet > 0.001 or pool > 0.001
 end
 
@@ -234,7 +233,7 @@ local function draw()
 		lutScale = procsky.GetSkyScale() * render.GetToneMappingScaleLinear().x
 	end
 
-	local rain = frozen and -1 or tod and tod.rain and tod.rain.amount or 0
+	local rain = tod and tod.rain and tod.rain.amount or 0
 	local fogDensity, fogFalloff, fogBase = fog.Layer()
 	extra:SetUnpacked(
 		CurTime() % 3600, rain, lutWeight, lutScale,
@@ -262,7 +261,7 @@ local winterRemoved = false
 local function freeze()
 	frozen = not winterRemoved and shaderpack.ice ~= nil and shaderpack.ice.Winter()
 	if frozen then
-		wet, pool = FROST, 0
+		wet, pool = 0, 0
 	end
 end
 

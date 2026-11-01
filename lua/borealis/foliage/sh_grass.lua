@@ -81,7 +81,7 @@ local layer = foliage.Layer({
 	classify = foliage.SurfaceClassifier({ grass = true }, { "grass" }), minNormalZ = MAX_SLOPE_Z,
 	spacing = 18, jitter = 8, quadW = 26, quadH = QUAD_H,
 	sway = QUAD_H * 1.4 * LEAN_MAX,
-	keep = keep, palette = palette, frame = frame,
+	keep = keep, palette = palette, frame = frame, engineLights = true,
 })
 layer.height = HEIGHT
 

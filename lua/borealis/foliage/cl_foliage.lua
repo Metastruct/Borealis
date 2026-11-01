@@ -370,6 +370,12 @@ function Layer:draw(sky3d)
 	sightStart:Set(eye)
 	local tests = 0
 	local shown = 0
+	if self.cfg.engineLights then
+		shaderpack.dynamiclights.Update(eye)
+		shaderpack.dynamiclights.UpdateProjected(eye)
+		render.SetMaterial(MAT)
+	end
+
 	render.OverrideDepthEnable(true, true)
 	for _, ch in ipairs(visible) do
 		for _, b in ipairs(ch.meshes) do
@@ -440,6 +446,8 @@ function Layer:Start()
 	self.mat = self.mat or CreateShaderMaterial("borealis_" .. cfg.name .. "_" .. os.time(), {
 		["$pixshader"] = cfg.pixelShader,
 		["$vertexshader"] = cfg.vertexShader,
+		["$linearread_basetexture"] = 1,
+		["$linearread_texture1"] = 1,
 		["$ignorez"] = 0,
 		["$depthtest"] = 1,
 		["$additive"] = 0,
@@ -463,6 +471,11 @@ function Layer:Start()
 			["$c2_x"] = 0, ["$c2_y"] = 0, ["$c2_z"] = 0, ["$c2_w"] = 0,
 			["$c3_x"] = 0, ["$c3_y"] = 0, ["$c3_z"] = 0, ["$c3_w"] = 0,
 		})
+	end
+
+	if cfg.engineLights then
+		self.mat:SetTexture("$basetexture", shaderpack.dynamiclights.Texture() or "vgui/black")
+		self.mat:SetTexture("$texture1", shaderpack.dynamiclights.ProjectedTexture() or "vgui/black")
 	end
 
 	cfg.palette(self.mat, self.depthMat)

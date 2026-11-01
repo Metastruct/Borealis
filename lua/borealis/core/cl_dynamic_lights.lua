@@ -1,0 +1,192 @@
+local dynamiclights = shaderpack.dynamiclights or {}
+shaderpack.dynamiclights = dynamiclights
+
+local CELL, CELLS = 64, 24
+local HEIGHT_CACHE_LIMIT = 16384
+local TRACE_UP, TRACE_DOWN = 128, 1024
+local SAMPLE_HEIGHT = 12
+local PROJECTED_TEXELS = 256
+local PROJECTED_VIEW_HEIGHT = 4096
+local PROJECTED_ALBEDO = "[0.5 0.5 0.5]"
+
+local UP = Vector(0, 0, 1)
+local samplePos = Vector()
+local heightRes = {}
+local heightTrace = { mask = MASK_SOLID_BRUSHONLY, start = Vector(), endpos = Vector(), output = heightRes }
+
+local rt, updatedFrame, wasLit
+local heights, heightCount = {}, 0
+local litX, litY, litR, litG, litB = {}, {}, {}, {}, {}
+
+local function groundHeight(cx, cy, x, y, z)
+	local key = shaderpack.chunks.Key(cx, cy)
+	local height = heights[key]
+	if height then return height end
+
+	heightTrace.start:SetUnpacked(x, y, z + TRACE_UP)
+	heightTrace.endpos:SetUnpacked(x, y, z - TRACE_DOWN)
+	util.TraceLine(heightTrace)
+	height = heightRes.StartSolid and z or heightRes.HitPos.z
+
+	if heightCount >= HEIGHT_CACHE_LIMIT then
+		heights, heightCount = {}, 0
+	end
+
+	heights[key] = height
+	heightCount = heightCount + 1
+
+	return height
+end
+
+function dynamiclights.Texture()
+	if not rt then
+		rt = GetRenderTargetEx("borealis_dynamiclights_" .. CELLS, CELLS, CELLS, RT_SIZE_LITERAL, MATERIAL_RT_DEPTH_NONE, 0, 0, IMAGE_FORMAT_RGBA8888)
+		if not shaderpack.UsableRT(rt, CELLS) then
+			rt = nil
+
+			return
+		end
+
+		render.PushRenderTarget(rt)
+		render.Clear(0, 0, 0, 255)
+		render.PopRenderTarget()
+	end
+
+	return rt
+end
+
+function dynamiclights.Update(eye)
+	local frame = FrameNumber()
+	if not rt or updatedFrame == frame then return end
+	updatedFrame = frame
+
+	local compute = render.ComputeDynamicLighting
+	local floor = math.floor
+	local x0, y0 = floor(eye.x / CELL + 0.5) - CELLS / 2, floor(eye.y / CELL + 0.5) - CELLS / 2
+	local lit = 0
+	for iy = 0, CELLS - 1 do
+		local cy = y0 + iy
+		local y = (cy + 0.5) * CELL
+		for ix = 0, CELLS - 1 do
+			local cx = x0 + ix
+			local x = (cx + 0.5) * CELL
+			samplePos:SetUnpacked(x, y, groundHeight(cx, cy, x, y, eye.z) + SAMPLE_HEIGHT)
+			local l = compute(samplePos, UP)
+			if l.x > 0 or l.y > 0 or l.z > 0 then
+				lit = lit + 1
+				litX[lit], litY[lit], litR[lit], litG[lit], litB[lit] = ix, iy, l.x, l.y, l.z
+			end
+		end
+	end
+
+	if lit == 0 and not wasLit then return end
+	wasLit = lit > 0
+
+	render.PushRenderTarget(rt)
+	render.SetViewPort(0, 0, CELLS, CELLS)
+	render.Clear(0, 0, 0, 255)
+	for i = 1, lit do
+		render.SetViewPort(litX[i], litY[i], 1, 1)
+		render.Clear(math.min(floor(litR[i] * 127.5), 255), math.min(floor(litG[i] * 127.5), 255), math.min(floor(litB[i] * 127.5), 255), 255)
+	end
+
+	render.SetViewPort(0, 0, CELLS, CELLS)
+	render.PopRenderTarget()
+end
+
+local projectedRT, projectedMat, proxy, proxyX, proxyY, projectedFrame, projectedLit
+local anyProjected = false
+local proxyPos = Vector()
+local projectedView = { type = "3D", origin = Vector(), angles = Angle(90, 90, 0), x = 0, y = 0, w = PROJECTED_TEXELS, h = PROJECTED_TEXELS, znear = 1, zfar = PROJECTED_VIEW_HEIGHT * 2, ortho = {} }
+
+function dynamiclights.ProjectedTexture()
+	if not projectedRT then
+		projectedRT = GetRenderTargetEx("borealis_projectedlights_" .. PROJECTED_TEXELS, PROJECTED_TEXELS, PROJECTED_TEXELS, RT_SIZE_LITERAL, MATERIAL_RT_DEPTH_NONE, 0, 0, IMAGE_FORMAT_RGBA8888)
+		if not shaderpack.UsableRT(projectedRT, PROJECTED_TEXELS) then
+			projectedRT = nil
+
+			return
+		end
+
+		projectedMat = CreateMaterial("borealis_projectedlights_" .. os.time(), "VertexLitGeneric", {
+			["$basetexture"] = "color/white",
+			["$color2"] = PROJECTED_ALBEDO,
+			["$model"] = 1,
+			["$nocull"] = 1,
+		})
+
+		render.PushRenderTarget(projectedRT)
+		render.Clear(0, 0, 0, 255)
+		render.PopRenderTarget()
+	end
+
+	return projectedRT
+end
+
+local function buildProxy(x0, y0, z)
+	if proxy then proxy:Destroy() end
+
+	local function vertex(cx, cy)
+		local x, y = (cx + 0.5) * CELL, (cy + 0.5) * CELL
+		proxyPos:SetUnpacked(x, y, groundHeight(cx, cy, x, y, z) + SAMPLE_HEIGHT)
+		mesh.Position(proxyPos)
+		mesh.Normal(UP)
+		mesh.TexCoord(0, 0, 0)
+		mesh.Color(255, 255, 255, 255)
+		mesh.AdvanceVertex()
+	end
+
+	proxy = Mesh()
+	mesh.Begin(proxy, MATERIAL_QUADS, (CELLS - 1) * (CELLS - 1))
+	for iy = 0, CELLS - 2 do
+		for ix = 0, CELLS - 2 do
+			local cx, cy = x0 + ix, y0 + iy
+			vertex(cx, cy)
+			vertex(cx + 1, cy)
+			vertex(cx + 1, cy + 1)
+			vertex(cx, cy + 1)
+		end
+	end
+	mesh.End()
+	proxyX, proxyY = x0, y0
+end
+
+local function markProjected()
+	anyProjected = true
+end
+
+local function drawProxy()
+	render.SetMaterial(projectedMat)
+	proxy:Draw()
+end
+
+function dynamiclights.UpdateProjected(eye)
+	local frame = FrameNumber()
+	if not projectedRT or projectedFrame == frame then return end
+	projectedFrame = frame
+
+	anyProjected = false
+	render.RenderFlashlights(markProjected)
+	if not anyProjected and not projectedLit then return end
+	projectedLit = anyProjected
+
+	render.PushRenderTarget(projectedRT)
+	render.Clear(0, 0, 0, 255)
+	if anyProjected then
+		local x0, y0 = math.floor(eye.x / CELL + 0.5) - CELLS / 2, math.floor(eye.y / CELL + 0.5) - CELLS / 2
+		if not proxy or x0 ~= proxyX or y0 ~= proxyY then
+			buildProxy(x0, y0, eye.z)
+		end
+
+		local half = CELLS * CELL * 0.5
+		local ortho = projectedView.ortho
+		ortho.left, ortho.right, ortho.top, ortho.bottom = -half, half, -half, half
+		projectedView.origin:SetUnpacked((x0 + CELLS / 2) * CELL, (y0 + CELLS / 2) * CELL, eye.z + PROJECTED_VIEW_HEIGHT)
+		cam.Start(projectedView)
+		cam.IgnoreZ(true)
+		render.RenderFlashlights(drawProxy)
+		cam.IgnoreZ(false)
+		cam.End()
+	end
+	render.PopRenderTarget()
+end

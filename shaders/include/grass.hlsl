@@ -14,6 +14,11 @@ const float4 Constants3 : register(c3);
 #define DRYNESS    Constants3.y
 #define FADE_END   Constants3.w
 
+#ifndef DEPTH_ONLY
+sampler DynamicLights : register(s0);
+sampler ProjectedLights : register(s1);
+#endif
+
 struct PS_IN
 {
 	float2 uv     : TEXCOORD0;
@@ -77,7 +82,7 @@ float4 main(PS_IN i) : COLOR
 	float3 rootDry = tipDry * 0.4;
 	float3 albedo = lerp(lerp(rootGreen, tipGreen, tip), lerp(rootDry, tipDry, tip), dry);
 
-	float3 light = i.color.rgb * 2.0 * LIGHT_SCALE + unpackColor(Constants1.y);
+	float3 light = i.color.rgb * 2.0 * LIGHT_SCALE + unpackColor(Constants1.y) + DynamicLightAt(DynamicLights, i.wpos.xy, EYE.xy) + ProjectedLightAt(ProjectedLights, i.wpos.xy, EYE.xy);
 	float3 col = albedo * light * (0.45 + 0.55 * tip) + albedo * light * TRANSLUCENCY * tip * tip;
 
 	return float4(col * BRIGHTNESS, 1.0);
