@@ -349,6 +349,11 @@ function Layer:draw(sky3d)
 	local eye, fwd, amb = v.eye, v.fwd, v.amb
 	local time = CurTime() * (self.cfg.timeScale or 1) % (self.cfg.timeWrap or 1000)
 
+	if math.abs(MAT:GetFloat("$c1_w") - self.fadeStart) > 1 then
+		self.cfg.palette(MAT, DEPTH_MAT)
+		self:SetDistance(self.radius)
+	end
+
 	setConstant(MAT, "$c0", eye.x, eye.y, eye.z, time)
 	MAT:SetFloat("$c1_y", packColor(amb.x * FILL_K, amb.y * FILL_K, amb.z * FILL_K))
 	MAT:SetFloat("$c2_x", worldLightScale())
@@ -371,6 +376,8 @@ function Layer:draw(sky3d)
 	local tests = 0
 	local shown = 0
 	if self.cfg.engineLights then
+		MAT:SetTexture("$basetexture", shaderpack.dynamiclights.Texture() or "vgui/black")
+		MAT:SetTexture("$texture1", shaderpack.dynamiclights.ProjectedTexture() or "vgui/black")
 		shaderpack.dynamiclights.Update(eye)
 		shaderpack.dynamiclights.UpdateProjected(eye)
 		render.SetMaterial(MAT)
@@ -471,11 +478,6 @@ function Layer:Start()
 			["$c2_x"] = 0, ["$c2_y"] = 0, ["$c2_z"] = 0, ["$c2_w"] = 0,
 			["$c3_x"] = 0, ["$c3_y"] = 0, ["$c3_z"] = 0, ["$c3_w"] = 0,
 		})
-	end
-
-	if cfg.engineLights then
-		self.mat:SetTexture("$basetexture", shaderpack.dynamiclights.Texture() or "vgui/black")
-		self.mat:SetTexture("$texture1", shaderpack.dynamiclights.ProjectedTexture() or "vgui/black")
 	end
 
 	cfg.palette(self.mat, self.depthMat)

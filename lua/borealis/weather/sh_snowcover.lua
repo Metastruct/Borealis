@@ -33,7 +33,13 @@ local SKY_CELL, LIGHT_CELL, CLUSTER_CELL = 16, 16, 64
 local SMALL_TRI = CELL * 2
 local SKIRT_DEPTH = 1
 local SLOPE_WIDTH, SLOPE_CELL = 48, 64
-local EDGE_CHECK_DISTANCE, EDGE_MATCH_Z = 2, 4
+local EDGE_CHECK_DISTANCE, EDGE_MATCH_Z, EDGE_WALL_HEIGHT = 2, 24, 2
+local EDGE_MIN_HEIGHT = 0.3
+local MERGE_MIN_RISE, MERGE_BURIED_GAP, MERGE_SKIRT_SINK = 0.5, 0.5, 0.6
+local DRIFT_PER_WALL_HEIGHT, DRIFT_MAX = 0.2, 24
+local DRIFT_WIDTH_PER_HEIGHT, DRIFT_MIN_WIDTH = 3, 32
+local DRIFT_RAY_HEIGHT, DRIFT_RAY_REACH, DRIFT_RAYS = 4, 80, 8
+local DRIFT_WALL_MAX_NZ = 0.5
 local FILL_K = 0.5
 local FLASHLIGHT_ALBEDO = "[0.6 0.6 0.62]"
 
@@ -73,7 +79,7 @@ local function vertexKey(x, y, z)
 	return math.floor(x * 8 + 0.5) .. "," .. math.floor(y * 8 + 0.5) .. "," .. math.floor(z * 8 + 0.5)
 end
 
-local triGrid, edgeGrid, snowEndGrid
+local triGrid, edgeGrid, snowEndGrid, snowMergeGrid
 
 local wetPos = Vector()
 
@@ -88,6 +94,9 @@ local function snowEndsAt(grid, x, y, z, ox, oy)
 	wetPos:SetUnpacked(px, py, z + DEPTH + 1)
 	if bit.band(util.PointContents(wetPos), CONTENTS_SOLID) ~= 0 then return false end
 
+	wetPos:SetUnpacked(px, py, z + EDGE_WALL_HEIGHT)
+	if bit.band(util.PointContents(wetPos), CONTENTS_SOLID) ~= 0 then return false end
+
 	for _, t in ipairs(bspdata.Candidates(grid, px - 1, py - 1, px + 1, py + 1)) do
 		if t.vn then
 			local sz = bspdata.Sample(t, px, py)
@@ -96,6 +105,25 @@ local function snowEndsAt(grid, x, y, z, ox, oy)
 	end
 
 	return true
+end
+
+local function snowBelow(grid, x, y, z)
+	for _, t in ipairs(bspdata.Candidates(grid, x - 1, y - 1, x + 1, y + 1)) do
+		if t.vn then
+			local sz = bspdata.Sample(t, x, y)
+			if sz and sz < z - MERGE_MIN_RISE and sz >= z - EDGE_MATCH_Z then return true end
+		end
+	end
+
+	return false
+end
+
+local function dropsToSnow(grid, x, y, z, ox, oy)
+	local px, py = x + ox * EDGE_CHECK_DISTANCE, y + oy * EDGE_CHECK_DISTANCE
+	wetPos:SetUnpacked(px, py, z + EDGE_WALL_HEIGHT)
+	if bit.band(util.PointContents(wetPos), CONTENTS_SOLID) ~= 0 then return false end
+
+	return snowBelow(grid, px, py, z)
 end
 
 local function addSnowEnd(endGrid, seg)
@@ -177,7 +205,7 @@ local function load()
 		yieldIfOverBudget()
 	end
 
-	local egrid, endGrid = {}, {}
+	local egrid, endGrid, mergeGrid = {}, {}, {}
 	for _, rec in pairs(edges) do
 		if rec then
 			local t, e = rec[1], rec[2]
@@ -208,8 +236,11 @@ local function load()
 					local f0, f1 = (k - 1) / pieces, k / pieces
 					local px, py, pz = ax + (bx - ax) * f0, ay + (by - ay) * f0, az + (bz - az) * f0
 					local qx, qy, qz = ax + (bx - ax) * f1, ay + (by - ay) * f1, az + (bz - az) * f1
-					if snowEndsAt(grid, (px + qx) * 0.5, (py + qy) * 0.5, (pz + qz) * 0.5, ox, oy) then
+					local mx, my, mz = (px + qx) * 0.5, (py + qy) * 0.5, (pz + qz) * 0.5
+					if snowEndsAt(grid, mx, my, mz, ox, oy) then
 						addSnowEnd(endGrid, { px, py, pz, qx, qy, qz, ox, oy })
+					elseif dropsToSnow(grid, mx, my, mz, ox, oy) then
+						addSnowEnd(mergeGrid, { px, py, pz, qx, qy, qz, ox, oy })
 					end
 				end
 			end
@@ -218,7 +249,7 @@ local function load()
 		yieldIfOverBudget()
 	end
 
-	triGrid, edgeGrid, snowEndGrid = grid, egrid, endGrid
+	triGrid, edgeGrid, snowEndGrid, snowMergeGrid = grid, egrid, endGrid, mergeGrid
 
 	return true
 end
@@ -270,9 +301,117 @@ local function edgeSlopeAt(x, y, z)
 
 	if gx == 0 and gy == 0 then return 1, 0, 0 end
 
-	local rise = DEPTH / SLOPE_WIDTH
+	local rise = DEPTH * (1 - EDGE_MIN_HEIGHT) / SLOPE_WIDTH
 
-	return math.sqrt(best) / SLOPE_WIDTH, gx * rise, gy * rise
+	return EDGE_MIN_HEIGHT + (1 - EDGE_MIN_HEIGHT) * math.sqrt(best) / SLOPE_WIDTH, gx * rise, gy * rise
+end
+
+local function mergeAt(x, y, z)
+	local list = snowMergeGrid[chunkKey(math.floor(x / SLOPE_CELL), math.floor(y / SLOPE_CELL))]
+	if not list then return 0, 0, 0, false end
+
+	local lift, gx, gy, buried = 0, 0, 0, false
+	for _, seg in ipairs(list) do
+		local ax, ay, bx, by = seg[1], seg[2], seg[4], seg[5]
+		local dx, dy = bx - ax, by - ay
+		local len2 = dx * dx + dy * dy
+		local f = len2 > 0 and math.Clamp(((x - ax) * dx + (y - ay) * dy) / len2, 0, 1) or 0
+		local rise = seg[3] + (seg[6] - seg[3]) * f - z
+		if rise > MERGE_MIN_RISE and rise <= EDGE_MATCH_Z then
+			local px, py = ax + dx * f, ay + dy * f
+			local ex, ey = x - px, y - py
+			local d2 = ex * ex + ey * ey
+			if d2 < SLOPE_WIDTH * SLOPE_WIDTH then
+				if ex * seg[7] + ey * seg[8] <= 0 then
+					if rise - MERGE_BURIED_GAP > lift then
+						lift, gx, gy, buried = rise - MERGE_BURIED_GAP, 0, 0, true
+					end
+				else
+					local d = math.sqrt(d2)
+					local here = rise * (1 - d / SLOPE_WIDTH)
+					if here > lift then
+						edgeTrace.start:SetUnpacked(x, y, z + 2)
+						edgeTrace.endpos:SetUnpacked(px + seg[7] * EDGE_CHECK_DISTANCE, py + seg[8] * EDGE_CHECK_DISTANCE, z + 2)
+						util.TraceLine(edgeTrace)
+						if not edgeRes.Hit then
+							lift, buried = here, false
+							gx, gy = -ex / d * rise / SLOPE_WIDTH, -ey / d * rise / SLOPE_WIDTH
+						end
+					end
+				end
+			end
+		end
+	end
+
+	return lift, gx, gy, buried
+end
+
+local driftRes, driftHeightRes = {}, {}
+local driftTrace = { mask = MASK_SOLID_BRUSHONLY, start = Vector(), endpos = Vector(), output = driftRes }
+local driftHeightTrace = { mask = MASK_SOLID_BRUSHONLY, start = Vector(), endpos = Vector(), output = driftHeightRes }
+
+local function drawnWall(res)
+	return not res.HitSky and not res.HitNoDraw and not (res.HitTexture or ""):lower():find("^tools/")
+end
+
+local function driftFromWall(x, y, z)
+	local probe = DRIFT_MAX / DRIFT_PER_WALL_HEIGHT
+	driftHeightTrace.start:SetUnpacked(x, y, z + probe)
+	driftHeightTrace.endpos:SetUnpacked(x, y, z)
+	util.TraceLine(driftHeightTrace)
+	local height = driftHeightRes.StartSolid and probe or driftHeightRes.Hit and driftHeightRes.HitPos.z - z or 0
+	if height <= EDGE_MATCH_Z then return 0 end
+
+	return math.min(height * DRIFT_PER_WALL_HEIGHT, DRIFT_MAX)
+end
+
+local function wallDriftAt(x, y, z)
+	local lift, gx, gy, skyX, skyY = 0, 0, 0, nil, nil
+	local rayZ = z + DRIFT_RAY_HEIGHT
+	wetPos:SetUnpacked(x, y, rayZ)
+	local inside = bit.band(util.PointContents(wetPos), CONTENTS_SOLID) ~= 0
+	local exit = math.huge
+	driftTrace.start:SetUnpacked(x, y, rayZ)
+	for i = 1, DRIFT_RAYS do
+		local angle = (i - 1) / DRIFT_RAYS * math.pi * 2
+		local dx, dy = math.cos(angle), math.sin(angle)
+		driftTrace.endpos:SetUnpacked(x + dx * DRIFT_RAY_REACH, y + dy * DRIFT_RAY_REACH, rayZ)
+		util.TraceLine(driftTrace)
+		if inside then
+			local left = driftRes.FractionLeftSolid
+			if left and left > 0 and left < 1 and left < exit then
+				local outX = x + dx * (left * DRIFT_RAY_REACH + EDGE_CHECK_DISTANCE)
+				local outY = y + dy * (left * DRIFT_RAY_REACH + EDGE_CHECK_DISTANCE)
+				driftHeightTrace.start:SetUnpacked(outX, outY, rayZ)
+				driftHeightTrace.endpos:SetUnpacked(x, y, rayZ)
+				util.TraceLine(driftHeightTrace)
+				if driftHeightRes.Hit and not driftHeightRes.StartSolid and drawnWall(driftHeightRes) then
+					exit, skyX, skyY = left, outX, outY
+				end
+			end
+		elseif driftRes.Hit and not driftRes.StartSolid and drawnWall(driftRes) and math.abs(driftRes.HitNormal.z) < DRIFT_WALL_MAX_NZ then
+			local n = driftRes.HitNormal
+			local hit = driftRes.HitPos
+			local d = driftRes.Fraction * DRIFT_RAY_REACH * math.abs(dx * n.x + dy * n.y)
+			local drift = driftFromWall(hit.x - n.x * EDGE_CHECK_DISTANCE, hit.y - n.y * EDGE_CHECK_DISTANCE, z)
+			local width = math.max(drift * DRIFT_WIDTH_PER_HEIGHT, DRIFT_MIN_WIDTH)
+			if drift > 0 and d < width then
+				local f = 1 - d / width
+				local here = drift * f * f
+				if here > lift then
+					local slope = 2 * drift * f / width
+					lift, gx, gy = here, -n.x * slope, -n.y * slope
+				end
+			end
+		end
+	end
+
+	if inside and skyX then
+		lift = driftFromWall(x, y, z)
+		if lift <= 0 then skyX, skyY = nil, nil end
+	end
+
+	return lift, gx, gy, skyX, skyY
 end
 
 local function slopedNormal(nx, ny, gx, gy)
@@ -287,25 +426,39 @@ end
 
 local function snowAt(x, y, z, nonSnow, cache)
 	local cover = 1 - nonSnow / 255
-	if cover <= 0 then return 0, 0, 0, 0 end
+	if cover <= 0 then return 0, 0, 0, 0, 0 end
 
-	local skyKey = cellKey(x, y, z, SKY_CELL)
+	local lift, mergeGx, mergeGy, buried = mergeAt(x, y, z)
+	local top = buried and z + lift or z
+	local driftKey = vertexKey(x, y, z)
+	local drift = cache.drift[driftKey]
+	if not drift then
+		drift = { wallDriftAt(x, y, z) }
+		cache.drift[driftKey] = drift
+	end
+
+	local skyX, skyY = drift[4] or x, drift[5] or y
+	if drift[1] > lift then
+		lift, mergeGx, mergeGy = drift[1], drift[2], drift[3]
+	end
+
+	local skyKey = cellKey(skyX, skyY, top, SKY_CELL)
 	local open = cache.sky[skyKey]
 	if open == nil then
-		skyTrace.start:SetUnpacked(x, y, z + 4)
-		skyTrace.endpos:SetUnpacked(x, y, z + SKY_TRACE_DISTANCE)
+		skyTrace.start:SetUnpacked(skyX, skyY, top + 4)
+		skyTrace.endpos:SetUnpacked(skyX, skyY, top + SKY_TRACE_DISTANCE)
 		local tr = util.TraceLine(skyTrace)
-		samplePos:SetUnpacked(x, y, z + 2)
+		samplePos:SetUnpacked(skyX, skyY, top + 2)
 		open = (not tr.Hit or tr.HitSky) and not tr.StartSolid and bit.band(util.PointContents(samplePos), MASK_WATER) == 0
 		cache.sky[skyKey] = open
 	end
 
-	if not open then return 0, 0, 0, 0 end
+	if not open then return 0, 0, 0, 0, 0 end
 
-	local lightKey = cellKey(x, y, z, LIGHT_CELL)
+	local lightKey = cellKey(skyX, skyY, top, LIGHT_CELL)
 	local light = cache.light[lightKey]
 	if not light then
-		samplePos:SetUnpacked(x, y, z + DEPTH + 2)
+		samplePos:SetUnpacked(skyX, skyY, top + DEPTH + 2)
 		local l = render.ComputeLighting(samplePos, UP)
 		light = math.Clamp(math.floor(l.x * 127.5), 0, 255) * 65536 + math.Clamp(math.floor(l.y * 127.5), 0, 255) * 256 + math.Clamp(math.floor(l.z * 127.5), 0, 255)
 		cache.light[lightKey] = light
@@ -313,7 +466,7 @@ local function snowAt(x, y, z, nonSnow, cache)
 
 	local height, gx, gy = edgeSlopeAt(x, y, z)
 
-	return cover * height, light, gx * cover, gy * cover
+	return cover * height, light, (gx + mergeGx) * cover, (gy + mergeGy) * cover, lift * cover
 end
 
 local function clipPoly(poly, axis, value, sign)
@@ -343,7 +496,7 @@ local function buildVerts(ch)
 	local x1, y1 = x0 + CHUNK, y0 + CHUNK
 	local cand = bspdata.Candidates(triGrid, x0, y0, x1, y1)
 	local verts, n = {}, 0
-	local cache = { sky = {}, light = {}, cluster = {} }
+	local cache = { sky = {}, light = {}, cluster = {}, drift = {} }
 	local clusters, clusterSet = {}, {}
 	local zmin, zmax = math.huge, -math.huge
 	local yieldIfOverBudget = chunks.YieldIfOverBudget
@@ -369,17 +522,17 @@ local function buildVerts(ch)
 
 	local function emitTri(poly, i1, i2, i3)
 		local a, b, c = poly[i1], poly[i2], poly[i3]
-		local ca, la, gax, gay = snowAt(a[1], a[2], a[3], a[4], cache)
-		local cb, lb, gbx, gby = snowAt(b[1], b[2], b[3], b[4], cache)
-		local cc, lc, gcx, gcy = snowAt(c[1], c[2], c[3], c[4], cache)
+		local ca, la, gax, gay, ma = snowAt(a[1], a[2], a[3], a[4], cache)
+		local cb, lb, gbx, gby, mb = snowAt(b[1], b[2], b[3], b[4], cache)
+		local cc, lc, gcx, gcy, mc = snowAt(c[1], c[2], c[3], c[4], cache)
 		if ca + cb + cc <= 0 then return false end
 
 		local nax, nay = slopedNormal(a[5], a[6], gax, gay)
 		local nbx, nby = slopedNormal(b[5], b[6], gbx, gby)
 		local ncx, ncy = slopedNormal(c[5], c[6], gcx, gcy)
-		emit(a[1], a[2], a[3] + ca * DEPTH, nax, nay, ca, la)
-		emit(b[1], b[2], b[3] + cb * DEPTH, nbx, nby, cb, lb)
-		emit(c[1], c[2], c[3] + cc * DEPTH, ncx, ncy, cc, lc)
+		emit(a[1], a[2], a[3] + ca * DEPTH + ma, nax, nay, ca, la)
+		emit(b[1], b[2], b[3] + cb * DEPTH + mb, nbx, nby, cb, lb)
+		emit(c[1], c[2], c[3] + cc * DEPTH + mc, ncx, ncy, cc, lc)
 
 		return true
 	end
@@ -436,26 +589,42 @@ local function buildVerts(ch)
 		end
 
 		if tb > ta then
-			local pieces = math.max(1, math.ceil(math.sqrt(dx * dx + dy * dy) * (tb - ta) / CELL))
 			local function at(f)
 				return ax + dx * f, ay + dy * f, e[3] + (e[7] - e[3]) * f, e[4] + (e[8] - e[4]) * f
 			end
 
+			local stops = { tb }
+			for _, axis in ipairs({ { ax, dx }, { ay, dy } }) do
+				local start, delta = axis[1], axis[2]
+				if delta ~= 0 then
+					local g0, g1 = start + delta * ta, start + delta * tb
+					for line = math.ceil(math.min(g0, g1) / CELL), math.floor(math.max(g0, g1) / CELL) do
+						local f = (line * CELL - start) / delta
+						if f > ta + 1e-4 and f < tb - 1e-4 then stops[#stops + 1] = f end
+					end
+				end
+			end
+
+			table.sort(stops)
+
 			local px, py, pz, pa = at(ta)
-			local pc, pl = snowAt(px, py, pz, pa, cache)
-			for k = 1, pieces do
-				local qx, qy, qz, qa = at(ta + (tb - ta) * k / pieces)
-				local qc, ql = snowAt(qx, qy, qz, qa, cache)
+			local pc, pl, _, _, pm = snowAt(px, py, pz, pa, cache)
+			for _, stop in ipairs(stops) do
+				local qx, qy, qz, qa = at(stop)
+				local qc, ql, _, _, qm = snowAt(qx, qy, qz, qa, cache)
+				local mx, my, mz = (px + qx) * 0.5, (py + qy) * 0.5, (pz + qz) * 0.5
+				local covered = dropsToSnow(triGrid, mx, my, mz, e[9], e[10]) and snowBelow(triGrid, mx - e[9] * EDGE_CHECK_DISTANCE, my - e[10] * EDGE_CHECK_DISTANCE, mz)
 				if pc + qc > 0 then
-					emit(px, py, pz + pc * DEPTH, e[9], e[10], pc, pl)
-					emit(qx, qy, qz + qc * DEPTH, e[9], e[10], qc, ql)
+					local sink = covered and MERGE_SKIRT_SINK or 0
+					emit(px, py, pz + pc * DEPTH + pm - sink, e[9], e[10], pc, pl)
+					emit(qx, qy, qz + qc * DEPTH + qm - sink, e[9], e[10], qc, ql)
 					emit(qx, qy, qz - SKIRT_DEPTH, e[9], e[10], 0, ql)
-					emit(px, py, pz + pc * DEPTH, e[9], e[10], pc, pl)
+					emit(px, py, pz + pc * DEPTH + pm - sink, e[9], e[10], pc, pl)
 					emit(qx, qy, qz - SKIRT_DEPTH, e[9], e[10], 0, ql)
 					emit(px, py, pz - SKIRT_DEPTH, e[9], e[10], 0, pl)
 				end
 
-				px, py, pz, pc, pl = qx, qy, qz, qc, ql
+				px, py, pz, pc, pl, pm = qx, qy, qz, qc, ql, qm
 			end
 		end
 
@@ -591,8 +760,11 @@ local candidates, nextGather = {}, 0
 local function printable(e)
 	if not IsValid(e) or e:IsDormant() or e:GetNoDraw() or (e:GetModel() or "") == "" then return false end
 	if e:IsPlayer() then return e:Alive() and not e:InVehicle() end
+	if e:IsNPC() or e:IsNextBot() or e:IsRagdoll() or e:IsVehicle() or e:GetClass() == "prop_physics" then return true end
 
-	return e:IsNPC() or e:IsNextBot() or e:IsRagdoll() or e:IsVehicle() or e:GetClass() == "prop_physics"
+	local parent = e:GetParent()
+
+	return IsValid(parent) and printable(parent)
 end
 
 local function gather(eye)
@@ -782,6 +954,8 @@ local function draw(depth, skybox, sky3d)
 	if nvis == 0 then return end
 
 	dynamiclights.Update(eye)
+	MAT:SetTexture("$basetexture", trailRT)
+	MAT:SetTexture("$texture2", dynamiclights.Texture())
 
 	local tonemap = render.GetToneMappingScaleLinear().x
 	local amb = render.GetAmbientLightColor()
@@ -837,7 +1011,7 @@ local function stop()
 	hook.Remove("PostDrawOpaqueRenderables", "borealis_snowcover")
 	hook.Remove("ShouldDrawLocalPlayer", "borealis_snowcover")
 	grid:Stop()
-	triGrid, edgeGrid, snowEndGrid = nil, nil, nil
+	triGrid, edgeGrid, snowEndGrid, snowMergeGrid = nil, nil, nil, nil
 	winX, winY = nil, nil
 end
 
@@ -892,8 +1066,6 @@ local function start()
 		["$c2_x"] = 0, ["$c2_y"] = 0, ["$c2_z"] = 0, ["$c2_w"] = 0,
 		["$c3_x"] = 0, ["$c3_y"] = 0, ["$c3_z"] = 0, ["$c3_w"] = 0,
 	}, "screenspace_general_8tex")
-	MAT:SetTexture("$basetexture", trailRT)
-	MAT:SetTexture("$texture2", dynamicLightsRT)
 	blurMat:SetTexture("$basetexture", stampRT)
 	DEPTH_MAT = CreateShaderMaterial("borealis_snowcoverdepth_" .. suffix, {
 		["$pixshader"] = DEPTH_PS,
