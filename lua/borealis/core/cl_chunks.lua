@@ -4,7 +4,7 @@ chunks.grids = chunks.grids or {}
 
 local grids = chunks.grids
 
-local MIN_BUDGET_MS, MAX_BUDGET_MS = 4, 8
+local MIN_BUDGET_MS, MAX_BUDGET_MS = 8, 12
 local TARGET_FRAME_MS = 16
 local EVICT_INTERVAL = 2
 

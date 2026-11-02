@@ -639,6 +639,12 @@ local function buildVerts(ch)
 	return verts, n / STRIDE / 3
 end
 
+-- JIT compilation made these functions run ~x4 times slower on macos through wine/rosetta
+-- I'm assuming this is primarily due to rosetta, needs testing on windows before enabling
+--for _, fn in ipairs({ vertexKey, snowBelow, dropsToSnow, cellKey, edgeSlopeAt, mergeAt, drawnWall, driftFromWall, wallDriftAt, slopedNormal, snowAt, clipPoly, buildVerts }) do
+--	jit.off(fn, true)
+--end
+
 local vpos, vnormal = Vector(), Vector()
 
 local function buildChunk(ch)
