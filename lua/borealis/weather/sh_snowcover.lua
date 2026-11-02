@@ -37,6 +37,8 @@ local BAKE_EMPTY_MS, BAKE_PLAYERS_TICK_SHARE = 20, 0.5
 local BAKE_MEMORY_MB = 900
 local BAKE_SEND_BYTES, BAKE_SEND_RATE = 32000, 131072
 local BAKE_ENTRY_BYTES = 8
+local BAKE_MAX_SENDS, BAKE_REQUEST_COOLDOWN = 4, 600
+local BAKE_MAX_BYTES = 134217728
 local MSG_KEY, MSG_CHUNK = 0, 1
 local SKY_TRACE_DISTANCE = 16384
 local SKY_GAP_REACH = 24
@@ -801,11 +803,14 @@ if SERVER then
 	util.AddNetworkString(BAKE_NET)
 
 	local BAKE_ON_LISTEN = CreateConVar("sv_snowcover_bake_listen", "0", FCVAR_ARCHIVE, "bake snow chunks on listen servers too, where the bake shares a process with the game")
-	local key, blob, bakeCo, hibernateValue
-	local waiting, sends, served = {}, {}, {}
+	local key, blob, bakeCo, hibernateValue, fatId
+	local waiting, sends, served, announced = {}, {}, {}, {}
+	local sendQueue, sendCount = {}, 0
+	local fatOwner = {}
 	local downloadUrl = GetConVar("sv_downloadurl")
 
 	local function announce(ply)
+		announced[ply] = true
 		net.Start(BAKE_NET)
 		net.WriteUInt(MSG_KEY, 2)
 		net.WriteString(key)
@@ -815,6 +820,10 @@ if SERVER then
 
 	local function ready(data)
 		blob = data
+		if fatdl and downloadUrl:GetString() ~= "" then
+			fatId = fatdl.Write(BAKE_NET, data, nil, { fatOwner })
+		end
+
 		for ply in pairs(waiting) do
 			if IsValid(ply) then announce(ply) end
 		end
@@ -919,10 +928,19 @@ if SERVER then
 			end
 		end
 
+		while sendCount < BAKE_MAX_SENDS and #sendQueue > 0 do
+			local ply = table.remove(sendQueue, 1)
+			if IsValid(ply) then
+				sends[ply] = { offset = 0, at = 0 }
+				sendCount = sendCount + 1
+			end
+		end
+
 		local now = RealTime()
 		for ply, send in pairs(sends) do
 			if not IsValid(ply) then
 				sends[ply] = nil
+				sendCount = sendCount - 1
 			elseif now >= send.at then
 				local data = string.sub(blob, send.offset + 1, send.offset + BAKE_SEND_BYTES)
 				net.Start(BAKE_NET)
@@ -934,31 +952,49 @@ if SERVER then
 				send.at = now + #data / BAKE_SEND_RATE
 				if send.offset >= #blob then
 					sends[ply] = nil
+					sendCount = sendCount - 1
 				end
 			end
 		end
 	end
 
 	net.Receive(BAKE_NET, function(_, ply)
-		if not blob or served[ply] then return end
+		if not blob or not announced[ply] or not ply:IsFullyAuthenticated() then return end
 
-		served[ply] = true
-		if fatdl and downloadUrl:GetString() ~= "" then
-			fatdl.Send(BAKE_NET, ply, blob)
+		announced[ply] = nil
+		local id, now = ply:SteamID64(), RealTime()
+		if (served[id] or 0) > now then return end
+
+		for other, expiry in pairs(served) do
+			if expiry <= now then served[other] = nil end
+		end
+
+		served[id] = now + BAKE_REQUEST_COOLDOWN
+		if fatId then
+			fatdl.Send(BAKE_NET, ply, nil, fatId)
 		else
-			sends[ply] = { offset = 0, at = 0 }
+			sendQueue[#sendQueue + 1] = ply
+		end
+	end)
+
+	hook.Add("PlayerDisconnected", BAKE_NET, function(ply)
+		announced[ply], waiting[ply] = nil, nil
+		for i = #sendQueue, 1, -1 do
+			if sendQueue[i] == ply then table.remove(sendQueue, i) end
 		end
 	end)
 
 	local function connected(ply)
 		if blob then
 			announce(ply)
-		else
+		elseif key then
 			waiting[ply] = true
 		end
 	end
 
 	local function start()
+		if shaderpack.Season() ~= "winter" then return end
+
 		key = cacheKey()
 		if not key then return end
 
@@ -967,7 +1003,7 @@ if SERVER then
 		local data = file.Read(blobPath(key), "DATA")
 		if data then
 			ready(data)
-		elseif shaderpack.Season() == "winter" and (game.IsDedicated() or BAKE_ON_LISTEN:GetBool()) then
+		elseif game.IsDedicated() or BAKE_ON_LISTEN:GetBool() then
 			hibernateValue = GetConVar("sv_hibernate_think"):GetString()
 			RunConsoleCommand("sv_hibernate_think", "1")
 			bakeCo = coroutine.create(bake)
@@ -999,8 +1035,20 @@ local function useBlob(key, size)
 	if not f then return false end
 
 	local byte = string.byte
-	local c1, c2, c3, c4 = byte(f:Read(CACHE_COUNT_BYTES), 1, 4)
+	local c1, c2, c3, c4 = byte(f:Read(CACHE_COUNT_BYTES) or "", 1, 4)
+	if not c4 then
+		f:Close()
+
+		return false
+	end
+
 	local count = c1 + c2 * 256 + c3 * 65536 + c4 * 16777216
+	if CACHE_COUNT_BYTES + count * BAKE_ENTRY_BYTES > size then
+		f:Close()
+
+		return false
+	end
+
 	local header = count > 0 and f:Read(count * BAKE_ENTRY_BYTES) or ""
 	f:Close()
 
@@ -1021,9 +1069,9 @@ local function useBlob(key, size)
 end
 
 local function blobReceived(data)
-	local key = blobPending.key
+	local key, size = blobPending.key, blobPending.size
 	blobPending = nil
-	if #data == 0 then return end
+	if #data ~= size then return end
 
 	file.CreateDir(CACHE_DIR)
 	pruneBlobs(key)
@@ -1049,7 +1097,8 @@ net.Receive(BAKE_NET, function()
 	local kind = net.ReadUInt(2)
 	if kind == MSG_KEY then
 		local key, size = net.ReadString(), net.ReadUInt(32)
-		if useBlob(key, size) then return end
+		if not key:find("^[%w_%-]+$") or size <= 0 or size > BAKE_MAX_BYTES then return end
+		if useBlob(key, size) or shaderpack.Season() ~= "winter" then return end
 
 		blobPending = { key = key, size = size, parts = {}, got = 0 }
 		net.Start(BAKE_NET)
@@ -1325,7 +1374,11 @@ local groundTrace = { mask = MASK_SOLID_BRUSHONLY, start = Vector(), endpos = Ve
 local CLIP_NORMAL = Vector(0, 0, -1)
 
 local stamps = {}
-local lastStamp = setmetatable({}, { __mode = "k" })
+local lastStamp = {}
+
+hook.Add("EntityRemoved", "borealis_snowcover", function(e)
+	lastStamp[e] = nil
+end)
 
 local function stampRect(e)
 	if not printable(e) then return end
