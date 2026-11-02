@@ -268,19 +268,3 @@ hook.Add("Think", "tod_rain", function()
 		end)
 	end
 end)
-
-local function removeIt()
-	hook.Remove("Think", "tod_rain")
-	stopRumble(2)
-	tod.RemoveOverrideConfig("rain")
-	tod.SetOverrideConfig()
-	tod.SetConfigCycle(unpack(tod.config_cycle)) -- drops the cached lerps that still hold the override
-	if amount > 0 then
-		amount = 0
-		applyTheme(0)
-	end
-
-	concommand.Remove("tod_removerain")
-end
-
-concommand.Add("tod_removerain", removeIt, nil, "Removes the rain, in case you don't like it.")

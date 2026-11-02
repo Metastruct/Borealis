@@ -58,22 +58,4 @@ if CLIENT then
 			return true
 		end
 	end)
-
-	local function removeIt()
-		hook.Remove("PlayerFootstep","snow")
-		hook.Remove("TOD_ReplaceGrassTexture","tod_snow") -- is this even needed?
-		hook.Remove("Think","tod_snow")
-		tod.snow = nil
-		tod.RestoreAllTextures() -- maybe just replace the ones that were changed?
-		tod.RemoveOverrideConfig("snow")
-		tod.SetOverrideConfig()
-		tod.SetConfigCycle(unpack(tod.config_cycle)) -- drops the cached lerps that still hold the override
-		local procsky = shaderpack and shaderpack.procsky
-		if procsky and procsky.SetTheme then procsky.SetTheme() end
-		hook.Run("TOD_WinterRemoved") -- the grass drops its winter palette
-		concommand.Remove("tod_removesnow") -- this really only needs to get ran once so we"ll remove the command
-	end
-
-
-	concommand.Add("tod_removesnow",removeIt,nil,"Removes the winter modifications from the server, just in case you don't like them.")
 end
