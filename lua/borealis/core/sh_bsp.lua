@@ -316,7 +316,7 @@ end
 
 bspdata.Displacement = addDisplacement
 
-function bspdata.Triangles(classify, minNormalZ, worldOnly)
+function bspdata.Triangles(classify, minNormalZ, worldOnly, skipFlags)
 	local f, lump = openLumps()
 	if not f then return nil, "cannot open maps/" .. game.GetMap() .. ".bsp" end
 
@@ -345,8 +345,9 @@ function bspdata.Triangles(classify, minNormalZ, worldOnly)
 		names[i] = string.match(strData, "^[^%z]*", i32(strTable, i * 4 + 1) + 1)
 	end
 
-	local texinfo = {}
+	local texinfo, surfFlags = {}, {}
 	for i = 0, tiLen / 72 - 1 do
+		surfFlags[i] = i32(texinfoL, i * 72 + 65)
 		texinfo[i] = i32(texinfoL, i * 72 + 69)
 	end
 
@@ -372,7 +373,7 @@ function bspdata.Triangles(classify, minNormalZ, worldOnly)
 		local fp = i * 56 + 1
 		local ti = i16(faces, fp + 10)
 		local mode = texinfo[ti] and modes[texinfo[ti]]
-		if mode and f32(planes, u16(faces, fp) * 20 + 9) >= minNormalZ then
+		if mode and bit.band(surfFlags[ti], skipFlags or 0) == 0 and f32(planes, u16(faces, fp) * 20 + 9) >= minNormalZ then
 			local firstedge, numedges, di = i32(faces, fp + 4), i16(faces, fp + 8), i16(faces, fp + 12)
 			local px, py, pz = {}, {}, {}
 			for e = 0, numedges - 1 do

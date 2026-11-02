@@ -29,6 +29,8 @@ local FADE_START, FADE_END = RADIUS * 0.75, RADIUS * 0.95
 local MESH_TRIS = 10000
 local MESH_CACHE_TRIS = jit.arch == "x64" and math.huge or 300000
 local SKY_TRACE_DISTANCE = 16384
+local SKY_GAP_REACH = 24
+local SKY_GAP_DIRS = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }
 local SKY_CELL, LIGHT_CELL, CLUSTER_CELL = 16, 16, 64
 local SMALL_TRI = CELL * 2
 local SKIRT_DEPTH = 1
@@ -147,7 +149,7 @@ local function load()
 	if not vis then return false, why end
 
 	local grid
-	grid, why = bspdata.Triangles(classify, MIN_NZ, true)
+	grid, why = bspdata.Triangles(classify, MIN_NZ, true, SURF_TRANS)
 	if not grid then return false, why end
 
 	grid = bspdata.RemoveSkybox(grid)
@@ -424,6 +426,36 @@ local function slopedNormal(nx, ny, gx, gy)
 	return nx / len, ny / len
 end
 
+local function reachesSky(x, y, z, rays)
+	local key = cellKey(x, y, z, SKY_CELL)
+	local open = rays[key]
+	if open == nil then
+		skyTrace.start:SetUnpacked(x, y, z)
+		skyTrace.endpos:SetUnpacked(x, y, z + SKY_TRACE_DISTANCE)
+		local tr = util.TraceLine(skyTrace)
+		open = (not tr.Hit or tr.HitSky) and not tr.StartSolid
+		rays[key] = open
+	end
+
+	return open
+end
+
+local function openToSky(x, y, z, rays)
+	if not reachesSky(x, y, z, rays) then return false end
+
+	for _, dir in ipairs(SKY_GAP_DIRS) do
+		local sx, sy = x + dir[1] * SKY_GAP_REACH, y + dir[2] * SKY_GAP_REACH
+		if not reachesSky(sx, sy, z, rays) then
+			edgeTrace.start:SetUnpacked(x, y, z)
+			edgeTrace.endpos:SetUnpacked(sx, sy, z)
+			util.TraceLine(edgeTrace)
+			if not edgeRes.Hit then return false end
+		end
+	end
+
+	return true
+end
+
 local function snowAt(x, y, z, nonSnow, cache)
 	local cover = 1 - nonSnow / 255
 	if cover <= 0 then return 0, 0, 0, 0, 0 end
@@ -445,11 +477,8 @@ local function snowAt(x, y, z, nonSnow, cache)
 	local skyKey = cellKey(skyX, skyY, top, SKY_CELL)
 	local open = cache.sky[skyKey]
 	if open == nil then
-		skyTrace.start:SetUnpacked(skyX, skyY, top + 4)
-		skyTrace.endpos:SetUnpacked(skyX, skyY, top + SKY_TRACE_DISTANCE)
-		local tr = util.TraceLine(skyTrace)
 		samplePos:SetUnpacked(skyX, skyY, top + 2)
-		open = (not tr.Hit or tr.HitSky) and not tr.StartSolid and bit.band(util.PointContents(samplePos), MASK_WATER) == 0
+		open = openToSky(skyX, skyY, top + 4, cache.rays) and bit.band(util.PointContents(samplePos), MASK_WATER) == 0
 		cache.sky[skyKey] = open
 	end
 
@@ -496,7 +525,7 @@ local function buildVerts(ch)
 	local x1, y1 = x0 + CHUNK, y0 + CHUNK
 	local cand = bspdata.Candidates(triGrid, x0, y0, x1, y1)
 	local verts, n = {}, 0
-	local cache = { sky = {}, light = {}, cluster = {}, drift = {} }
+	local cache = { sky = {}, rays = {}, light = {}, cluster = {}, drift = {} }
 	local clusters, clusterSet = {}, {}
 	local zmin, zmax = math.huge, -math.huge
 	local yieldIfOverBudget = chunks.YieldIfOverBudget
@@ -641,7 +670,7 @@ end
 
 -- JIT compilation made these functions run ~x4 times slower on macos through wine/rosetta
 -- I'm assuming this is primarily due to rosetta, needs testing on windows before enabling
---for _, fn in ipairs({ vertexKey, snowBelow, dropsToSnow, cellKey, edgeSlopeAt, mergeAt, drawnWall, driftFromWall, wallDriftAt, slopedNormal, snowAt, clipPoly, buildVerts }) do
+--for _, fn in ipairs({ vertexKey, snowBelow, dropsToSnow, cellKey, edgeSlopeAt, mergeAt, drawnWall, driftFromWall, wallDriftAt, slopedNormal, reachesSky, openToSky, snowAt, clipPoly, buildVerts }) do
 --	jit.off(fn, true)
 --end
 
@@ -931,8 +960,8 @@ local function drawVisible()
 	end
 end
 
-local function draw(depth, skybox, sky3d)
-	if paused or not grid.ready or depth or skybox or sky3d or render.GetRenderTarget() then return end
+local function draw(depth, _, sky3d)
+	if paused or not grid.ready or depth or sky3d or render.GetRenderTarget() then return end
 
 	local view = chunks.View()
 	local eye = view.eye
