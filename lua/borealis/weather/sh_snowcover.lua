@@ -27,7 +27,7 @@ local FADE_START, FADE_END = RADIUS * 0.75, RADIUS * 0.95
 local MESH_TRIS = 10000
 local MESH_CACHE_TRIS = jit.arch == "x64" and math.huge or 300000
 local CACHE_DIR = "shaderpack/snowcover"
-local CACHE_SOURCES = { "borealis/weather/sh_snowcover.lua", "borealis/core/sh_bsp.lua" }
+local CACHE_VERSION = 1
 local CACHE_COUNT_BYTES, CACHE_HEADER_BYTES, CACHE_CLUSTER_BYTES, CACHE_SAMPLE_BYTES, CACHE_VERTEX_BYTES = 4, 11, 2, 9, 17
 local CACHE_COORD_SCALE, CACHE_COORD_OFFSET, CACHE_NORMAL_SCALE = 32, 8388608, 32767.5
 local CACHE_YIELD_VERTS = 256
@@ -698,25 +698,22 @@ end
 local cacheDir
 
 local function cacheKey()
-	local crcs = {}
-	for i, path in ipairs(CACHE_SOURCES) do
-		local source = file.Read(path, "LUA")
-		if not source then return end
-
-		crcs[i] = util.CRC(source)
-	end
-
 	local map = "maps/" .. game.GetMap() .. ".bsp"
 
-	return string.lower(string.format("%s_%d_%d_%s", game.GetMap(), file.Size(map, "GAME") or 0, file.Time(map, "GAME") or 0, table.concat(crcs, "_")))
+	return string.lower(string.format("%s_%d_v%d", game.GetMap(), file.Size(map, "GAME") or 0, CACHE_VERSION))
+end
+
+local function staleCache(name)
+	local map = "^" .. string.PatternSafe(game.GetMap():lower())
+
+	return name:find(map .. "_%d+_v%d+$") or name:find(map .. "_%d+_%d+_%d+_%d+$")
 end
 
 local function pruneCache(key)
 	local yieldIfOverBudget = bspdata.FrameBudget()
-	local pattern = "^" .. string.PatternSafe(game.GetMap():lower()) .. "_%d+_%d+_%d+_%d+$"
 	local _, dirs = file.Find(CACHE_DIR .. "/*", "DATA")
 	for _, dir in ipairs(dirs or {}) do
-		if dir ~= key and dir:find(pattern) then
+		if dir ~= key and staleCache(dir) then
 			local path = CACHE_DIR .. "/" .. dir
 			for _, name in ipairs((file.Find(path .. "/*", "DATA"))) do
 				file.Delete(path .. "/" .. name)
@@ -791,9 +788,9 @@ local function blobPath(key)
 end
 
 local function pruneBlobs(key)
-	local pattern = "^" .. string.PatternSafe(game.GetMap():lower()) .. "_%d+_%d+_%d+_%d+%.dat$"
 	for _, name in ipairs((file.Find(CACHE_DIR .. "/*", "DATA"))) do
-		if name ~= key .. ".dat" and name:find(pattern) then
+		local base = name:match("^(.+)%.dat$")
+		if base and base ~= key and staleCache(base) then
 			file.Delete(CACHE_DIR .. "/" .. name)
 		end
 	end

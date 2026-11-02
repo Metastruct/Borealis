@@ -15,6 +15,7 @@ local ALPHA_SAMPLES = 128
 local SEE_THROUGH = WIREFRAME + ADDITIVE + TRANSLUCENT
 local SEE = 1
 local CYCLE = 4
+local REMOVED_GRACE = 60
 local HIDDEN_MIN, HIDDEN_MAX = Vector(0, 0, -100001), Vector(0, 0, -100000)
 local SCREEN_MODEL_EXTENT = Vector(32768, 32768, 32768)
 
@@ -828,6 +829,18 @@ end
 local function update(ent)
 	if not IsValid(ent) then return end
 
+	if drawWrappers[ent.Draw] and not drawn[ent] then
+		local stored = scripted_ents.Get(ent:GetClass())
+		ent.Draw = stored and stored.Draw
+	end
+
+	if ent.DrawTranslucent == translucentRedraw and not opacity.sents[ent] then
+		local stored = scripted_ents.Get(ent:GetClass())
+		ent.DrawTranslucent = stored and stored.DrawTranslucent
+	end
+
+	if opacity.pacWrappers[ent.RenderOverride] and not pacOverrides[ent] then ent.RenderOverride = nil end
+
 	if isBrush(ent) then
 		local _, depthMats = inspect(ent)
 		setBrush(ent, depthMats ~= nil)
@@ -1143,10 +1156,25 @@ function queueModel(name, mat)
 	return false
 end
 
+local removedSince = {}
+
 local function sweepRemoved()
-	for _, tracked in ipairs({ fixed, depth, brushes, opacity.sents, screens, opacity.forcedOpaque, drawn, pacOverrides }) do
+	local tables = { fixed, depth, brushes, opacity.sents, screens, opacity.forcedOpaque, drawn, pacOverrides }
+	local now = RealTime()
+	for _, tracked in ipairs(tables) do
 		for ent in pairs(tracked) do
-			if not IsValid(ent) then
+			if IsValid(ent) then
+				removedSince[ent] = nil
+			elseif not removedSince[ent] then
+				removedSince[ent] = now
+			end
+		end
+	end
+
+	for ent, since in pairs(removedSince) do
+		if now - since >= REMOVED_GRACE then
+			removedSince[ent] = nil
+			for _, tracked in ipairs(tables) do
 				tracked[ent] = nil
 			end
 		end

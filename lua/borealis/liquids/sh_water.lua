@@ -63,13 +63,16 @@ local function readSurfaceWaterBrushes()
 		return bspdata.PVS(bspdata.ClusterAt(pos.x, pos.y, pos.z))
 	end
 
+	local ice = shaderpack.ice
+	local winter = ice and ice.Winter()
 	local groups = {}
 	for _, face in ipairs(bspdata.WaterFaces(true)) do
 		local name = face.name
-		local key = string.format("%s|%.5f|%.5f|%.5f|%.5f|%d", bodyKey(name), face.su, face.ou, face.sv, face.ov, math.Round(face.dist))
+		local frozen = winter and ice.FaceFreezes(face) or false
+		local key = string.format("%s|%.5f|%.5f|%.5f|%.5f|%d|%s", bodyKey(name), face.su, face.ou, face.sv, face.ov, math.Round(face.dist), tostring(frozen))
 		local g = groups[key]
 		if not g then
-			g = { body = bodyKey(name), materials = {name}, model = face.model, su = face.su, ou = face.ou, sv = face.sv, ov = face.ov, verts = {}, clusters = {} }
+			g = { body = bodyKey(name), materials = {name}, model = face.model, su = face.su, ou = face.ou, sv = face.sv, ov = face.ov, verts = {}, clusters = {}, frozen = frozen }
 			groups[key] = g
 		else
 			g.materials[#g.materials + 1] = name
@@ -242,8 +245,6 @@ local function buildMeshes()
 
 	local groups, visibility = readSurfaceWaterBrushes()
 	visibleClusters = visibility or function() end
-	local ice = shaderpack.ice
-	local winter = ice and ice.Winter()
 
 	for key, g in pairs(groups) do
 		if #g.verts >= 3 then
@@ -255,7 +256,7 @@ local function buildMeshes()
 			local body = {
 				verts = g.verts, model = g.model, normalmap = normalmap, body = g.body, su = g.su, ou = g.ou, sv = g.sv, ov = g.ov,
 				murk = math.floor(murk / MURK_MAX * 255 + 0.5) / 255 * MURK_MAX, clusters = g.clusters, nonWater = nonWater,
-				frozen = winter and ice.Freezes(g.model, g.materials[1]) or false,
+				frozen = g.frozen,
 			}
 			if g.model == 0 then writeBodyMesh(body) end
 			meshes[key] = body
