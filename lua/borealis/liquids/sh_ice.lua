@@ -6,6 +6,7 @@ local bspdata = shaderpack.bspdata
 local CLASS = "borealis_ice"
 local HEIGHT_OFFSET, THICKNESS = 2, 12
 local BODY_CELL = 4096
+local PHYSICS_RETRY = 1
 local SKY_OFFSET, SKY_LENGTH = 4, 32768
 local SKY_SAMPLE_INSETS = { 0.5, 0.9 }
 local SKY_MIN_OPEN = 0.25
@@ -48,10 +49,7 @@ local function reachesSky(x, y, z)
 	return not tr.Hit or tr.HitSky
 end
 
-function ice.FaceFreezes(face)
-	if not ice.Freezes(face.model, face.name) then return false end
-
-	local poly = face.poly
+local function skySamples(poly)
 	local x, y = 0, 0
 	for _, v in ipairs(poly) do
 		x, y = x + v.x / #poly, y + v.y / #poly
@@ -74,21 +72,10 @@ function ice.FaceFreezes(face)
 		end
 	end
 
-	return total > 0 and open / total >= SKY_MIN_OPEN
+	return open, total
 end
 
-local bodies
-
-function ice.Bodies()
-	if bodies then return bodies end
-
-	local polys = {}
-	for _, face in ipairs(bspdata.WaterFaces()) do
-		if ice.FaceFreezes(face) then
-			polys[#polys + 1] = face.poly
-		end
-	end
-
+local function connect(polys)
 	local parent, owners = {}, {}
 	local function find(i)
 		while parent[i] ~= i do
@@ -111,6 +98,64 @@ function ice.Bodies()
 		end
 	end
 
+	return find
+end
+
+local function faceKey(poly)
+	local v = poly[1]
+	local x, y = 0, 0
+	for _, p in ipairs(poly) do
+		x, y = x + p.x, y + p.y
+	end
+
+	return string.format("%.1f,%.1f,%.1f", x, y, v.z)
+end
+
+local frozenFaces
+
+local function findFrozenFaces()
+	local polys = {}
+	for _, face in ipairs(bspdata.WaterFaces()) do
+		if ice.Freezes(face.model, face.name) then
+			polys[#polys + 1] = face.poly
+		end
+	end
+
+	local find = connect(polys)
+	local opens, totals = {}, {}
+	for i, poly in ipairs(polys) do
+		local root = find(i)
+		local open, total = skySamples(poly)
+		opens[root], totals[root] = (opens[root] or 0) + open, (totals[root] or 0) + total
+	end
+
+	frozenFaces = {}
+	for i, poly in ipairs(polys) do
+		local root = find(i)
+		frozenFaces[faceKey(poly)] = totals[root] > 0 and opens[root] / totals[root] >= SKY_MIN_OPEN
+	end
+end
+
+function ice.FaceFreezes(face)
+	if not ice.Freezes(face.model, face.name) then return false end
+	if not frozenFaces then findFrozenFaces() end
+
+	return frozenFaces[faceKey(face.poly)] == true
+end
+
+local bodies
+
+function ice.Bodies()
+	if bodies then return bodies end
+
+	local polys = {}
+	for _, face in ipairs(bspdata.WaterFaces()) do
+		if ice.FaceFreezes(face) then
+			polys[#polys + 1] = face.poly
+		end
+	end
+
+	local find = connect(polys)
 	bodies = {}
 	local bodyOf = {}
 	for i, poly in ipairs(polys) do
@@ -159,13 +204,25 @@ function ENT:Initialize()
 
 	self:PhysicsInitMultiConvex(hulls, util.GetSurfaceIndex(SURFACE) >= 0 and SURFACE or "ice")
 	self:SetSolid(SOLID_VPHYSICS)
-	self:SetMoveType(MOVETYPE_VPHYSICS)
+	self:SetMoveType(MOVETYPE_NONE)
 	self:EnableCustomCollisions(true)
 	self:DrawShadow(false)
 
 	local phys = self:GetPhysicsObject()
 	if IsValid(phys) then
 		phys:EnableMotion(false)
+	end
+end
+
+if CLIENT then
+	function ENT:Think()
+		if not IsValid(self:GetPhysicsObject()) then
+			self:Initialize()
+		end
+
+		self:SetNextClientThink(CurTime() + PHYSICS_RETRY)
+
+		return true
 	end
 end
 
