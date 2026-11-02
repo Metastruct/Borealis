@@ -7,13 +7,13 @@ if SERVER then
 end
 
 local depthslices = shaderpack.depthslices
-local ENABLED = CreateClientConVar("cl_draw_ssao", "1", true, false, "darken creases and contact points with screen-space ambient occlusion")
-local RADIUS = CreateClientConVar("cl_ssao_radius", "24", true, false, "ambient occlusion radius in units", 4, 256)
-local INTENSITY = CreateClientConVar("cl_ssao_intensity", "3", true, false, "ambient occlusion contrast", 0, 8)
-local STRENGTH = CreateClientConVar("cl_ssao_strength", "1", true, false, "share of the ambient occlusion applied to the frame", 0, 1)
-local AMBIENT = CreateClientConVar("cl_ssao_ambient", "0.25", true, false, "brightness up to which a pixel counts as ambient lit, brighter pixels lose at most this much", 0, 4)
-local DEBUG = CreateClientConVar("cl_ssao_debug", "0", false, false, "show the ambient occlusion term alone")
-local HALF_RES = CreateClientConVar("cl_ssao_halfres", "1", true, false, "compute the ambient occlusion at half resolution")
+local ENABLED = CreateClientConVar("borealis_ssao", "1", true, false, "darken creases and contact points with screen-space ambient occlusion")
+local RADIUS = CreateClientConVar("borealis_ssao_radius", "24", true, false, "ambient occlusion radius in units", 4, 256)
+local INTENSITY = CreateClientConVar("borealis_ssao_intensity", "3", true, false, "ambient occlusion contrast", 0, 8)
+local STRENGTH = CreateClientConVar("borealis_ssao_strength", "1", true, false, "share of the ambient occlusion applied to the frame", 0, 1)
+local AMBIENT = CreateClientConVar("borealis_ssao_ambient", "0.25", true, false, "brightness up to which a pixel counts as ambient lit, brighter pixels lose at most this much", 0, 4)
+local DEBUG = CreateClientConVar("borealis_ssao_debug", "0", false, false, "show the ambient occlusion term alone")
+local HALF_RES = CreateClientConVar("borealis_ssao_halfres", "1", true, false, "compute the ambient occlusion at half resolution")
 
 local ORDER = -1
 local MAX_SCREEN = 0.12
@@ -105,16 +105,16 @@ shaderpack.Toggle("borealis_ssao", ENABLED, { PS, BLEND_PS, VS, QUAD_VS }, start
 
 shaderpack.PostProcess("Ambient Occlusion", {
 	icon = "gui/postprocess/base.png",
-	convar = "cl_draw_ssao",
+	convar = "borealis_ssao",
 	category = "Borealis",
 	cpanel = function(panel)
 		panel:Help("Darkens creases and contact points that ambient light cannot reach.")
-		panel:CheckBox("Enable", "cl_draw_ssao")
-		panel:NumSlider("Intensity", "cl_ssao_intensity", 0, 8, 2)
-		panel:NumSlider("Radius", "cl_ssao_radius", 4, 256, 0)
-		panel:NumSlider("Ambient level", "cl_ssao_ambient", 0, 4, 2)
-		panel:NumSlider("Strength", "cl_ssao_strength", 0, 1, 2)
-		panel:CheckBox("Half resolution", "cl_ssao_halfres")
-		panel:CheckBox("Show occlusion only", "cl_ssao_debug")
+		panel:CheckBox("Enable", "borealis_ssao")
+		panel:NumSlider("Intensity", "borealis_ssao_intensity", 0, 8, 2)
+		panel:NumSlider("Radius", "borealis_ssao_radius", 4, 256, 0)
+		panel:NumSlider("Ambient level", "borealis_ssao_ambient", 0, 4, 2)
+		panel:NumSlider("Strength", "borealis_ssao_strength", 0, 1, 2)
+		panel:CheckBox("Half resolution", "borealis_ssao_halfres")
+		panel:CheckBox("Show occlusion only", "borealis_ssao_debug")
 	end,
 })

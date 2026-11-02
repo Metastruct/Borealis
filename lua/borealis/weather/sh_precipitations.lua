@@ -11,7 +11,7 @@ if SERVER then
 end
 
 local procsky, cover, wind, surfacewater = shaderpack.procsky, shaderpack.cover, shaderpack.wind, shaderpack.surfacewater
-local ENABLED = CreateClientConVar("cl_draw_precipitations", "1", true, false, "draw falling rain and snow")
+local ENABLED = CreateClientConVar("borealis_precipitations", "1", true, false, "draw falling rain and snow")
 
 local TILE = 512
 local DROP_TILE = 256

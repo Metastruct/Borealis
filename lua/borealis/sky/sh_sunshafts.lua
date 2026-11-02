@@ -6,7 +6,7 @@ if SERVER then
 	return
 end
 
-local SHAFTS_ENABLED = CreateClientConVar("cl_draw_sunshafts", "1", true, false, "draw sun shafts")
+local SHAFTS_ENABLED = CreateClientConVar("borealis_sunshafts", "1", true, false, "draw sun shafts")
 
 local INTENSITY = 0.45
 local RAY_LEN = 0.9

@@ -10,7 +10,7 @@ require("skyboxer")
 
 local procsky, cover, vclouds = shaderpack.procsky, shaderpack.cover, shaderpack.vclouds
 local Tag = "borealis_cheap_clouds"
-local ENABLED = CreateClientConVar("cl_draw_clouds", "1", true, false, "Draw cheap clouds in the skybox", 0, 1)
+local ENABLED = CreateClientConVar("borealis_clouds", "1", true, false, "Draw cheap clouds in the skybox", 0, 1)
 
 local function level()
 	if procsky and procsky.theme and procsky.theme.clouds == false then return end

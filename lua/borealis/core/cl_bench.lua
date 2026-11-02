@@ -2,11 +2,11 @@ local procsky, foliage = shaderpack.procsky, shaderpack.foliage
 local TAG = "borealis_shaderpack_bench"
 local WARMUP_FRAMES, MEASURE = 20, 30
 local VIEWS = { { "horizon", 0 }, { "up", -30 } }
-local GENERAL = { "cl_draw_procsky", "cl_draw_clouds", "cl_draw_skyterrain", "cl_draw_sunshafts", "cl_draw_water", "cl_draw_grass", "cl_draw_seagrass", "cl_draw_kelp", "cl_draw_vclouds", "cl_draw_ssao", "cl_draw_leaves", "cl_draw_lava", "cl_draw_grade" }
-local RAIN = { "cl_draw_precipitations", "cl_draw_fog", "cl_draw_wetness" }
-local SNOW = { "cl_draw_precipitations", "cl_draw_fog" }
-local WINTER = { "cl_draw_snowcover" }
-local NIGHT = { "cl_draw_auroras" }
+local GENERAL = { "borealis_procsky", "borealis_clouds", "cl_draw_skyterrain", "borealis_sunshafts", "borealis_water", "borealis_grass", "borealis_seagrass", "borealis_kelp", "borealis_vclouds", "borealis_ssao", "borealis_leaves", "borealis_lava", "borealis_grade" }
+local RAIN = { "borealis_precipitations", "borealis_fog", "borealis_wetness" }
+local SNOW = { "borealis_precipitations", "borealis_fog" }
+local WINTER = { "borealis_snowcover" }
+local NIGHT = { "borealis_auroras" }
 local LISTS = { GENERAL, RAIN, SNOW, WINTER, NIGHT }
 
 local function pauseFoliage(layer)
@@ -18,10 +18,10 @@ local function pauseFoliage(layer)
 end
 
 local PAUSED = {
-	cl_draw_grass = pauseFoliage("grass"),
-	cl_draw_seagrass = pauseFoliage("seagrass"),
-	cl_draw_kelp = pauseFoliage("kelp"),
-	cl_draw_snowcover = function(state)
+	borealis_grass = pauseFoliage("grass"),
+	borealis_seagrass = pauseFoliage("seagrass"),
+	borealis_kelp = pauseFoliage("kelp"),
+	borealis_snowcover = function(state)
 		local snowcover = shaderpack.snowcover
 		if snowcover and snowcover.SetPaused then
 			snowcover.SetPaused(state)
@@ -81,7 +81,7 @@ local function median(t)
 end
 
 local function short(name)
-	return (name:gsub("^cl_draw_", ""))
+	return (name:gsub("^borealis_", ""):gsub("^cl_draw_", ""))
 end
 
 local function header()

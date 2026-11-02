@@ -8,7 +8,7 @@ end
 
 require("skyboxer")
 
-local SKY_ENABLED = CreateClientConVar("cl_draw_procsky", "1", true, false, "draw the procedural atmosphere sky")
+local SKY_ENABLED = CreateClientConVar("borealis_procsky", "1", true, false, "draw the procedural atmosphere sky")
 local setConstant = shaderpack.SetConstant
 
 local INTENSITY = 1

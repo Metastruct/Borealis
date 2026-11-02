@@ -8,7 +8,7 @@ if SERVER then
 end
 
 local cover, depthslices, procsky, fog, bspdata = shaderpack.cover, shaderpack.depthslices, shaderpack.procsky, shaderpack.fog, shaderpack.bspdata
-local ENABLED = CreateClientConVar("cl_draw_wetness", "1", true, false, "darken and gloss the surfaces the rain reaches")
+local ENABLED = CreateClientConVar("borealis_wetness", "1", true, false, "darken and gloss the surfaces the rain reaches")
 
 local WET_RATE, DRY_RATE = 1 / 20, 1 / 60
 local POOL_RATE, POOL_DRY_RATE = 1 / 40, 1 / 180

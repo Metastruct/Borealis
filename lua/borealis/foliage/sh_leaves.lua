@@ -10,7 +10,7 @@ local leaves = shaderpack.leaves or {}
 shaderpack.leaves = leaves
 local depthslices, wind = shaderpack.depthslices, shaderpack.wind
 
-local ENABLED = CreateClientConVar("cl_draw_leaves", "1", true, false, "draw falling and fallen leaves in autumn")
+local ENABLED = CreateClientConVar("borealis_leaves", "1", true, false, "draw falling and fallen leaves in autumn")
 
 local LEAF_COLORS = {
 	Color(214, 104, 28),

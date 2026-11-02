@@ -7,7 +7,7 @@ if SERVER then
 end
 
 local bspdata, depthslices, foliage, chunks, dynamiclights = shaderpack.bspdata, shaderpack.depthslices, shaderpack.foliage, shaderpack.chunks, shaderpack.dynamiclights
-local ENABLED = CLIENT and CreateClientConVar("cl_draw_snowcover", "1", true, false, "draw deep snow with footprints in winter")
+local ENABLED = CLIENT and CreateClientConVar("borealis_snowcover", "1", true, false, "draw deep snow with footprints in winter")
 local snowcover = shaderpack.snowcover or {}
 shaderpack.snowcover = snowcover
 
@@ -802,7 +802,7 @@ end
 if SERVER then
 	util.AddNetworkString(BAKE_NET)
 
-	local BAKE_ON_LISTEN = CreateConVar("sv_snowcover_bake_listen", "0", FCVAR_ARCHIVE, "bake snow chunks on listen servers too, where the bake shares a process with the game")
+	local BAKE_ON_LISTEN = CreateConVar("borealis_snowcover_bake_listen", "0", FCVAR_ARCHIVE, "server: bake snow chunks on listen servers too, where the bake shares a process with the game")
 	local key, blob, bakeCo, hibernateValue, fatId
 	local waiting, sends, served, announced = {}, {}, {}, {}
 	local sendQueue, sendCount = {}, 0

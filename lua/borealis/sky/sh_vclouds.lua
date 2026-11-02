@@ -12,7 +12,7 @@ local vclouds = shaderpack.vclouds or {}
 shaderpack.vclouds = vclouds
 local procsky, cover, depthslices = shaderpack.procsky, shaderpack.cover, shaderpack.depthslices
 
-local ENABLED = CreateClientConVar("cl_draw_vclouds", "0", true, false, "draw volumetric clouds instead of the skybox deck")
+local ENABLED = CreateClientConVar("borealis_vclouds", "0", true, false, "draw volumetric clouds instead of the skybox deck")
 
 local BASE_OVER_FLOOR = 5000
 local SKY_BASE = 3000

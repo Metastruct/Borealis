@@ -117,12 +117,54 @@ function shaderpack.WhenMounted(id, shaders, start, textures)
 	return false
 end
 
-local MASTER = CreateClientConVar("cl_shaderpack", "1", true, false, "draw the shaderpack effects, overrides every cl_draw_* convar when off")
+local MASTER = CreateClientConVar("borealis_enabled", "1", true, false, "draw the shaderpack effects, overrides every borealis_* convar when off")
 
 shaderpack.toggles = shaderpack.toggles or { order = {}, apply = {} }
 
 function shaderpack.Enabled()
 	return MASTER:GetBool()
+end
+
+local RENAMED_CONVARS = {
+	cl_shaderpack = "borealis_enabled",
+	cl_draw_procsky = "borealis_procsky",
+	cl_draw_clouds = "borealis_clouds",
+	cl_draw_vclouds = "borealis_vclouds",
+	cl_draw_sunshafts = "borealis_sunshafts",
+	cl_draw_auroras = "borealis_auroras",
+	cl_draw_fog = "borealis_fog",
+	cl_draw_precipitations = "borealis_precipitations",
+	cl_draw_wetness = "borealis_wetness",
+	cl_draw_snowcover = "borealis_snowcover",
+	cl_draw_water = "borealis_water",
+	cl_draw_lava = "borealis_lava",
+	cl_draw_grass = "borealis_grass",
+	cl_draw_grass_distance = "borealis_grass_distance",
+	cl_draw_seagrass = "borealis_seagrass",
+	cl_draw_kelp = "borealis_kelp",
+	cl_draw_leaves = "borealis_leaves",
+	cl_draw_grade = "borealis_grade",
+	cl_draw_sharpen = "borealis_sharpen",
+	cl_sharpen = "borealis_sharpen_strength",
+	cl_draw_ssao = "borealis_ssao",
+	cl_ssao_radius = "borealis_ssao_radius",
+	cl_ssao_intensity = "borealis_ssao_intensity",
+	cl_ssao_strength = "borealis_ssao_strength",
+	cl_ssao_ambient = "borealis_ssao_ambient",
+	cl_ssao_halfres = "borealis_ssao_halfres",
+}
+
+function shaderpack.MigrateConVars()
+	if cookie.GetNumber("borealis_convars_renamed", 0) == 1 then return end
+	cookie.Set("borealis_convars_renamed", 1)
+
+	for old, new in pairs(RENAMED_CONVARS) do
+		local value = CreateClientConVar(old, "", true, false):GetString()
+		local convar = GetConVar(new)
+		if value ~= "" and convar then
+			convar:SetString(value)
+		end
+	end
 end
 
 function shaderpack.PostProcess(name, entry)
@@ -184,8 +226,8 @@ local function applyNextToggle()
 	end
 end
 
-cvars.RemoveChangeCallback("cl_shaderpack", "shaderpack")
-cvars.AddChangeCallback("cl_shaderpack", function()
+cvars.RemoveChangeCallback("borealis_enabled", "shaderpack")
+cvars.AddChangeCallback("borealis_enabled", function()
 	pendingToggles = table.Add({}, shaderpack.toggles.order)
 	hook.Add("Think", "shaderpack_toggles", applyNextToggle)
 end, "shaderpack")

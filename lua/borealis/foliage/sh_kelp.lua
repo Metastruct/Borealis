@@ -7,7 +7,7 @@ if SERVER then
 end
 
 local bspdata, foliage = shaderpack.bspdata, shaderpack.foliage
-local KELP_ENABLED =CreateClientConVar("cl_draw_kelp", "0", true, false, "draw kelp forests on sunlit rocky sea beds")
+local KELP_ENABLED =CreateClientConVar("borealis_kelp", "0", true, false, "draw kelp forests on sunlit rocky sea beds")
 
 local RADIUS = 3072
 local MIN_DEPTH, MAX_DEPTH, DEPTH_FADE = 400, 1300, 120

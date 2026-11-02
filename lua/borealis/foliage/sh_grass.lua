@@ -5,8 +5,8 @@ if SERVER then
 end
 
 local foliage, wind = shaderpack.foliage, shaderpack.wind
-local GRASS_ENABLED = CreateClientConVar("cl_draw_grass", "0", true, false, "draw grass tufts on grass surfaces")
-local GRASS_DISTANCE = CreateClientConVar("cl_draw_grass_distance", "3072", true, false, "grass draw distance in units", 1024, 16384)
+local GRASS_ENABLED = CreateClientConVar("borealis_grass", "0", true, false, "draw grass tufts on grass surfaces")
+local GRASS_DISTANCE = CreateClientConVar("borealis_grass_distance", "3072", true, false, "grass draw distance in units", 1024, 16384)
 
 local WINTER = shaderpack.Season() == "winter"
 local AUTUMN = false
@@ -93,8 +93,8 @@ setDistance()
 
 local apply = shaderpack.Toggle("borealis_grass", GRASS_ENABLED, { "borealis_grass_ps30", "borealis_grass_vs30" }, function() layer:Start() end, function() layer:Stop() end)
 
-cvars.RemoveChangeCallback("cl_draw_grass_distance", "borealis_grass")
-cvars.AddChangeCallback("cl_draw_grass_distance", setDistance, "borealis_grass")
+cvars.RemoveChangeCallback("borealis_grass_distance", "borealis_grass")
+cvars.AddChangeCallback("borealis_grass_distance", setDistance, "borealis_grass")
 
 hook.Add("TOD_WinterRemoved", "borealis_grass", function()
 	if not WINTER then return end

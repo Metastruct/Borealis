@@ -15,7 +15,7 @@ require("skyboxer")
 
 local MURK_REF_FOG_END, MURK_MIN, MURK_MAX = 1000, 0.25, 4
 
-local WATER_ENABLED = CreateClientConVar("cl_draw_water", "1", true, false, "draw the custom water surface and underwater effects")
+local WATER_ENABLED = CreateClientConVar("borealis_water", "1", true, false, "draw the custom water surface and underwater effects")
 
 
 local function bodyKey(name)

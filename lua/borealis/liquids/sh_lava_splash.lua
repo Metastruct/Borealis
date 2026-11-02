@@ -551,4 +551,4 @@ local function start()
 	active = true
 end
 
-shaderpack.AfterWorld("borealis_lava_splash", shaderpack.Toggle("borealis_lava_splash", GetConVar("cl_draw_lava"), { PS, VS }, start, stop, { NOISE_TEXTURE }))
+shaderpack.AfterWorld("borealis_lava_splash", shaderpack.Toggle("borealis_lava_splash", GetConVar("borealis_lava"), { PS, VS }, start, stop, { NOISE_TEXTURE }))

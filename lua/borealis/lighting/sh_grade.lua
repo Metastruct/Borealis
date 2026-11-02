@@ -9,9 +9,9 @@ end
 local grade = shaderpack.grade or {}
 shaderpack.grade = grade
 
-local ENABLED = CreateClientConVar("cl_draw_grade", "1", true, false, "colour grade the frame from the time of day")
-local SHARPEN_ENABLED = CreateClientConVar("cl_draw_sharpen", "1", true, false, "sharpen the frame with contrast adaptive sharpening")
-local SHARPEN = CreateClientConVar("cl_sharpen", "0.4", true, false, "contrast adaptive sharpening strength, 0 turns it off", 0, 1)
+local ENABLED = CreateClientConVar("borealis_grade", "1", true, false, "colour grade the frame from the time of day")
+local SHARPEN_ENABLED = CreateClientConVar("borealis_sharpen", "1", true, false, "sharpen the frame with contrast adaptive sharpening")
+local SHARPEN = CreateClientConVar("borealis_sharpen_strength", "0.4", true, false, "contrast adaptive sharpening strength, 0 turns it off", 0, 1)
 
 local NEUTRAL = Vector(1, 1, 1)
 local EPSILON = 1e-3
@@ -121,21 +121,21 @@ shaderpack.Toggle("borealis_grade", nil, { PS, VS }, start, stop)()
 
 shaderpack.PostProcess("Colour Grading", {
 	icon = "gui/postprocess/base.png",
-	convar = "cl_draw_grade",
+	convar = "borealis_grade",
 	category = "Borealis",
 	cpanel = function(panel)
 		panel:Help("Grades the frame's contrast, saturation and tint from the time of day.")
-		panel:CheckBox("Enable", "cl_draw_grade")
+		panel:CheckBox("Enable", "borealis_grade")
 	end,
 })
 
 shaderpack.PostProcess("Sharpening", {
 	icon = "gui/postprocess/base.png",
-	convar = "cl_draw_sharpen",
+	convar = "borealis_sharpen",
 	category = "Borealis",
 	cpanel = function(panel)
 		panel:Help("Contrast adaptive sharpening. Sharpens soft detail and leaves strong edges alone.")
-		panel:CheckBox("Enable", "cl_draw_sharpen")
-		panel:NumSlider("Strength", "cl_sharpen", 0, 1, 2)
+		panel:CheckBox("Enable", "borealis_sharpen")
+		panel:NumSlider("Strength", "borealis_sharpen_strength", 0, 1, 2)
 	end,
 })

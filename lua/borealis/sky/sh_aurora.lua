@@ -10,7 +10,7 @@ if SERVER then
 end
 
 local procsky, cover = shaderpack.procsky, shaderpack.cover
-local AURORA_ENABLED = CreateClientConVar("cl_draw_auroras", 1, true, false, "should we draw auroras")
+local AURORA_ENABLED = CreateClientConVar("borealis_auroras", 1, true, false, "should we draw auroras")
 local INTENSITY = 0.35
 local SCALE = 2
 local HUE = 0.5

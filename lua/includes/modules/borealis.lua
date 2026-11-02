@@ -45,3 +45,5 @@ for _, name in ipairs(FILES) do
 		include(path)
 	end
 end
+
+if CLIENT then shaderpack.MigrateConVars() end

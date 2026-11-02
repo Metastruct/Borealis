@@ -11,7 +11,7 @@ local fog = shaderpack.fog or {}
 shaderpack.fog = fog
 
 local cover, depthslices = shaderpack.cover, shaderpack.depthslices
-local FOG_ENABLED = CreateClientConVar("cl_draw_fog", "0", true, false, "draw volumetric fog in fog, rain and snow weather")
+local FOG_ENABLED = CreateClientConVar("borealis_fog", "0", true, false, "draw volumetric fog in fog, rain and snow weather")
 
 local PROFILES = {
 	fog = { density = 0.0002, falloff = 250, noise = 0.8 },
