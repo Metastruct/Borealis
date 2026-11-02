@@ -10,6 +10,7 @@ local grade = shaderpack.grade or {}
 shaderpack.grade = grade
 
 local ENABLED = CreateClientConVar("cl_draw_grade", "1", true, false, "colour grade the frame from the time of day")
+local SHARPEN_ENABLED = CreateClientConVar("cl_draw_sharpen", "1", true, false, "sharpen the frame with contrast adaptive sharpening")
 local SHARPEN = CreateClientConVar("cl_sharpen", "0.4", true, false, "contrast adaptive sharpening strength, 0 turns it off", 0, 1)
 
 local NEUTRAL = Vector(1, 1, 1)
@@ -61,7 +62,7 @@ local function draw()
 	local saturation = C.grade_saturation or 1
 	local active = not (math.abs(exposure) < EPSILON and math.abs(contrast - 1) < EPSILON and math.abs(saturation - 1) < EPSILON
 		and neutral(C.grade_white) and neutral(C.grade_shadows) and neutral(C.grade_highlights))
-	local sharpness = SHARPEN:GetFloat()
+	local sharpness = SHARPEN_ENABLED:GetBool() and SHARPEN:GetFloat() or 0
 	if not active and sharpness <= 0 then return end
 
 	local wr, wg, wb = balanced(C.grade_white, 2 ^ exposure)
@@ -118,7 +119,7 @@ end
 
 shaderpack.Toggle("borealis_grade", nil, { PS, VS }, start, stop)()
 
-list.Set("PostProcess", "Colour Grading", {
+shaderpack.PostProcess("Colour Grading", {
 	icon = "gui/postprocess/base.png",
 	convar = "cl_draw_grade",
 	category = "Borealis",
@@ -128,11 +129,13 @@ list.Set("PostProcess", "Colour Grading", {
 	end,
 })
 
-list.Set("PostProcess", "Sharpening", {
+shaderpack.PostProcess("Sharpening", {
 	icon = "gui/postprocess/base.png",
+	convar = "cl_draw_sharpen",
 	category = "Borealis",
 	cpanel = function(panel)
 		panel:Help("Contrast adaptive sharpening. Sharpens soft detail and leaves strong edges alone.")
+		panel:CheckBox("Enable", "cl_draw_sharpen")
 		panel:NumSlider("Strength", "cl_sharpen", 0, 1, 2)
 	end,
 })

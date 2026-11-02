@@ -45,6 +45,7 @@ Add `-Stamp` for the timestamped name.
 
 - `cl_shaderpack 1` is the main convar and will override every `cl_draw_*` cvar.
 - `shaderpack.Toggle(id, convar, shaders, start, stop)` makes a cvar to start/stop and returns the apply function.
+- `shaderpack.PostProcess(name, entry)` adds a Post Process tab entry whose tick box shows off and locks while `cl_shaderpack` is 0.
 - `shaderpack.AfterWorld(id, fn)` runs `fn` after `InitPostEntity`. The shader GMA stays mounted over different sessions, so shaders would otherwise start before the map loads in.
 - `shaderpack.UsableRT` whether a render target is real:tm:.
 > During map load the engine creates a 32x32 error texture that makes `IsError()` false, and a material bound to it keeps that forever, not good.

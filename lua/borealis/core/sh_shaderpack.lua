@@ -125,6 +125,24 @@ function shaderpack.Enabled()
 	return MASTER:GetBool()
 end
 
+function shaderpack.PostProcess(name, entry)
+	local convar = entry.convar and GetConVar(entry.convar)
+	if convar then
+		entry.func = function(panel)
+			local icon = spawnmenu.CreateContentIcon("postprocess", panel, { name = name, icon = entry.icon })
+			icon.checkbox.Think = function(box)
+				local on = MASTER:GetBool()
+				box:SetEnabled(on)
+				box:SetChecked(on and convar:GetBool())
+			end
+
+			return icon
+		end
+	end
+
+	list.Set("PostProcess", name, entry)
+end
+
 function shaderpack.Toggle(id, convar, shaders, start, stop, textures)
 	local toggles = shaderpack.toggles
 

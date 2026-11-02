@@ -103,7 +103,7 @@ end
 
 shaderpack.Toggle("borealis_ssao", ENABLED, { PS, BLEND_PS, VS, QUAD_VS }, start, stop)()
 
-list.Set("PostProcess", "Ambient Occlusion", {
+shaderpack.PostProcess("Ambient Occlusion", {
 	icon = "gui/postprocess/base.png",
 	convar = "cl_draw_ssao",
 	category = "Borealis",
