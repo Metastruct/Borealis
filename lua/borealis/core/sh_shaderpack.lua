@@ -13,6 +13,16 @@ local function le32(v)
 	return le16(v % 65536) .. le16(math.floor(v / 65536))
 end
 
+function shaderpack.Season()
+	if tod and tod.GetSeason then return tod.GetSeason() end
+
+	local month = tonumber(os.date("%m")) or 0
+	if month >= 12 or month <= 2 then return "winter" end
+	if month == 10 or month == 11 then return "autumn" end
+
+	return "summer"
+end
+
 function shaderpack.VTFHeader(w, h, format, flags)
 	local header = "VTF\0" .. le32(7) .. le32(2) .. le32(80) .. le16(w) .. le16(h) .. le32(flags) .. le16(1) .. le16(0) .. le32(0)
 		.. "\0\0\0\63\0\0\0\63\0\0\0\63" .. le32(0) .. "\0\0\128\63" .. le32(format) .. string.char(1) .. "\255\255\255\255" .. string.char(0, 0) .. le16(1)
@@ -200,16 +210,6 @@ function shaderpack.SunDir()
 	end
 
 	return Vector(0, 0, 1)
-end
-
-function shaderpack.Season()
-	if tod and tod.GetSeason then return tod.GetSeason() end
-
-	local month = tonumber(os.date("%m")) or 0
-	if month >= 12 or month <= 2 then return "winter" end
-	if month == 10 or month == 11 then return "autumn" end
-
-	return "summer"
 end
 
 function shaderpack.Elevation(dir)

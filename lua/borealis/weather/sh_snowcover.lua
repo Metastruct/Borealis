@@ -4,12 +4,10 @@ local SHADERS = { PS, VS, DEPTH_PS, STAMP_PS }
 
 if SERVER then
 	shaderpack.AddResources(SHADERS, { NOISE })
-
-	return
 end
 
 local bspdata, depthslices, foliage, chunks, dynamiclights = shaderpack.bspdata, shaderpack.depthslices, shaderpack.foliage, shaderpack.chunks, shaderpack.dynamiclights
-local ENABLED = CreateClientConVar("cl_draw_snowcover", "1", true, false, "draw deep snow with footprints in winter")
+local ENABLED = CLIENT and CreateClientConVar("cl_draw_snowcover", "1", true, false, "draw deep snow with footprints in winter")
 local snowcover = shaderpack.snowcover or {}
 shaderpack.snowcover = snowcover
 
@@ -28,6 +26,18 @@ local RADIUS = 3072
 local FADE_START, FADE_END = RADIUS * 0.75, RADIUS * 0.95
 local MESH_TRIS = 10000
 local MESH_CACHE_TRIS = jit.arch == "x64" and math.huge or 300000
+local CACHE_DIR = "shaderpack/snowcover"
+local CACHE_SOURCES = { "borealis/weather/sh_snowcover.lua", "borealis/core/sh_bsp.lua" }
+local CACHE_COUNT_BYTES, CACHE_HEADER_BYTES, CACHE_CLUSTER_BYTES, CACHE_SAMPLE_BYTES, CACHE_VERTEX_BYTES = 4, 11, 2, 9, 17
+local CACHE_COORD_SCALE, CACHE_COORD_OFFSET, CACHE_NORMAL_SCALE = 32, 8388608, 32767.5
+local CACHE_YIELD_VERTS = 256
+local CACHE_EMPTY = "\0\0\0\0"
+local BAKE_NET = "borealis_snow_bake"
+local BAKE_EMPTY_MS, BAKE_PLAYERS_TICK_SHARE = 20, 0.5
+local BAKE_MEMORY_MB = 900
+local BAKE_SEND_BYTES, BAKE_SEND_RATE = 32000, 131072
+local BAKE_ENTRY_BYTES = 8
+local MSG_KEY, MSG_CHUNK = 0, 1
 local SKY_TRACE_DISTANCE = 16384
 local SKY_GAP_REACH = 24
 local SKY_GAP_DIRS = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }
@@ -64,7 +74,19 @@ local function classify(name)
 	return 1
 end
 
-local chunkKey = chunks.Key
+local function chunkKey(cx, cy)
+	return cx * 65536 + cy
+end
+
+local bakeStart, bakeBudget = 0, math.huge
+
+local function buildYield()
+	if chunks then
+		chunks.YieldIfOverBudget()
+	elseif (SysTime() - bakeStart) * 1000 > bakeBudget then
+		coroutine.yield()
+	end
+end
 
 local function triNormal(t)
 	local ux, uy, uz = t[4] - t[1], t[5] - t[2], t[6] - t[3]
@@ -144,12 +166,8 @@ local function addSnowEnd(endGrid, seg)
 	end
 end
 
-local function load()
-	local vis, why = bspdata.WaitVis()
-	if not vis then return false, why end
-
-	local grid
-	grid, why = bspdata.Triangles(classify, MIN_NZ, true, SURF_TRANS)
+local function loadGeometry()
+	local grid, why = bspdata.Triangles(classify, MIN_NZ, true, SURF_TRANS)
 	if not grid then return false, why end
 
 	grid = bspdata.RemoveSkybox(grid)
@@ -487,9 +505,10 @@ local function snowAt(x, y, z, nonSnow, cache)
 	local lightKey = cellKey(skyX, skyY, top, LIGHT_CELL)
 	local light = cache.light[lightKey]
 	if not light then
-		samplePos:SetUnpacked(skyX, skyY, top + DEPTH + 2)
-		local l = render.ComputeLighting(samplePos, UP)
-		light = math.Clamp(math.floor(l.x * 127.5), 0, 255) * 65536 + math.Clamp(math.floor(l.y * 127.5), 0, 255) * 256 + math.Clamp(math.floor(l.z * 127.5), 0, 255)
+		local samples = cache.samples
+		local n = #samples
+		samples[n + 1], samples[n + 2], samples[n + 3] = skyX, skyY, top + DEPTH + 2
+		light = n / 3 + 1
 		cache.light[lightKey] = light
 	end
 
@@ -525,10 +544,10 @@ local function buildVerts(ch)
 	local x1, y1 = x0 + CHUNK, y0 + CHUNK
 	local cand = bspdata.Candidates(triGrid, x0, y0, x1, y1)
 	local verts, n = {}, 0
-	local cache = { sky = {}, rays = {}, light = {}, cluster = {}, drift = {} }
+	local cache = { sky = {}, rays = {}, light = {}, samples = {}, cluster = {}, drift = {} }
 	local clusters, clusterSet = {}, {}
 	local zmin, zmax = math.huge, -math.huge
-	local yieldIfOverBudget = chunks.YieldIfOverBudget
+	local yieldIfOverBudget = buildYield
 
 	local function emit(x, y, z, nx, ny, cover, light)
 		verts[n + 1], verts[n + 2], verts[n + 3], verts[n + 4], verts[n + 5], verts[n + 6], verts[n + 7] = x, y, z, nx, ny, light, cover
@@ -660,7 +679,7 @@ local function buildVerts(ch)
 		yieldIfOverBudget()
 	end
 
-	ch.clusters = clusters
+	ch.clusters, ch.samples = clusters, cache.samples
 	ch.cz = (zmin + zmax) * 0.5
 	local hz = (zmax - zmin) * 0.5
 	ch.radius = math.sqrt(CHUNK * CHUNK * 0.5 + hz * hz)
@@ -674,10 +693,482 @@ end
 --	jit.off(fn, true)
 --end
 
+local cacheDir
+
+local function cacheKey()
+	local crcs = {}
+	for i, path in ipairs(CACHE_SOURCES) do
+		local source = file.Read(path, "LUA")
+		if not source then return end
+
+		crcs[i] = util.CRC(source)
+	end
+
+	local map = "maps/" .. game.GetMap() .. ".bsp"
+
+	return string.lower(string.format("%s_%d_%d_%s", game.GetMap(), file.Size(map, "GAME") or 0, file.Time(map, "GAME") or 0, table.concat(crcs, "_")))
+end
+
+local function pruneCache(key)
+	local yieldIfOverBudget = bspdata.FrameBudget()
+	local pattern = "^" .. string.PatternSafe(game.GetMap():lower()) .. "_%d+_%d+_%d+_%d+$"
+	local _, dirs = file.Find(CACHE_DIR .. "/*", "DATA")
+	for _, dir in ipairs(dirs or {}) do
+		if dir ~= key and dir:find(pattern) then
+			local path = CACHE_DIR .. "/" .. dir
+			for _, name in ipairs((file.Find(path .. "/*", "DATA"))) do
+				file.Delete(path .. "/" .. name)
+				yieldIfOverBudget()
+			end
+
+			file.Delete(path)
+		end
+	end
+end
+
+local function cachePath(ch)
+	return cacheDir .. "/" .. ch.cx .. "_" .. ch.cy .. ".dat"
+end
+
+local function packCoord(v)
+	local n = math.floor(v * CACHE_COORD_SCALE + 0.5) + CACHE_COORD_OFFSET
+
+	return n % 256, math.floor(n / 256) % 256, math.floor(n / 65536)
+end
+
+local function unpackCoord(a, b, c)
+	return (a + b * 256 + c * 65536 - CACHE_COORD_OFFSET) / CACHE_COORD_SCALE
+end
+
+local function packNormal(v)
+	local n = math.floor((v + 1) * CACHE_NORMAL_SCALE + 0.5)
+
+	return n % 256, math.floor(n / 256)
+end
+
+local function encodeChunk(ch, verts, tris)
+	if tris == 0 then return CACHE_EMPTY end
+
+	local char = string.char
+	local z1, z2, z3 = packCoord(ch.cz)
+	local r1, r2, r3 = packCoord(ch.radius)
+	local clusterCount, sampleCount = #ch.clusters, #ch.samples / 3
+	local parts = {
+		char(tris % 256, math.floor(tris / 256) % 256, math.floor(tris / 65536) % 256, math.floor(tris / 16777216)),
+		char(z1, z2, z3, r1, r2, r3, clusterCount % 256, math.floor(clusterCount / 256), sampleCount % 256, math.floor(sampleCount / 256) % 256, math.floor(sampleCount / 65536)),
+	}
+	for _, c in ipairs(ch.clusters) do
+		parts[#parts + 1] = char(c % 256, math.floor(c / 256))
+	end
+
+	for i = 1, sampleCount * 3, 3 do
+		local xa, xb, xc = packCoord(ch.samples[i])
+		local ya, yb, yc = packCoord(ch.samples[i + 1])
+		local za, zb, zc = packCoord(ch.samples[i + 2])
+		parts[#parts + 1] = char(xa, xb, xc, ya, yb, yc, za, zb, zc)
+	end
+
+	local o = 0
+	for i = 1, tris * 3 do
+		local xa, xb, xc = packCoord(verts[o + 1])
+		local ya, yb, yc = packCoord(verts[o + 2])
+		local za, zb, zc = packCoord(verts[o + 3])
+		local n1, n2 = packNormal(verts[o + 4])
+		local n3, n4 = packNormal(verts[o + 5])
+		local light = verts[o + 6]
+		parts[#parts + 1] = char(xa, xb, xc, ya, yb, yc, za, zb, zc, n1, n2, n3, n4, light % 256, math.floor(light / 256) % 256, math.floor(light / 65536), math.floor(verts[o + 7] * 255 + 0.5))
+		o = o + STRIDE
+		if i % CACHE_YIELD_VERTS == 0 then buildYield() end
+	end
+
+	return util.Compress(table.concat(parts))
+end
+
+local function blobPath(key)
+	return CACHE_DIR .. "/" .. key .. ".dat"
+end
+
+local function pruneBlobs(key)
+	local pattern = "^" .. string.PatternSafe(game.GetMap():lower()) .. "_%d+_%d+_%d+_%d+%.dat$"
+	for _, name in ipairs((file.Find(CACHE_DIR .. "/*", "DATA"))) do
+		if name ~= key .. ".dat" and name:find(pattern) then
+			file.Delete(CACHE_DIR .. "/" .. name)
+		end
+	end
+end
+
+if SERVER then
+	util.AddNetworkString(BAKE_NET)
+
+	local BAKE_ON_LISTEN = CreateConVar("sv_snowcover_bake_listen", "0", FCVAR_ARCHIVE, "bake snow chunks on listen servers too, where the bake shares a process with the game")
+	local key, blob, bakeCo, hibernateValue
+	local waiting, sends, served = {}, {}, {}
+	local downloadUrl = GetConVar("sv_downloadurl")
+
+	local function announce(ply)
+		net.Start(BAKE_NET)
+		net.WriteUInt(MSG_KEY, 2)
+		net.WriteString(key)
+		net.WriteUInt(#blob, 32)
+		net.Send(ply)
+	end
+
+	local function ready(data)
+		blob = data
+		for ply in pairs(waiting) do
+			if IsValid(ply) then announce(ply) end
+		end
+
+		waiting = {}
+	end
+
+	local function chunkList()
+		local seen, list = {}, {}
+		for _, cell in pairs(triGrid) do
+			for _, t in ipairs(cell) do
+				if t.vn then
+					for cy = math.floor(t[14] / CHUNK), math.floor(t[16] / CHUNK) do
+						for cx = math.floor(t[13] / CHUNK), math.floor(t[15] / CHUNK) do
+							local k = chunkKey(cx, cy)
+							if not seen[k] then
+								seen[k] = true
+								list[#list + 1] = { cx = cx, cy = cy }
+							end
+						end
+					end
+				end
+			end
+
+			buildYield()
+		end
+
+		return list
+	end
+
+	local function assemble(list)
+		local header, body = {}, {}
+		local char = string.char
+		for _, ch in ipairs(list) do
+			local raw = file.Read(cachePath(ch), "DATA")
+			if raw and raw ~= CACHE_EMPTY then
+				local x, y, len = ch.cx + 32768, ch.cy + 32768, #raw
+				header[#header + 1] = char(x % 256, math.floor(x / 256), y % 256, math.floor(y / 256), len % 256, math.floor(len / 256) % 256, math.floor(len / 65536) % 256, math.floor(len / 16777216))
+				body[#body + 1] = raw
+			end
+
+			buildYield()
+		end
+
+		local count = #header
+
+		return char(count % 256, math.floor(count / 256) % 256, math.floor(count / 65536) % 256, math.floor(count / 16777216)) .. table.concat(header) .. table.concat(body)
+	end
+
+	local function bake()
+		file.CreateDir(cacheDir)
+		pruneCache(key)
+		pruneBlobs(key)
+
+		local vis, why = bspdata.WaitVis()
+		if not vis then return nil, why end
+
+		local ok
+		ok, why = loadGeometry()
+		if not ok then return nil, why end
+
+		local list = chunkList()
+		for _, ch in ipairs(list) do
+			if file.Size(cachePath(ch), "DATA") <= 0 then
+				local verts, tris = buildVerts(ch)
+				file.Write(cachePath(ch), encodeChunk(ch, verts, tris))
+			end
+
+			buildYield()
+		end
+
+		local data = assemble(list)
+		file.Write(blobPath(key), data)
+		for _, ch in ipairs(list) do
+			file.Delete(cachePath(ch))
+			buildYield()
+		end
+
+		file.Delete(cacheDir)
+		triGrid, edgeGrid, snowEndGrid, snowMergeGrid = nil, nil, nil, nil
+		bspdata.vis = nil
+
+		return data
+	end
+
+	local lastBake = 0
+
+	local function think()
+		if bakeCo and SysTime() - lastBake >= engine.TickInterval() and collectgarbage("count") / 1024 < BAKE_MEMORY_MB then
+			bakeStart = SysTime()
+			bakeBudget = player.GetCount() == 0 and BAKE_EMPTY_MS or engine.TickInterval() * 1000 * BAKE_PLAYERS_TICK_SHARE
+			local ok, data, why = coroutine.resume(bakeCo)
+			lastBake = SysTime()
+			if not ok or coroutine.status(bakeCo) == "dead" then
+				bakeCo = nil
+				RunConsoleCommand("sv_hibernate_think", hibernateValue)
+				if ok and data then
+					ready(data)
+				else
+					ErrorNoHalt("[snowcover] bake failed: " .. tostring(ok and why or data) .. "\n")
+				end
+			end
+		end
+
+		local now = RealTime()
+		for ply, send in pairs(sends) do
+			if not IsValid(ply) then
+				sends[ply] = nil
+			elseif now >= send.at then
+				local data = string.sub(blob, send.offset + 1, send.offset + BAKE_SEND_BYTES)
+				net.Start(BAKE_NET)
+				net.WriteUInt(MSG_CHUNK, 2)
+				net.WriteUInt(#data, 16)
+				net.WriteData(data, #data)
+				net.Send(ply)
+				send.offset = send.offset + #data
+				send.at = now + #data / BAKE_SEND_RATE
+				if send.offset >= #blob then
+					sends[ply] = nil
+				end
+			end
+		end
+	end
+
+	net.Receive(BAKE_NET, function(_, ply)
+		if not blob or served[ply] then return end
+
+		served[ply] = true
+		if fatdl and downloadUrl:GetString() ~= "" then
+			fatdl.Send(BAKE_NET, ply, blob)
+		else
+			sends[ply] = { offset = 0, at = 0 }
+		end
+	end)
+
+	local function connected(ply)
+		if blob then
+			announce(ply)
+		else
+			waiting[ply] = true
+		end
+	end
+
+	local function start()
+		key = cacheKey()
+		if not key then return end
+
+		cacheDir = CACHE_DIR .. "/" .. key
+		hook.Add("Think", BAKE_NET, think)
+		local data = file.Read(blobPath(key), "DATA")
+		if data then
+			ready(data)
+		elseif shaderpack.Season() == "winter" and (game.IsDedicated() or BAKE_ON_LISTEN:GetBool()) then
+			hibernateValue = GetConVar("sv_hibernate_think"):GetString()
+			RunConsoleCommand("sv_hibernate_think", "1")
+			bakeCo = coroutine.create(bake)
+		end
+	end
+
+	shaderpack.OnPlayerReady(BAKE_NET, connected)
+
+	if game.GetWorld():IsWorld() then
+		start()
+		for _, ply in ipairs(player.GetHumans()) do
+			connected(ply)
+		end
+	else
+		hook.Add("Initialize", BAKE_NET, start)
+	end
+
+	return
+end
+
+local activeBlob, blobIndex
+local blobPending
+
+local function useBlob(key, size)
+	local path = blobPath(key)
+	if file.Size(path, "DATA") ~= size then return false end
+
+	local f = file.Open(path, "rb", "DATA")
+	if not f then return false end
+
+	local byte = string.byte
+	local c1, c2, c3, c4 = byte(f:Read(CACHE_COUNT_BYTES), 1, 4)
+	local count = c1 + c2 * 256 + c3 * 65536 + c4 * 16777216
+	local header = count > 0 and f:Read(count * BAKE_ENTRY_BYTES) or ""
+	f:Close()
+
+	local index = {}
+	local offset = CACHE_COUNT_BYTES + count * BAKE_ENTRY_BYTES
+	for i = 0, count - 1 do
+		local x1, x2, y1, y2, l1, l2, l3, l4 = byte(header, i * BAKE_ENTRY_BYTES + 1, i * BAKE_ENTRY_BYTES + BAKE_ENTRY_BYTES)
+		local len = l1 + l2 * 256 + l3 * 65536 + l4 * 16777216
+		index[chunkKey(x1 + x2 * 256 - 32768, y1 + y2 * 256 - 32768)] = { offset, len }
+		offset = offset + len
+	end
+
+	if offset ~= size then return false end
+
+	activeBlob, blobIndex = path, index
+
+	return true
+end
+
+local function blobReceived(data)
+	local key = blobPending.key
+	blobPending = nil
+	if #data == 0 then return end
+
+	file.CreateDir(CACHE_DIR)
+	pruneBlobs(key)
+	file.Write(blobPath(key), data)
+	useBlob(key, #data)
+end
+
+local function receiveFatdl()
+	fatdl.Receive(BAKE_NET, function(data)
+		if blobPending then blobReceived(data) end
+	end)
+end
+
+if fatdl then
+	receiveFatdl()
+else
+	hook.Add("Initialize", BAKE_NET, function()
+		if fatdl then receiveFatdl() end
+	end)
+end
+
+net.Receive(BAKE_NET, function()
+	local kind = net.ReadUInt(2)
+	if kind == MSG_KEY then
+		local key, size = net.ReadString(), net.ReadUInt(32)
+		if useBlob(key, size) then return end
+
+		blobPending = { key = key, size = size, parts = {}, got = 0 }
+		net.Start(BAKE_NET)
+		net.SendToServer()
+	elseif kind == MSG_CHUNK and blobPending then
+		local data = net.ReadData(net.ReadUInt(16))
+		blobPending.parts[#blobPending.parts + 1] = data
+		blobPending.got = blobPending.got + #data
+		if blobPending.got >= blobPending.size then
+			blobReceived(table.concat(blobPending.parts))
+		end
+	end
+end)
+
+local function chunkBytes(ch)
+	if blobIndex then
+		local entry = blobIndex[chunkKey(ch.cx, ch.cy)]
+		if not entry then return CACHE_EMPTY end
+
+		local f = file.Open(activeBlob, "rb", "DATA")
+		if not f then return end
+
+		f:Seek(entry[1])
+		local raw = f:Read(entry[2])
+		f:Close()
+
+		return raw
+	end
+
+	return cacheDir and file.Read(cachePath(ch), "DATA")
+end
+
+local function readCached(ch)
+	local raw = chunkBytes(ch)
+	if not raw or #raw < CACHE_COUNT_BYTES then return end
+	if raw == CACHE_EMPTY then return {}, 0 end
+
+	local data = util.Decompress(raw)
+	if not data or #data < CACHE_COUNT_BYTES + CACHE_HEADER_BYTES then return end
+
+	local byte = string.byte
+	local t1, t2, t3, t4, z1, z2, z3, r1, r2, r3, c1, c2, s1, s2, s3 = byte(data, 1, CACHE_COUNT_BYTES + CACHE_HEADER_BYTES)
+	local tris = t1 + t2 * 256 + t3 * 65536 + t4 * 16777216
+	local clusterCount, sampleCount = c1 + c2 * 256, s1 + s2 * 256 + s3 * 65536
+	local p = CACHE_COUNT_BYTES + CACHE_HEADER_BYTES
+	if #data ~= p + clusterCount * CACHE_CLUSTER_BYTES + sampleCount * CACHE_SAMPLE_BYTES + tris * 3 * CACHE_VERTEX_BYTES then return end
+
+	local clusters = {}
+	for i = 1, clusterCount do
+		local lo, hi = byte(data, p + 1, p + 2)
+		clusters[i] = lo + hi * 256
+		p = p + CACHE_CLUSTER_BYTES
+	end
+
+	local samples = {}
+	for i = 1, sampleCount * 3, 3 do
+		local xa, xb, xc, ya, yb, yc, za, zb, zc = byte(data, p + 1, p + CACHE_SAMPLE_BYTES)
+		samples[i], samples[i + 1], samples[i + 2] = unpackCoord(xa, xb, xc), unpackCoord(ya, yb, yc), unpackCoord(za, zb, zc)
+		p = p + CACHE_SAMPLE_BYTES
+	end
+
+	local yieldIfOverBudget = chunks.YieldIfOverBudget
+	local verts = {}
+	local o = 0
+	for i = 1, tris * 3 do
+		local xa, xb, xc, ya, yb, yc, za, zb, zc, n1, n2, n3, n4, l1, l2 = byte(data, p + 1, p + 15)
+		local l3, cover = byte(data, p + 16, p + 17)
+		verts[o + 1], verts[o + 2], verts[o + 3] = unpackCoord(xa, xb, xc), unpackCoord(ya, yb, yc), unpackCoord(za, zb, zc)
+		verts[o + 4], verts[o + 5] = (n1 + n2 * 256) / CACHE_NORMAL_SCALE - 1, (n3 + n4 * 256) / CACHE_NORMAL_SCALE - 1
+		verts[o + 6], verts[o + 7] = l1 + l2 * 256 + l3 * 65536, cover / 255
+		p, o = p + CACHE_VERTEX_BYTES, o + STRIDE
+		if i % CACHE_YIELD_VERTS == 0 then yieldIfOverBudget() end
+	end
+
+	ch.cz, ch.radius, ch.clusters, ch.samples = unpackCoord(z1, z2, z3), unpackCoord(r1, r2, r3), clusters, samples
+
+	return verts, tris
+end
+
+local function writeCached(ch, verts, tris)
+	if not cacheDir or blobIndex then return end
+
+	file.Write(cachePath(ch), encodeChunk(ch, verts, tris))
+end
+
+local function resolveLights(ch, verts, tris)
+	local yieldIfOverBudget = chunks.YieldIfOverBudget
+	local samples, lights = ch.samples, {}
+	for i = 1, #samples / 3 do
+		local at = i * 3
+		samplePos:SetUnpacked(samples[at - 2], samples[at - 1], samples[at])
+		local l, d = render.ComputeLighting(samplePos, UP), render.ComputeDynamicLighting(samplePos, UP)
+		lights[i] = math.Clamp(math.floor((l.x - d.x) * 127.5), 0, 255) * 65536 + math.Clamp(math.floor((l.y - d.y) * 127.5), 0, 255) * 256 + math.Clamp(math.floor((l.z - d.z) * 127.5), 0, 255)
+		if i % CACHE_YIELD_VERTS == 0 then yieldIfOverBudget() end
+	end
+
+	for o = 6, tris * 3 * STRIDE, STRIDE do
+		verts[o] = lights[verts[o]] or 0
+	end
+
+	ch.samples = nil
+end
+
 local vpos, vnormal = Vector(), Vector()
 
 local function buildChunk(ch)
-	local verts, tris = buildVerts(ch)
+	local verts, tris = readCached(ch)
+	if not verts then
+		if not triGrid then
+			local ok, why = loadGeometry()
+			if not ok then error(why) end
+		end
+
+		verts, tris = buildVerts(ch)
+		writeCached(ch, verts, tris)
+	end
+
+	if tris > 0 then resolveLights(ch, verts, tris) end
+
 	local total = tris
 	local meshes = {}
 	ch.meshes = meshes
@@ -705,6 +1196,20 @@ local function buildChunk(ch)
 	end
 
 	return total
+end
+
+local function load()
+	local vis, why = bspdata.WaitVis()
+	if not vis then return false, why end
+
+	local key = cacheKey()
+	cacheDir = key and CACHE_DIR .. "/" .. key or nil
+	if key then
+		file.CreateDir(cacheDir)
+		pruneCache(key)
+	end
+
+	return true
 end
 
 local function destroyChunk(ch)
