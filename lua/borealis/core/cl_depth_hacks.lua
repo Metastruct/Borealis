@@ -24,12 +24,12 @@ local STATE_RESET = CreateMaterial("borealis_opacity_alphatestreset", "UnlitGene
 	["$alphatestreference"] = 0.001,
 })
 
-opacity.fixed = opacity.fixed or setmetatable({}, { __mode = "k" })
-opacity.depth = opacity.depth or setmetatable({}, { __mode = "k" })
-opacity.brushes = opacity.brushes or setmetatable({}, { __mode = "k" })
-opacity.sents = opacity.sents or setmetatable({}, { __mode = "k" })
-opacity.screens = opacity.screens or setmetatable({}, { __mode = "k" })
-opacity.forcedOpaque = opacity.forcedOpaque or setmetatable({}, { __mode = "k" })
+opacity.fixed = opacity.fixed or {}
+opacity.depth = opacity.depth or {}
+opacity.brushes = opacity.brushes or {}
+opacity.sents = opacity.sents or {}
+opacity.screens = opacity.screens or {}
+opacity.forcedOpaque = opacity.forcedOpaque or {}
 opacity.world = opacity.world or {}
 opacity.cutouts = opacity.cutouts or {}
 opacity.models = opacity.models or {}
@@ -388,7 +388,7 @@ local function updateSent(ent)
 	setSent(ent, wanted)
 end
 
-opacity.drawn = opacity.drawn or setmetatable({}, { __mode = "k" })
+opacity.drawn = opacity.drawn or {}
 opacity.drawWrappers = opacity.drawWrappers or setmetatable({}, { __mode = "k" })
 local drawn, drawWrappers = opacity.drawn, opacity.drawWrappers
 
@@ -664,7 +664,7 @@ local function setBrush(ent, alphaTested)
 	end
 end
 
-opacity.pac = opacity.pac or setmetatable({}, { __mode = "k" })
+opacity.pac = opacity.pac or {}
 opacity.pacWrappers = opacity.pacWrappers or setmetatable({}, { __mode = "k" })
 local pacOverrides = opacity.pac
 local pacSources = setmetatable({}, { __mode = "k" })
@@ -1143,9 +1143,20 @@ function queueModel(name, mat)
 	return false
 end
 
+local function sweepRemoved()
+	for _, tracked in ipairs({ fixed, depth, brushes, opacity.sents, screens, opacity.forcedOpaque, drawn, pacOverrides }) do
+		for ent in pairs(tracked) do
+			if not IsValid(ent) then
+				tracked[ent] = nil
+			end
+		end
+	end
+end
+
 local function step()
 	if cursor > #queue then
 		sweepProxies()
+		sweepRemoved()
 		local _, list = ents.Iterator()
 		queue, cursor = list, 1
 	end
