@@ -37,7 +37,9 @@ sampler CoverTex : register(s5);
 #define ICE_FINE_STRENGTH 0.5
 #define ICE_GROOVE 0.25
 #define ICE_WARP_TILE 900.0
-#define ICE_WARP 90.0
+#define ICE_WARP 20.0
+#define ICE_JAG_TILE 60.0
+#define ICE_JAG 5.0
 #define ICE_CRACK_MASK_TILE 2600.0
 #define ICE_CLOUD_TILE 1300.0
 #define ICE_CLOUD_MIN 0.5
@@ -184,8 +186,9 @@ float4 main(PS_IN i) : COLOR
     [branch] if (FROZEN)
     {
         float2 warp = float2(IceNoise(Noise, p, ICE_WARP_TILE, 0.15), IceNoise(Noise, p, ICE_WARP_TILE, 0.85)) - 0.5;
-        float3 big = IceCracks(p + warp * ICE_WARP, ICE_CRACK_BIG);
-        float3 fine = IceCracks(p + 37.0 + warp * ICE_WARP * 0.4, ICE_CRACK_FINE);
+        float2 jag = float2(IceNoise(Noise, p, ICE_JAG_TILE, 0.45), IceNoise(Noise, p, ICE_JAG_TILE, 0.65)) - 0.5;
+        float3 big = IceCracks(p + warp * ICE_WARP + jag * ICE_JAG, ICE_CRACK_BIG);
+        float3 fine = IceCracks(p + 37.0 + warp * ICE_WARP * 0.4 + jag * ICE_JAG * 0.5, ICE_CRACK_FINE);
         float bigMask = smoothstep(0.45, 0.6, IceNoise(Noise, p, ICE_CRACK_MASK_TILE, 0.3));
         float fineMask = smoothstep(0.5, 0.62, IceNoise(Noise, p, ICE_CRACK_MASK_TILE, 0.55));
         float bigLine = (1.0 - smoothstep(0.0, ICE_CRACK_WIDTH, big.x)) * bigMask;
