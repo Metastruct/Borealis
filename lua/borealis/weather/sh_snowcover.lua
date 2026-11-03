@@ -8,6 +8,7 @@ end
 
 local bspdata, depthslices, foliage, chunks, dynamiclights = shaderpack.bspdata, shaderpack.depthslices, shaderpack.foliage, shaderpack.chunks, shaderpack.dynamiclights
 local ENABLED = CLIENT and CreateClientConVar("borealis_snowcover", "1", true, false, "draw deep snow with footprints in winter")
+local DISTANCE = CLIENT and CreateClientConVar("borealis_snowcover_distance", "3072", true, false, "snow cover draw distance in units", 1024, 16384)
 local snowcover = shaderpack.snowcover or {}
 shaderpack.snowcover = snowcover
 
@@ -22,8 +23,7 @@ end
 local DEPTH = 10
 local CHUNK, CELL = 512, 32
 local MIN_NZ = 0.3
-local RADIUS = 3072
-local FADE_START, FADE_END = RADIUS * 0.75, RADIUS * 0.95
+local fadeStart, fadeEnd
 local MESH_TRIS = 10000
 local MESH_CACHE_TRIS = jit.arch == "x64" and math.huge or 300000
 local PRELOAD = jit.arch == "x64"
@@ -1632,7 +1632,7 @@ local function draw(depth, _, sky3d)
 	setConstant(MAT, "$c0", eye.x, eye.y, eye.z, CurTime() % 1000)
 	setConstant(MAT, "$c1", winMinX, winMinY, winMaxX, winMaxY)
 	setConstant(MAT, "$c2", sun.x, sun.y, sun.z, foliage.WorldLightScale())
-	setConstant(MAT, "$c3", packColor(amb.x * FILL_K, amb.y * FILL_K, amb.z * FILL_K), tonemap, FADE_START, FADE_END)
+	setConstant(MAT, "$c3", packColor(amb.x * FILL_K, amb.y * FILL_K, amb.z * FILL_K), tonemap, fadeStart, fadeEnd)
 
 	local fr, fg, fb = render.GetFogColor()
 	local fogStart, fogEnd = render.GetFogDistances()
@@ -1683,9 +1683,17 @@ local function stop()
 end
 
 grid = chunks.Grid({
-	name = "snowcover", size = CHUNK, radius = RADIUS, cacheLimit = MESH_CACHE_TRIS,
+	name = "snowcover", size = CHUNK, cacheLimit = MESH_CACHE_TRIS,
 	load = load, build = buildChunk, destroy = destroyChunk, failed = stop,
 })
+
+function snowcover.SetDistance(radius)
+	radius = math.Clamp(radius, 1024, chunks.MAX_DISTANCE)
+	grid.radius = radius
+	fadeStart, fadeEnd = radius * 0.75, radius * 0.95
+end
+
+snowcover.SetDistance(DISTANCE:GetInt())
 
 local function start()
 	stop()
@@ -1763,6 +1771,11 @@ end
 
 local apply = shaderpack.Toggle("borealis_snowcover", ENABLED, SHADERS, start, stop, { NOISE })
 shaderpack.AfterWorld("borealis_snowcover", apply)
+
+cvars.RemoveChangeCallback("borealis_snowcover_distance", "borealis_snowcover")
+cvars.AddChangeCallback("borealis_snowcover_distance", function()
+	snowcover.SetDistance(DISTANCE:GetInt())
+end, "borealis_snowcover")
 
 hook.Add("TOD_WinterRemoved", "borealis_snowcover", function()
 	winterRemoved = true

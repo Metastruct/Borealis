@@ -438,6 +438,7 @@ function Layer:Stop()
 end
 
 function Layer:SetDistance(radius)
+	radius = math.min(radius, chunks.MAX_DISTANCE)
 	self.radius = radius
 	self.grid.radius = radius
 	self.fadeStart, self.fadeEnd = radius * 0.72, radius * 0.98

@@ -3,6 +3,7 @@ shaderpack.chunks = chunks
 chunks.grids = chunks.grids or {}
 
 local grids = chunks.grids
+chunks.MAX_DISTANCE = jit.arch == "x64" and 16384 or 6144
 
 local MIN_BUDGET_MS, MAX_BUDGET_MS = 8, 12
 local TARGET_FRAME_MS = 16
