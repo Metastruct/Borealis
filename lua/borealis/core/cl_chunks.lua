@@ -76,10 +76,34 @@ function Grid:stepLoad()
 	elseif coroutine.status(self.loader) == "dead" then
 		if res then
 			self.ready = true
+			if self.preload then self:queuePreload() end
 		else
 			self:fail(why)
 		end
 	end
+end
+
+function Grid:queuePreload()
+	local gridChunks, queue = self.chunks, self.queue
+	for _, c in ipairs(self.preload) do
+		local key = chunks.Key(c.cx, c.cy)
+		if not gridChunks[key] then
+			local ch = { cx = c.cx, cy = c.cy }
+			gridChunks[key] = ch
+			queue[#queue + 1] = ch
+		end
+	end
+
+	self.queueDirty = true
+end
+
+function Grid:Preload(list)
+	self.preload = list
+	if self.ready and list then self:queuePreload() end
+end
+
+local function byPrioDesc(a, b)
+	return a.prio > b.prio
 end
 
 function Grid:refreshQueue(eye, fwd)
@@ -102,16 +126,14 @@ function Grid:refreshQueue(eye, fwd)
 			queue[n] = ch
 		end
 	end
+
+	table.sort(queue, byPrioDesc)
 end
 
 function Grid:bestQueued()
-	local queue = self.queue
-	local best
-	for i = 1, #queue do
-		if not best or queue[i].prio < queue[best].prio then best = i end
-	end
+	local count = #self.queue
 
-	return best
+	return count > 0 and count or nil
 end
 
 function Grid:begin(index)
@@ -207,8 +229,10 @@ function Grid:evict(eye)
 		local d = dx * dx + dy * dy
 		if d > limit and ch ~= self.current then
 			if not ch.built then
-				gridChunks[key] = nil
-				self.queueDirty = true
+				if not self.preload then
+					gridChunks[key] = nil
+					self.queueDirty = true
+				end
 			elseif ch.cost > 0 then
 				ch.evictDist = d
 				far[#far + 1] = ch

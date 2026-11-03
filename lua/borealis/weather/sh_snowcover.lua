@@ -26,6 +26,7 @@ local RADIUS = 3072
 local FADE_START, FADE_END = RADIUS * 0.75, RADIUS * 0.95
 local MESH_TRIS = 10000
 local MESH_CACHE_TRIS = jit.arch == "x64" and math.huge or 300000
+local PRELOAD = jit.arch == "x64"
 local CACHE_DIR = "shaderpack/snowcover"
 local CACHE_VERSION = 1
 local CACHE_COUNT_BYTES, CACHE_HEADER_BYTES, CACHE_CLUSTER_BYTES, CACHE_SAMPLE_BYTES, CACHE_VERTEX_BYTES = 4, 11, 2, 9, 17
@@ -1021,7 +1022,7 @@ if SERVER then
 	return
 end
 
-local activeBlob, blobIndex
+local blobFile, blobIndex
 local blobPending
 
 local function useBlob(key, size)
@@ -1047,20 +1048,26 @@ local function useBlob(key, size)
 	end
 
 	local header = count > 0 and f:Read(count * BAKE_ENTRY_BYTES) or ""
-	f:Close()
-
-	local index = {}
+	local index, list = {}, {}
 	local offset = CACHE_COUNT_BYTES + count * BAKE_ENTRY_BYTES
 	for i = 0, count - 1 do
 		local x1, x2, y1, y2, l1, l2, l3, l4 = byte(header, i * BAKE_ENTRY_BYTES + 1, i * BAKE_ENTRY_BYTES + BAKE_ENTRY_BYTES)
 		local len = l1 + l2 * 256 + l3 * 65536 + l4 * 16777216
-		index[chunkKey(x1 + x2 * 256 - 32768, y1 + y2 * 256 - 32768)] = { offset, len }
+		local cx, cy = x1 + x2 * 256 - 32768, y1 + y2 * 256 - 32768
+		index[chunkKey(cx, cy)] = { offset, len }
+		list[#list + 1] = { cx = cx, cy = cy }
 		offset = offset + len
 	end
 
-	if offset ~= size then return false end
+	if offset ~= size then
+		f:Close()
 
-	activeBlob, blobIndex = path, index
+		return false
+	end
+
+	if blobFile then blobFile:Close() end
+	blobFile, blobIndex = f, index
+	if PRELOAD then grid:Preload(list) end
 
 	return true
 end
@@ -1069,6 +1076,11 @@ local function blobReceived(data)
 	local key, size = blobPending.key, blobPending.size
 	blobPending = nil
 	if #data ~= size then return end
+
+	if blobFile then
+		blobFile:Close()
+		blobFile, blobIndex = nil, nil
+	end
 
 	file.CreateDir(CACHE_DIR)
 	pruneBlobs(key)
@@ -1115,14 +1127,9 @@ local function chunkBytes(ch)
 		local entry = blobIndex[chunkKey(ch.cx, ch.cy)]
 		if not entry then return CACHE_EMPTY end
 
-		local f = file.Open(activeBlob, "rb", "DATA")
-		if not f then return end
+		blobFile:Seek(entry[1])
 
-		f:Seek(entry[1])
-		local raw = f:Read(entry[2])
-		f:Close()
-
-		return raw
+		return blobFile:Read(entry[2])
 	end
 
 	return cacheDir and file.Read(cachePath(ch), "DATA")
@@ -1181,22 +1188,92 @@ local function writeCached(ch, verts, tris)
 	file.Write(cachePath(ch), encodeChunk(ch, verts, tris))
 end
 
-local function resolveLights(ch, verts, tris)
-	local yieldIfOverBudget = chunks.YieldIfOverBudget
-	local samples, lights = ch.samples, {}
-	for i = 1, #samples / 3 do
-		local at = i * 3
-		samplePos:SetUnpacked(samples[at - 2], samples[at - 1], samples[at])
-		local l, d = render.ComputeLighting(samplePos, UP), render.ComputeDynamicLighting(samplePos, UP)
-		lights[i] = math.Clamp(math.floor((l.x - d.x) * 127.5), 0, 255) * 65536 + math.Clamp(math.floor((l.y - d.y) * 127.5), 0, 255) * 256 + math.Clamp(math.floor((l.z - d.z) * 127.5), 0, 255)
-		if i % CACHE_YIELD_VERTS == 0 then yieldIfOverBudget() end
+local resolveLights
+do
+	local LIGHT_REFINE_CELL, LIGHT_REFINE_DIFF = 64, 4
+	local LIGHT_NEIGHBOURS = {}
+	for dz = -1, 1 do
+		for dy = -1, 1 do
+			for dx = -1, 1 do
+				if dx ~= 0 or dy ~= 0 or dz ~= 0 then
+					LIGHT_NEIGHBOURS[#LIGHT_NEIGHBOURS + 1] = cellKey(dx * LIGHT_REFINE_CELL, dy * LIGHT_REFINE_CELL, dz * LIGHT_REFINE_CELL, LIGHT_REFINE_CELL) - cellKey(0, 0, 0, LIGHT_REFINE_CELL)
+				end
+			end
+		end
 	end
 
-	for o = 6, tris * 3 * STRIDE, STRIDE do
-		verts[o] = lights[verts[o]] or 0
+	local function lightDiff(a, b)
+		return math.max(math.abs(math.floor(a / 65536) - math.floor(b / 65536)), math.abs(math.floor(a / 256) % 256 - math.floor(b / 256) % 256), math.abs(a % 256 - b % 256))
 	end
 
-	ch.samples = nil
+	function resolveLights(ch, verts, tris)
+		local yieldIfOverBudget = chunks.YieldIfOverBudget
+		local samples, lights, cellOf, reps, far, farDist, refine = ch.samples, {}, {}, {}, {}, {}, {}
+		local count, computed = #samples / 3, 0
+
+		local function compute(i)
+			local at = i * 3
+			samplePos:SetUnpacked(samples[at - 2], samples[at - 1], samples[at])
+			local l, d = render.ComputeLighting(samplePos, UP), render.ComputeDynamicLighting(samplePos, UP)
+			lights[i] = math.Clamp(math.floor((l.x - d.x) * 127.5), 0, 255) * 65536 + math.Clamp(math.floor((l.y - d.y) * 127.5), 0, 255) * 256 + math.Clamp(math.floor((l.z - d.z) * 127.5), 0, 255)
+			computed = computed + 1
+			if computed % CACHE_YIELD_VERTS == 0 then yieldIfOverBudget() end
+		end
+
+		for i = 1, count do
+			local at = i * 3
+			local x, y, z = samples[at - 2], samples[at - 1], samples[at]
+			local key = cellKey(x, y, z, LIGHT_REFINE_CELL)
+			cellOf[i] = key
+			local rep = reps[key]
+			if not rep then
+				reps[key] = i
+				compute(i)
+			else
+				local ra = rep * 3
+				local dx, dy, dz = x - samples[ra - 2], y - samples[ra - 1], z - samples[ra]
+				local dist = dx * dx + dy * dy + dz * dz
+				if not far[key] or dist > farDist[key] then
+					far[key], farDist[key] = i, dist
+				end
+			end
+		end
+
+		for key, i in pairs(reps) do
+			local light, other = lights[i], far[key]
+			if other then
+				compute(other)
+				refine[key] = lightDiff(light, lights[other]) > LIGHT_REFINE_DIFF
+			end
+
+			if not refine[key] then
+				for _, offset in ipairs(LIGHT_NEIGHBOURS) do
+					local nb = reps[key + offset]
+					if nb and lightDiff(light, lights[nb]) > LIGHT_REFINE_DIFF then
+						refine[key] = true
+						break
+					end
+				end
+			end
+		end
+
+		for i = 1, count do
+			if not lights[i] then
+				local key = cellOf[i]
+				if refine[key] then
+					compute(i)
+				else
+					lights[i] = lights[reps[key]]
+				end
+			end
+		end
+
+		for o = 6, tris * 3 * STRIDE, STRIDE do
+			verts[o] = lights[verts[o]] or 0
+		end
+
+		ch.samples = nil
+	end
 end
 
 local vpos, vnormal = Vector(), Vector()
