@@ -4,6 +4,8 @@ const float4 Constants2 : register(c2);
 const float4 Constants3 : register(c3);
 const float4 Constants11 : register(c11);
 const float4 Constants12 : register(c12);
+const float4 Constants13 : register(c13);
+const float4 Constants14 : register(c14);
 
 sampler Frame : register(s0);
 sampler Depth : register(s1);
@@ -23,6 +25,10 @@ sampler CoverTex : register(s5);
 #define FOG_FALLOFF Constants11.w
 #define FOG_BASE    Constants12.x
 #define FROZEN      (Constants12.y > 0.5)
+#define BAKED_SUN   Constants13.xyz
+#define LIGHT_SCALE Constants13.w
+#define FILL        Constants14.x
+#define BRIGHTNESS  Constants14.y
 #define FOG_RANGE   5000.0
 
 #define ICE_CRACK_BIG 260.0
@@ -57,9 +63,7 @@ sampler CoverTex : register(s5);
 #define ICE_FROST_SOFT 0.2
 #define ICE_FROST_MAX 0.85
 #define ICE_SHORE_DEPTH 24.0
-#define ICE_ALBEDO 0.85
-#define ICE_AMBIENT 0.7
-#define ICE_SUN float3(1.0, 0.96, 0.9)
+#define ICE_ALBEDO float3(0.235, 0.24, 0.25)
 #define ICE_CRACK_WHITE 0.4
 #define FOG_AMBIENT 0.6
 
@@ -90,6 +94,7 @@ float2 ClipToUV(float4 pixel) {
     return pixel.xy / pixel.w * float2(0.5, -0.5) + 0.5;
 }
 
+#include "include/common.hlsl"
 #include "include/water_waves.hlsl"
 #include "include/slices.hlsl"
 #include "include/water_optics.hlsl"
@@ -122,6 +127,16 @@ float3 WorldAbove(float2 lookupUV, float3 sky) {
     float edge = saturate(min(lookupUV.x, 1 - lookupUV.x) / 0.1) * saturate(min(lookupUV.y, 1 - lookupUV.y) / 0.1);
 
     return lerp(sky, tex2Dlod(Frame, float4(saturate(lookupUV), 0.0, 0.0)).rgb, edge);
+}
+
+float3 IceColor(float3 baked, float3 normal, float3 albedo) {
+    float share = length(BAKED_SUN);
+    float3 sunDir = BAKED_SUN / max(share, 1e-4);
+    float flatLight = share * saturate(sunDir.z) + (1.0 - share);
+    float slopeLight = share * saturate(dot(normal, sunDir)) + (1.0 - share) * (0.5 + 0.5 * normal.z);
+    float3 linearColor = max((baked * 2.0 * LIGHT_SCALE + unpackColor(FILL)) * (slopeLight / max(flatLight, 1e-3)) * BRIGHTNESS * albedo, 0.0);
+
+    return linearColor <= 0.0031308 ? linearColor * 12.92 : 1.055 * pow(linearColor, 1.0 / 2.4) - 0.055;
 }
 
 float4 main(PS_IN i) : COLOR
@@ -234,8 +249,7 @@ float4 main(PS_IN i) : COLOR
         transmitted = WaterAttenuate(frame.rgb, thickness * MURK, skyScatter);
         [branch] if (FROZEN)
         {
-            float3 skyLight = lerp(HORIZON_COLOR, ZENITH_COLOR, 0.5) * ICE_AMBIENT + ICE_SUN * SUNLIT * saturate(SUN_DIR.z * 10.0) * saturate(SUN_DIR.z);
-            float3 scatter = skyLight * ICE_ALBEDO * ICE_SCATTER;
+            float3 scatter = IceColor(i.color.gba, float3(0.0, 0.0, 1.0), ICE_ALBEDO * ICE_SCATTER);
             transmitted = lerp(transmitted * ICE_TINT, scatter, lerp(ICE_CLOUD_MIN, ICE_CLOUD_MAX, cloud));
             frost = max(frost, 1.0 - saturate((i.wpos.z - seabedPos.z) / ICE_SHORE_DEPTH));
         }
@@ -333,8 +347,7 @@ float4 main(PS_IN i) : COLOR
 
     [branch] if (FROZEN)
     {
-        float3 light = lerp(HORIZON_COLOR, ZENITH_COLOR, 0.5) * ICE_AMBIENT + ICE_SUN * SUNLIT * sunUp * saturate(dot(normal, SUN_DIR));
-        float3 white = light * ICE_ALBEDO;
+        float3 white = IceColor(i.color.gba, normal, ICE_ALBEDO);
         color = lerp(color, white, crack * ICE_CRACK_WHITE);
         color = lerp(color, white, frost);
     }

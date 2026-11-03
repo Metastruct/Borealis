@@ -206,6 +206,81 @@ local function bodyOpenness(g)
 	return total > 0 and open / total or 1
 end
 
+local ICE_LIGHT_CELL, ICE_LIGHT_LIFT, ICE_MAX_VERTS = 256, 4, 65535
+local ICE_LIGHT_INWARD = { 0, 0.1, 0.25, 0.5, 1 }
+local UP = Vector(0, 0, 1)
+local lightPos = Vector()
+local NO_LIGHT = { 0, 0, 255 }
+
+local function tessellationCount(verts, cell)
+	local count = 0
+	for i = 1, #verts, 3 do
+		local a, b, c = verts[i], verts[i + 1], verts[i + 2]
+		local n = math.max(1, math.ceil(math.max(a:Distance(b), b:Distance(c), c:Distance(a)) / cell))
+		count = count + n * n * 3
+	end
+
+	return count
+end
+
+local function bakedLight(v, centre, cache)
+	local key = math.Round(v.x) .. "," .. math.Round(v.y)
+	local light = cache[key]
+	if light then return light end
+
+	for _, f in ipairs(ICE_LIGHT_INWARD) do
+		lightPos:SetUnpacked(v.x + (centre.x - v.x) * f, v.y + (centre.y - v.y) * f, v.z + ICE_LIGHT_LIFT)
+		if bit.band(util.PointContents(lightPos), CONTENTS_SOLID) == 0 then break end
+	end
+
+	local l, d = render.ComputeLighting(lightPos, UP), render.ComputeDynamicLighting(lightPos, UP)
+	light = {
+		math.Clamp(math.floor((l.x - d.x) * 127.5), 0, 255),
+		math.Clamp(math.floor((l.y - d.y) * 127.5), 0, 255),
+		math.Clamp(math.floor((l.z - d.z) * 127.5), 0, 255),
+	}
+	cache[key] = light
+
+	return light
+end
+
+local function bakeIce(verts)
+	local cell = ICE_LIGHT_CELL
+	local count = tessellationCount(verts, cell)
+	while count > math.max(ICE_MAX_VERTS, #verts) do
+		cell = cell * math.sqrt(count / ICE_MAX_VERTS) * 1.05
+		count = tessellationCount(verts, cell)
+	end
+
+	local out, lights, cache = {}, {}, {}
+	for i = 1, #verts, 3 do
+		local a, b, c = verts[i], verts[i + 1], verts[i + 2]
+		local n = math.max(1, math.ceil(math.max(a:Distance(b), b:Distance(c), c:Distance(a)) / cell))
+		local ab, ac = (b - a) / n, (c - a) / n
+		local centre = (a + b + c) / 3
+		local function add(u, w)
+			local v = a + ab * u + ac * w
+			out[#out + 1] = v
+			lights[#lights + 1] = bakedLight(v, centre, cache)
+		end
+
+		for u = 0, n - 1 do
+			for w = 0, n - 1 - u do
+				add(u, w)
+				add(u + 1, w)
+				add(u, w + 1)
+				if u + w < n - 1 then
+					add(u + 1, w)
+					add(u + 1, w + 1)
+					add(u, w + 1)
+				end
+			end
+		end
+	end
+
+	return out, lights
+end
+
 local function writeBodyMesh(g, ent)
 	if g.mesh then g.mesh:Destroy() end
 
@@ -213,11 +288,13 @@ local function writeBodyMesh(g, ent)
 	mesh.Begin(msh, MATERIAL_TRIANGLES, #g.verts / 3)
 	local murkByte = math.floor(g.murk / MURK_MAX * 255 + 0.5)
 	local minX, minY, maxX, maxY, maxZ = math.huge, math.huge, -math.huge, -math.huge, -math.huge
-	for _, v in ipairs(g.verts) do
+	local lights = g.lights
+	for i, v in ipairs(g.verts) do
 		if ent then v = ent:LocalToWorld(v) end
+		local light = lights and lights[i] or NO_LIGHT
 		mesh.Position(v)
 		mesh.TexCoord(0, 0, 0)
-		mesh.Color(murkByte, 0, 0, 255)
+		mesh.Color(murkByte, light[1], light[2], light[3])
 		mesh.AdvanceVertex()
 		minX, minY = math.min(minX, v.x), math.min(minY, v.y)
 		maxX, maxY, maxZ = math.max(maxX, v.x), math.max(maxY, v.y), math.max(maxZ, v.z)
@@ -258,6 +335,7 @@ local function buildMeshes()
 				murk = math.floor(murk / MURK_MAX * 255 + 0.5) / 255 * MURK_MAX, clusters = g.clusters, nonWater = nonWater,
 				frozen = g.frozen,
 			}
+			if g.frozen then body.verts, body.lights = bakeIce(g.verts) end
 			if g.model == 0 then writeBodyMesh(body) end
 			meshes[key] = body
 		end
@@ -370,7 +448,7 @@ local function initialize()
 	buildMeshes()
 end
 
-local toLinear, sunDir, setConstant = shaderpack.ToLinear, shaderpack.SunDir, shaderpack.SetConstant
+local toLinear, sunDir, setConstant, packColor = shaderpack.ToLinear, shaderpack.SunDir, shaderpack.SetConstant, shaderpack.PackColor
 
 local SUN_TRACE_LENGTH = 32768
 local SUN_TRACE_HEIGHT = 4
@@ -402,6 +480,7 @@ local function bodySunlit(g, sun)
 end
 
 local AMBIENT_REFLECTANCE = 0.25
+local ICE_FILL_K = 0.5
 
 local function bodyAmbient(g)
 	local now = RealTime()
@@ -524,12 +603,19 @@ local function drawSurface(eyePos, eyeUnderwater, writeDepth)
 	local fogDensity, fogFalloff, fogBase = 0, 1, 0
 	if fog and fog.Layer then fogDensity, fogFalloff, fogBase = fog.Layer() end
 
+	local bakedSun = bspdata.BakedSun()
+	local foliage = shaderpack.foliage
+	local lightScale = foliage and foliage.WorldLightScale() or 1
+	local amb = render.GetAmbientLightColor()
+	local fill = packColor(amb.x * ICE_FILL_K, amb.y * ICE_FILL_K, amb.z * ICE_FILL_K)
+	local tonemap = render.GetToneMappingScaleLinear().x
+
 	render.OverrideDepthEnable(true, writeDepth)
 	cam.PushModelMatrix(IDENTITY_MATRIX, false)
 	for _, g in pairs(meshes) do
 		if not bodyDrawable(g, pvs) then continue end
 
-		rainConstants:SetUnpacked(rain, g.openness, fogDensity, fogFalloff, fogBase, g.frozen and 1 or 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+		rainConstants:SetUnpacked(rain, g.openness, fogDensity, fogFalloff, fogBase, g.frozen and 1 or 0, 0, 0, bakedSun.x, bakedSun.y, bakedSun.z, lightScale, fill, tonemap, 0, 0)
 		SURF_MAT:SetMatrix("$viewprojmat", rainConstants)
 		SURF_MAT:SetTexture("$texture2", g.normalmap)
 		local hr, hg, hb, zr, zg, zb = bodySkyColors(g)
