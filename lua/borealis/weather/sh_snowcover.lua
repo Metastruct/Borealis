@@ -25,11 +25,12 @@ local CHUNK, CELL = 512, 32
 local MIN_NZ = 0.3
 local fadeStart, fadeEnd
 local MESH_TRIS = 10000
+local SIGHT_RAISE = 8
 local MESH_CACHE_TRIS = jit.arch == "x64" and math.huge or 300000
 local PRELOAD = jit.arch == "x64"
 local CACHE_DIR = "shaderpack/snowcover"
-local CACHE_VERSION = 1
-local CACHE_COUNT_BYTES, CACHE_HEADER_BYTES, CACHE_CLUSTER_BYTES, CACHE_SAMPLE_BYTES, CACHE_VERTEX_BYTES = 4, 11, 2, 9, 17
+local CACHE_VERSION = 2
+local CACHE_COUNT_BYTES, CACHE_HEADER_BYTES, CACHE_CLUSTER_BYTES, CACHE_SAMPLE_BYTES, CACHE_VERTEX_BYTES = 4, 11, 5, 9, 17
 local CACHE_COORD_SCALE, CACHE_COORD_OFFSET, CACHE_NORMAL_SCALE = 32, 8388608, 32767.5
 local CACHE_YIELD_VERTS = 256
 local CACHE_EMPTY = "\0\0\0\0"
@@ -44,7 +45,7 @@ local MSG_KEY, MSG_CHUNK = 0, 1
 local SKY_TRACE_DISTANCE = 16384
 local SKY_GAP_REACH = 24
 local SKY_GAP_DIRS = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }
-local SKY_CELL, LIGHT_CELL, CLUSTER_CELL = 16, 16, 64
+local SKY_CELL, LIGHT_CELL = 16, 16
 local SMALL_TRI = CELL * 2
 local SKIRT_DEPTH = 1
 local SLOPE_WIDTH, SLOPE_CELL = 48, 64
@@ -546,28 +547,26 @@ local function buildVerts(ch)
 	local x0, y0 = ch.cx * CHUNK, ch.cy * CHUNK
 	local x1, y1 = x0 + CHUNK, y0 + CHUNK
 	local cand = bspdata.Candidates(triGrid, x0, y0, x1, y1)
-	local verts, n = {}, 0
-	local cache = { sky = {}, rays = {}, light = {}, samples = {}, cluster = {}, drift = {} }
-	local clusters, clusterSet = {}, {}
+	local cache = { sky = {}, rays = {}, light = {}, samples = {}, drift = {} }
+	local groups, order, group = {}, {}
 	local zmin, zmax = math.huge, -math.huge
 	local yieldIfOverBudget = buildYield
 
 	local function emit(x, y, z, nx, ny, cover, light)
-		verts[n + 1], verts[n + 2], verts[n + 3], verts[n + 4], verts[n + 5], verts[n + 6], verts[n + 7] = x, y, z, nx, ny, light, cover
-		n = n + STRIDE
+		local v, k = group.verts, group.n
+		v[k + 1], v[k + 2], v[k + 3], v[k + 4], v[k + 5], v[k + 6], v[k + 7] = x, y, z, nx, ny, light, cover
+		group.n = k + STRIDE
 		if z < zmin then zmin = z end
 		if z > zmax then zmax = z end
 	end
 
-	local function addCluster(x, y, z)
-		local key = cellKey(x, y, z, CLUSTER_CELL)
-		if cache.cluster[key] then return end
-		cache.cluster[key] = true
-
-		local c = bspdata.ClusterAt(x, y, z + DEPTH + 4)
-		if c >= 0 and not clusterSet[c] then
-			clusterSet[c] = true
-			clusters[#clusters + 1] = c
+	local function useCluster(x, y, z)
+		local c = math.max(bspdata.ClusterAt(x, y, z + DEPTH + 4), -1)
+		group = groups[c]
+		if not group then
+			group = { verts = {}, n = 0 }
+			groups[c] = group
+			order[#order + 1] = c
 		end
 	end
 
@@ -594,8 +593,9 @@ local function buildVerts(ch)
 			local tri = { { t[1], t[2], t[3], t[10], vn[1], vn[2] }, { t[4], t[5], t[6], t[11], vn[3], vn[4] }, { t[7], t[8], t[9], t[12], vn[5], vn[6] } }
 			if t[15] - t[13] <= SMALL_TRI and t[16] - t[14] <= SMALL_TRI then
 				local mx, my = (t[1] + t[4] + t[7]) / 3, (t[2] + t[5] + t[8]) / 3
-				if mx >= x0 and mx < x1 and my >= y0 and my < y1 and emitTri(tri, 1, 2, 3) then
-					addCluster(mx, my, t[3])
+				if mx >= x0 and mx < x1 and my >= y0 and my < y1 then
+					useCluster(mx, my, (t[3] + t[6] + t[9]) / 3)
+					emitTri(tri, 1, 2, 3)
 				end
 
 				yieldIfOverBudget()
@@ -612,12 +612,18 @@ local function buildVerts(ch)
 						if #poly >= 3 then poly = clipPoly(poly, 2, cy0, 1) end
 						if #poly >= 3 then poly = clipPoly(poly, 2, cy0 + CELL, -1) end
 
-						local any = false
-						for k = 2, #poly - 1 do
-							any = emitTri(poly, 1, k, k + 1) or any
+						if #poly >= 3 then
+							local px, py, pz = 0, 0, 0
+							for _, p in ipairs(poly) do
+								px, py, pz = px + p[1], py + p[2], pz + p[3]
+							end
+
+							useCluster(px / #poly, py / #poly, pz / #poly)
+							for k = 2, #poly - 1 do
+								emitTri(poly, 1, k, k + 1)
+							end
 						end
 
-						if any then addCluster(poly[1][1], poly[1][2], poly[1][3]) end
 						yieldIfOverBudget()
 					end
 				end
@@ -666,6 +672,7 @@ local function buildVerts(ch)
 				local mx, my, mz = (px + qx) * 0.5, (py + qy) * 0.5, (pz + qz) * 0.5
 				local covered = dropsToSnow(triGrid, mx, my, mz, e[9], e[10]) and snowBelow(triGrid, mx - e[9] * EDGE_CHECK_DISTANCE, my - e[10] * EDGE_CHECK_DISTANCE, mz)
 				if pc + qc > 0 then
+					useCluster(mx, my, mz)
 					local sink = covered and MERGE_SKIRT_SINK or 0
 					emit(px, py, pz + pc * DEPTH + pm - sink, e[9], e[10], pc, pl)
 					emit(qx, qy, qz + qc * DEPTH + qm - sink, e[9], e[10], qc, ql)
@@ -682,7 +689,25 @@ local function buildVerts(ch)
 		yieldIfOverBudget()
 	end
 
-	ch.clusters, ch.samples = clusters, cache.samples
+	table.sort(order)
+	local verts, n, clusters, clusterTris = {}, 0, {}, {}
+	for _, c in ipairs(order) do
+		local g = groups[c]
+		if g.n > 0 then
+			local v = g.verts
+			for i = 1, g.n do
+				verts[n + i] = v[i]
+			end
+
+			n = n + g.n
+			clusters[#clusters + 1] = c
+			clusterTris[#clusterTris + 1] = g.n / STRIDE / 3
+		end
+
+		yieldIfOverBudget()
+	end
+
+	ch.clusters, ch.clusterTris, ch.samples = clusters, clusterTris, cache.samples
 	ch.cz = (zmin + zmax) * 0.5
 	local hz = (zmax - zmin) * 0.5
 	ch.radius = math.sqrt(CHUNK * CHUNK * 0.5 + hz * hz)
@@ -757,8 +782,9 @@ local function encodeChunk(ch, verts, tris)
 		char(tris % 256, math.floor(tris / 256) % 256, math.floor(tris / 65536) % 256, math.floor(tris / 16777216)),
 		char(z1, z2, z3, r1, r2, r3, clusterCount % 256, math.floor(clusterCount / 256), sampleCount % 256, math.floor(sampleCount / 256) % 256, math.floor(sampleCount / 65536)),
 	}
-	for _, c in ipairs(ch.clusters) do
-		parts[#parts + 1] = char(c % 256, math.floor(c / 256))
+	for i, c in ipairs(ch.clusters) do
+		local id, count = c + 1, ch.clusterTris[i]
+		parts[#parts + 1] = char(id % 256, math.floor(id / 256), count % 256, math.floor(count / 256) % 256, math.floor(count / 65536))
 	end
 
 	for i = 1, sampleCount * 3, 3 do
@@ -1150,12 +1176,15 @@ local function readCached(ch)
 	local p = CACHE_COUNT_BYTES + CACHE_HEADER_BYTES
 	if #data ~= p + clusterCount * CACHE_CLUSTER_BYTES + sampleCount * CACHE_SAMPLE_BYTES + tris * 3 * CACHE_VERTEX_BYTES then return end
 
-	local clusters = {}
+	local clusters, clusterTris, grouped = {}, {}, 0
 	for i = 1, clusterCount do
-		local lo, hi = byte(data, p + 1, p + 2)
-		clusters[i] = lo + hi * 256
+		local lo, hi, n1, n2, n3 = byte(data, p + 1, p + CACHE_CLUSTER_BYTES)
+		clusters[i], clusterTris[i] = lo + hi * 256 - 1, n1 + n2 * 256 + n3 * 65536
+		grouped = grouped + clusterTris[i]
 		p = p + CACHE_CLUSTER_BYTES
 	end
+
+	if grouped ~= tris then return end
 
 	local samples = {}
 	for i = 1, sampleCount * 3, 3 do
@@ -1177,7 +1206,7 @@ local function readCached(ch)
 		if i % CACHE_YIELD_VERTS == 0 then yieldIfOverBudget() end
 	end
 
-	ch.cz, ch.radius, ch.clusters, ch.samples = unpackCoord(z1, z2, z3), unpackCoord(r1, r2, r3), clusters, samples
+	ch.cz, ch.radius, ch.clusters, ch.clusterTris, ch.samples = unpackCoord(z1, z2, z3), unpackCoord(r1, r2, r3), clusters, clusterTris, samples
 
 	return verts, tris
 end
@@ -1292,33 +1321,47 @@ local function buildChunk(ch)
 
 	if tris > 0 then resolveLights(ch, verts, tris) end
 
-	local total = tris
-	local meshes = {}
-	ch.meshes = meshes
+	local groups = {}
+	ch.groups = groups
 	local o = 0
-	while tris > 0 do
-		chunks.YieldIfOverBudget()
-		local count = math.min(tris, MESH_TRIS)
-		local m = Mesh()
-		mesh.Begin(m, MATERIAL_TRIANGLES, count)
-		for _ = 1, count * 3 do
-			local light = verts[o + 6]
-			local nx, ny = verts[o + 4], verts[o + 5]
-			vpos:SetUnpacked(verts[o + 1], verts[o + 2], verts[o + 3])
-			vnormal:SetUnpacked(nx, ny, math.sqrt(math.max(1 - nx * nx - ny * ny, 0)))
-			mesh.Position(vpos)
-			mesh.Normal(vnormal)
-			mesh.TexCoord(0, nx, ny)
-			mesh.Color(math.floor(light / 65536), math.floor(light / 256) % 256, light % 256, math.floor(verts[o + 7] * 255 + 0.5))
-			mesh.AdvanceVertex()
-			o = o + STRIDE
+	for i, cluster in ipairs(tris > 0 and ch.clusters or {}) do
+		local left = ch.clusterTris[i]
+		local first, last = o, o + (left * 3 - 1) * STRIDE
+		local g = {
+			cluster = cluster, meshes = {}, x = 0, y = 0, z = 0,
+			ax = verts[first + 1], ay = verts[first + 2], az = verts[first + 3] + SIGHT_RAISE,
+			bx = verts[last + 1], by = verts[last + 2], bz = verts[last + 3] + SIGHT_RAISE,
+		}
+		groups[i] = g
+
+		while left > 0 do
+			chunks.YieldIfOverBudget()
+			local count = math.min(left, MESH_TRIS)
+			local m = Mesh()
+			mesh.Begin(m, MATERIAL_TRIANGLES, count)
+			for _ = 1, count * 3 do
+				local light = verts[o + 6]
+				local nx, ny = verts[o + 4], verts[o + 5]
+				g.x, g.y, g.z = g.x + verts[o + 1], g.y + verts[o + 2], g.z + verts[o + 3]
+				vpos:SetUnpacked(verts[o + 1], verts[o + 2], verts[o + 3])
+				vnormal:SetUnpacked(nx, ny, math.sqrt(math.max(1 - nx * nx - ny * ny, 0)))
+				mesh.Position(vpos)
+				mesh.Normal(vnormal)
+				mesh.TexCoord(0, nx, ny)
+				mesh.Color(math.floor(light / 65536), math.floor(light / 256) % 256, light % 256, math.floor(verts[o + 7] * 255 + 0.5))
+				mesh.AdvanceVertex()
+				o = o + STRIDE
+			end
+			mesh.End()
+			g.meshes[#g.meshes + 1] = m
+			left = left - count
 		end
-		mesh.End()
-		meshes[#meshes + 1] = m
-		tris = tris - count
+
+		local n = ch.clusterTris[i] * 3
+		g.x, g.y, g.z = g.x / n, g.y / n, g.z / n + SIGHT_RAISE
 	end
 
-	return total
+	return tris
 end
 
 local function load()
@@ -1336,10 +1379,12 @@ local function load()
 end
 
 local function destroyChunk(ch)
-	for _, m in ipairs(ch.meshes or {}) do
-		m:Destroy()
+	for _, g in ipairs(ch.groups or {}) do
+		for _, m in ipairs(g.meshes) do
+			m:Destroy()
+		end
 	end
-	ch.meshes = nil
+	ch.groups = nil
 end
 
 local trailRT, stampRT, winX, winY
@@ -1582,13 +1627,12 @@ end
 
 local visible = {}
 local visibleCount = 0
+local sight = chunks.Sight()
 
 local function drawVisible()
 	render.SetMaterial(FLASHLIGHT_MAT)
 	for i = 1, visibleCount do
-		for _, m in ipairs(visible[i].meshes) do
-			m:Draw()
-		end
+		visible[i]:Draw()
 	end
 end
 
@@ -1597,20 +1641,17 @@ local function draw(depth, _, sky3d)
 
 	local view = chunks.View()
 	local eye = view.eye
-	local eyeCluster = bspdata.ClusterAt(eye.x, eye.y, eye.z)
-	local pvs = bspdata.PVS(eyeCluster)
+	sight:Begin(eye)
 
 	local nvis = 0
 	for _, ch in ipairs(grid:Visible(view)) do
-		local seen = pvs == nil or #ch.clusters == 0
-		for _, c in ipairs(ch.clusters) do
-			if seen then break end
-			seen = c == eyeCluster or pvs[c] and true or false
-		end
-
-		if seen then
-			nvis = nvis + 1
-			visible[nvis] = ch
+		for _, g in ipairs(ch.groups) do
+			if sight:Shows(g) then
+				for _, m in ipairs(g.meshes) do
+					nvis = nvis + 1
+					visible[nvis] = m
+				end
+			end
 		end
 	end
 
@@ -1650,9 +1691,7 @@ local function draw(depth, _, sky3d)
 	render.SetMaterial(MAT)
 	render.OverrideDepthEnable(true, true)
 	for i = 1, nvis do
-		for _, m in ipairs(visible[i].meshes) do
-			m:Draw()
-		end
+		visible[i]:Draw()
 	end
 	render.OverrideDepthEnable(false, false)
 
@@ -1662,9 +1701,7 @@ local function draw(depth, _, sky3d)
 	if DEPTH_MAT and depthslices.BeginDepthWrite() then
 		render.SetMaterial(DEPTH_MAT)
 		for i = 1, nvis do
-			for _, m in ipairs(visible[i].meshes) do
-				m:Draw()
-			end
+			visible[i]:Draw()
 		end
 		depthslices.EndDepthWrite()
 	end

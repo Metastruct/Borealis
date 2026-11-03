@@ -6,7 +6,6 @@ foliage.layers = foliage.layers or {}
 local CHUNK = 512
 local MESH_BATCH = 240
 local STRIDE = 7
-local SIGHT_TESTS_PER_FRAME = 40
 local MESH_CACHE_TUFTS = jit.arch == "x64" and math.huge or 200000
 local FILL_K = 0.5
 
@@ -241,7 +240,7 @@ function Layer:buildMesh(tufts, first, last)
 		local o = (i - 1) * STRIDE
 		local x, y, z, seed, hs, light, cluster = tufts[o + 1], tufts[o + 2], tufts[o + 3] + 0.5, tufts[o + 4], tufts[o + 5], tufts[o + 6], tufts[o + 7]
 		if not g or cluster ~= g.cluster then
-			g = { cluster = cluster, n = 0, x = 0, y = 0, z = 0, ax = x, ay = y, az = z, sightTestRound = -1, blocked = false }
+			g = { cluster = cluster, n = 0, x = 0, y = 0, z = 0, ax = x, ay = y, az = z }
 			groups[#groups + 1] = g
 		end
 
@@ -332,15 +331,6 @@ function Layer:load()
 	return true
 end
 
-local sightStart, sightEnd, sightRes = Vector(), Vector(), {}
-local sightTrace = { start = sightStart, endpos = sightEnd, mask = CONTENTS_SOLID, output = sightRes, filter = function() return false end }
-local function sightBlocked(x, y, z)
-	sightEnd:SetUnpacked(x, y, z)
-	util.TraceLine(sightTrace)
-
-	return sightRes.Hit and not sightRes.StartSolid
-end
-
 function Layer:draw(sky3d)
 	local grid = self.grid
 	if grid.paused or not grid.ready or sky3d or render.GetRenderTarget() then return end
@@ -363,17 +353,9 @@ function Layer:draw(sky3d)
 
 	local visible = grid:Visible(v)
 
-	local eyeCluster = bspdata.ClusterAt(eye.x, eye.y, eye.z)
-	local pvs = bspdata.PVS(eyeCluster)
-	if RealTime() > self.sightNext or eye:DistToSqr(self.sightEye) > 64 * 64 then
-		self.sightTestRound, self.sightNext = self.sightTestRound + 1, RealTime() + 0.5
-		self.sightEye:Set(eye)
-	end
-
-	local sightTestRound = self.sightTestRound
+	local sight = self.sight
+	sight:Begin(eye)
 	local drawn = self.drawn
-	sightStart:Set(eye)
-	local tests = 0
 	local shown = 0
 	if self.cfg.engineLights then
 		MAT:SetTexture("$basetexture", shaderpack.dynamiclights.Texture() or "vgui/black")
@@ -388,21 +370,9 @@ function Layer:draw(sky3d)
 		for _, b in ipairs(ch.meshes) do
 			local show = false
 			for _, g in ipairs(b.groups) do
-				local c = g.cluster
-				if c == eyeCluster then
+				if sight:Shows(g) then
 					show = true
 					break
-				elseif pvs == nil or c < 0 or pvs[c] then
-					if g.sightTestRound ~= sightTestRound and tests < SIGHT_TESTS_PER_FRAME then
-						tests = tests + 1
-						g.sightTestRound = sightTestRound
-						g.blocked = sightBlocked(g.x, g.y, g.z) and sightBlocked(g.ax, g.ay, g.az) and sightBlocked(g.bx, g.by, g.bz)
-					end
-
-					if not g.blocked then
-						show = true
-						break
-					end
 				end
 			end
 
@@ -493,7 +463,7 @@ function foliage.Layer(cfg)
 	local layer = setmetatable({
 		cfg = cfg, height = 1, radius = 3072,
 		drawn = {},
-		sightTestRound = 0, sightEye = Vector(), sightNext = 0,
+		sight = chunks.Sight(),
 	}, Layer)
 	layer.grid = chunks.Grid({
 		name = cfg.name, size = CHUNK, radius = layer.radius, pad = cfg.sway, cacheLimit = MESH_CACHE_TUFTS,
