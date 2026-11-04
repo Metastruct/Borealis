@@ -1307,6 +1307,21 @@ end
 
 local vpos, vnormal = Vector(), Vector()
 
+local function markSteps(steps, verts, o)
+	local a, b, c = o, o + STRIDE, o + STRIDE * 2
+	local x0, x1 = math.min(verts[a + 1], verts[b + 1], verts[c + 1]), math.max(verts[a + 1], verts[b + 1], verts[c + 1])
+	local y0, y1 = math.min(verts[a + 2], verts[b + 2], verts[c + 2]), math.max(verts[a + 2], verts[b + 2], verts[c + 2])
+	local z0, z1 = math.min(verts[a + 3], verts[b + 3], verts[c + 3]), math.max(verts[a + 3], verts[b + 3], verts[c + 3])
+	local ix, iy = math.floor(x0 / CELL), math.floor(y0 / CELL)
+	for x = ix, math.max(ix, math.ceil(x1 / CELL) - 1) do
+		for y = iy, math.max(iy, math.ceil(y1 / CELL) - 1) do
+			for z = math.floor(z0 / CELL), math.floor(z1 / CELL) do
+				steps[cellKey(x * CELL, y * CELL, z * CELL, CELL)] = true
+			end
+		end
+	end
+end
+
 local function buildChunk(ch)
 	local verts, tris = readCached(ch)
 	if not verts then
@@ -1321,7 +1336,7 @@ local function buildChunk(ch)
 
 	if tris > 0 then resolveLights(ch, verts, tris) end
 
-	local groups = {}
+	local groups, steps = {}, {}
 	ch.groups = groups
 	local o = 0
 	for i, cluster in ipairs(tris > 0 and ch.clusters or {}) do
@@ -1339,11 +1354,12 @@ local function buildChunk(ch)
 			local count = math.min(left, MESH_TRIS)
 			local m = Mesh()
 			mesh.Begin(m, MATERIAL_TRIANGLES, count)
-			for _ = 1, count * 3 do
+			for k = 1, count * 3 do
 				local light = verts[o + 6]
 				local nx, ny = verts[o + 4], verts[o + 5]
 				g.x, g.y, g.z = g.x + verts[o + 1], g.y + verts[o + 2], g.z + verts[o + 3]
 				vpos:SetUnpacked(verts[o + 1], verts[o + 2], verts[o + 3])
+				if k % 3 == 1 then markSteps(steps, verts, o) end
 				vnormal:SetUnpacked(nx, ny, math.sqrt(math.max(1 - nx * nx - ny * ny, 0)))
 				mesh.Position(vpos)
 				mesh.Normal(vnormal)
@@ -1360,6 +1376,7 @@ local function buildChunk(ch)
 		local n = ch.clusterTris[i] * 3
 		g.x, g.y, g.z = g.x / n, g.y / n, g.z / n + SIGHT_RAISE
 	end
+	ch.steps = steps
 
 	return tris
 end
@@ -1384,7 +1401,7 @@ local function destroyChunk(ch)
 			m:Destroy()
 		end
 	end
-	ch.groups = nil
+	ch.groups, ch.steps = nil, nil
 end
 
 local trailRT, stampRT, winX, winY
@@ -1817,4 +1834,14 @@ end, "borealis_snowcover")
 hook.Add("TOD_WinterRemoved", "borealis_snowcover", function()
 	winterRemoved = true
 	stop()
+end)
+
+hook.Add("PlayerFootstep", "borealis_snowcover", function(ply, pos, _, _, volume)
+	local ch = grid.chunks and grid.chunks[chunkKey(math.floor(pos.x / CHUNK), math.floor(pos.y / CHUNK))]
+	local steps = ch and ch.steps
+	if not steps or not (steps[cellKey(pos.x, pos.y, pos.z, CELL)] or steps[cellKey(pos.x, pos.y, pos.z + DEPTH, CELL)]) then return end
+
+	ply:EmitSound("player/footsteps/snow" .. math.random(6) .. ".wav", 75, 100, volume)
+
+	return true
 end)
