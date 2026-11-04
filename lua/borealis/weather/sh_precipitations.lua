@@ -47,8 +47,11 @@ local SNOW_MARGIN = 130
 local SNOW_DRIFT = 0.25
 local SNOW_SLANT_SPAN = 1000
 local SNOW_ALPHA = 0.9
-local SNOW_LIGHT = 2.5
-local SNOW_FLOOR = 0.12
+local SNOW_ALBEDO = 0.25
+local SNOW_FILL = 0.5
+local SNOW_LIGHT_LIFT = 16
+local SNOW_LIGHT_INTERVAL = 0.25
+local SNOW_LIGHT_BLEND = 4
 
 local SPLASH_STEP = 2
 local SPLASH_QUAD = 3
@@ -64,7 +67,7 @@ local SPLASH_NSCALE = 0.75
 local SPLASH_C0 = math.floor((SPLASH_STEP - SPLASH_QUAD) * 0.5)
 local SPLASH_C1 = SPLASH_C0 + SPLASH_QUAD
 
-local packColor, setConstant = shaderpack.PackColor, shaderpack.SetConstant
+local packColor, setConstant, toLinear = shaderpack.PackColor, shaderpack.SetConstant, shaderpack.ToLinear
 
 local SPLASH_MAT, DROP_MAT, SNOW_MAT, splashMesh
 local build
@@ -418,15 +421,45 @@ local function drawDrops(eye, time, level)
 end
 
 local snowRows = { {}, {}, {}, {} }
+local snowLight, snowLightTarget = Vector(), Vector()
+local snowLightPos = Vector()
+local nextSnowLight = 0
+
+local function updateSnowLight(eye)
+	local now = RealTime()
+	if now >= nextSnowLight then
+		local first = nextSnowLight == 0
+		nextSnowLight = now + SNOW_LIGHT_INTERVAL
+		local top = cover.HeightAt(eye.x, eye.y)
+		snowLightPos:SetUnpacked(eye.x, eye.y, math.max(eye.z, (top or eye.z) + SNOW_LIGHT_LIFT))
+		local l, d = render.ComputeLighting(snowLightPos, UP), render.ComputeDynamicLighting(snowLightPos, UP)
+		local foliage = shaderpack.foliage
+		local scale = foliage and foliage.WorldLightScale and foliage.WorldLightScale() or 1
+		local amb = render.GetAmbientLightColor()
+		snowLightTarget:SetUnpacked(
+			math.Clamp(l.x - d.x, 0, 2) * scale + amb.x * SNOW_FILL,
+			math.Clamp(l.y - d.y, 0, 2) * scale + amb.y * SNOW_FILL,
+			math.Clamp(l.z - d.z, 0, 2) * scale + amb.z * SNOW_FILL)
+		if first then snowLight:Set(snowLightTarget) end
+	end
+
+	snowLight:Set(LerpVector(math.min(FrameTime() * SNOW_LIGHT_BLEND, 1), snowLight, snowLightTarget))
+
+	return snowLight
+end
 
 local function drawSnow(eye, amount)
-	local r, g, b = render.GetFogColor()
+	local tonemap = render.GetToneMappingScaleLinear().x
+	local light = updateSnowLight(eye)
+	local k = SNOW_ALBEDO * tonemap
+	local fr, fg, fb = render.GetFogColor()
+	local fogStart, fogEnd = render.GetFogDistances()
+	local fogMax = render.GetFogMode() == MATERIAL_FOG_NONE and 0 or render.GetFogMaxDensity()
 	SNOW_MAT:SetTexture("$basetexture", cover.Texture())
-	setConstant(SNOW_MAT, "$c0", eye.x, eye.y, eye.z)
-	setConstant(SNOW_MAT, "$c1", SNOW_ALPHA * render.GetToneMappingScaleLinear().x, nil, nil, packColor(
-		math.max(r / 255 * SNOW_LIGHT, SNOW_FLOOR),
-		math.max(g / 255 * SNOW_LIGHT, SNOW_FLOOR),
-		math.max(b / 255 * SNOW_LIGHT, SNOW_FLOOR)))
+	setConstant(SNOW_MAT, "$c0", eye.x, eye.y, eye.z, fogMax)
+	setConstant(SNOW_MAT, "$c1", SNOW_ALPHA, nil, nil, fogStart)
+	setConstant(SNOW_MAT, "$c2", light.x * k, light.y * k, light.z * k, fogEnd)
+	setConstant(SNOW_MAT, "$c3", toLinear(fr) * tonemap, toLinear(fg) * tonemap, toLinear(fb) * tonemap)
 
 	local vs = render.GetViewSetup()
 	local ang = EyeAngles()
