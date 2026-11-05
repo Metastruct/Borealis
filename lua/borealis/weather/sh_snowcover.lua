@@ -1592,7 +1592,11 @@ local function capture()
 	local clipping = render.EnableClipping(true)
 	capturing = true
 	for i = 1, n do
+		local e = stamps[i].e
+		local override = e.RenderOverride
+		e.RenderOverride = nil
 		local ok, err = pcall(drawStamp, stamps[i])
+		e.RenderOverride = override
 		if not ok then ErrorNoHalt("[snowcover] capture: " .. tostring(err) .. "\n") end
 	end
 	capturing = false
