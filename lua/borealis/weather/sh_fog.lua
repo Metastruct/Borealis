@@ -23,6 +23,8 @@ local VOLUMETRIC_WEATHERS = { rain = true, fog = true, snow = true }
 local BASE_HEIGHT = 40
 local BASE_RATE = 0.5
 local BASE_TRACE_INTERVAL = 0.25
+local LIGHT_FLOOR = 0.35
+local LIGHT_RATE = 0.5
 
 local MAT
 local materialSerial = 0
@@ -87,6 +89,36 @@ local function currentBase()
 	return base
 end
 
+local lit
+
+local function sceneLight()
+	local c = render.GetLightColor(EyePos())
+	if not lit then
+		lit = c
+	else
+		lit = lit + (c - lit) * math.min(1, RealFrameTime() * LIGHT_RATE)
+	end
+
+	return lit
+end
+
+local function luminance(r, g, b)
+	return 0.2126 * r + 0.7152 * g + 0.0722 * b
+end
+
+local function fogColor()
+	local fr, fg, fb = render.GetFogColor()
+	local r, g, b = toLinear(fr), toLinear(fg), toLinear(fb)
+	local l = sceneLight()
+	local lr, lg, lb = l.x * LIGHT_FLOOR, l.y * LIGHT_FLOOR, l.z * LIGHT_FLOOR
+	local floorLum = luminance(lr, lg, lb)
+	if floorLum <= 0 then return r, g, b end
+
+	local k = math.max(0, 1 - luminance(r, g, b) / floorLum)
+
+	return r + (lr - r) * k, g + (lg - g) * k, b + (lb - b) * k
+end
+
 local active = false
 
 local function think()
@@ -142,12 +174,12 @@ local function draw()
 	local fwd = EyeAngles():Forward()
 	local sun = shaderpack.SunDir()
 	local tonemap = render.GetToneMappingScaleLinear().x
-	local fr, fg, fb = render.GetFogColor()
+	local fr, fg, fb = fogColor()
 
 	setConstant(MAT, "$c0", eye.x, eye.y, eye.z, density)
 	setConstant(MAT, "$c1", fwd.x, fwd.y, fwd.z, CurTime() % 3600)
 	setConstant(MAT, "$c2", sun.x, sun.y, sun.z, currentBase())
-	setConstant(MAT, "$c3", toLinear(fr) * tonemap, toLinear(fg) * tonemap, toLinear(fb) * tonemap, falloff)
+	setConstant(MAT, "$c3", fr * tonemap, fg * tonemap, fb * tonemap, falloff)
 	quadColor.g = noise * 255
 	quadColor.b = depthslices.Samples()
 
