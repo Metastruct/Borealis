@@ -39,6 +39,7 @@ sampler DynamicLights : register(s2);
 #define POM_MAX_DISTANCE 48.0
 #define POM_MIN_SLOPE 0.12
 #define TRAIL_PEAK_MIN 0.01
+#define TRAIL_FLOOR 0.5
 #define SOFT_A float2(1.8, 0.7)
 #define SOFT_B float2(-0.7, 1.8)
 #define GRAD_STEP 2.0
@@ -87,6 +88,11 @@ float trailAt(float2 xy)
 	return tex2Dlod(Trail, float4(frac(float2(xy.x, -xy.y) / TRAIL_SPAN), 0.0, 0.0)).r * inside.x * inside.y;
 }
 
+float carveAt(float2 xy, float thick)
+{
+	return min(thick * trailAt(xy), thick - TRAIL_FLOOR);
+}
+
 float softTrail(float2 xy)
 {
 	return (trailAt(xy + SOFT_A) + trailAt(xy - SOFT_A) + trailAt(xy + SOFT_B) + trailAt(xy - SOFT_B)) * 0.25;
@@ -102,6 +108,9 @@ PS_OUT main(PS_IN i)
 	float3 p = i.wpos;
 	float3 n = float3(i.uv, sqrt(saturate(1.0 - dot(i.uv, i.uv))));
 	float a = i.color.a;
+	float3 face = cross(ddx(p), ddy(p));
+	face *= sign(face.z) / max(length(face), 1e-6);
+	float faceZ = max(face.z, WALL_NZ);
 	float dist = distance(p, EYE);
 	clip(smoothstep(FADE_END, FADE_START, dist) - hash(floor(p.xy * 0.25)));
 
@@ -116,13 +125,13 @@ PS_OUT main(PS_IN i)
 
 	[branch] if (n.z < WALL_NZ)
 	{
-		clip(1.0 - trailAt(p.xy) - a);
+		clip(max(1.0 - trailAt(p.xy), TRAIL_FLOOR / SNOW_DEPTH) - a);
 	}
 	else
 	{
 		clip(a - MIN_THICK);
 		float thick = a * SNOW_DEPTH;
-		float descent = -dot(v, n);
+		float descent = -dot(v, face) / faceZ;
 		float rayLength = min(thick / max(descent, POM_MIN_SLOPE), POM_MAX_DISTANCE);
 		float3 dir = v * rayLength;
 		float trailPeak = max(trailAt(p.xy), max(trailAt(p.xy + dir.xy * 0.5), trailAt(p.xy + dir.xy)));
@@ -134,7 +143,7 @@ PS_OUT main(PS_IN i)
 			[loop] for (int k = 0; k <= POM_STEPS; k++)
 			{
 				float t = (float)k / POM_STEPS;
-				if (t * rayDepth >= thick * trailAt(p.xy + dir.xy * t))
+				if (t * rayDepth >= carveAt(p.xy + dir.xy * t, thick))
 				{
 					s = t;
 					break;
@@ -145,7 +154,7 @@ PS_OUT main(PS_IN i)
 			[loop] for (int r = 0; r < POM_REFINE; r++)
 			{
 				float m = (sPrev + s) * 0.5;
-				if (m * rayDepth >= thick * trailAt(p.xy + dir.xy * m))
+				if (m * rayDepth >= carveAt(p.xy + dir.xy * m, thick))
 				{
 					s = m;
 				}
@@ -162,7 +171,7 @@ PS_OUT main(PS_IN i)
 			nrm = normalize(n + float3(g * (thick / (2.0 * GRAD_STEP)), 0.0));
 
 			float hitDepth = s * rayDepth;
-			float rise = dot(sunDir, n);
+			float rise = dot(sunDir, face) / faceZ;
 			[branch] if (hitDepth > SHADOW_BIAS && rise > 0.0)
 			{
 				float stride = hitDepth / max(rise, SHADOW_MIN_SUN) / SHADOW_STEPS;
@@ -170,7 +179,7 @@ PS_OUT main(PS_IN i)
 				{
 					float3 sp = q + sunDir * (stride * k);
 					float depthHere = hitDepth - rise * stride * k;
-					sunShadow = max(sunShadow, saturate((depthHere - thick * trailAt(sp.xy) - SHADOW_BIAS) / SHADOW_SOFT));
+					sunShadow = max(sunShadow, saturate((depthHere - carveAt(sp.xy, thick) - SHADOW_BIAS) / SHADOW_SOFT));
 				}
 			}
 		}
