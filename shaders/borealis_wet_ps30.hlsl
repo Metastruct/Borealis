@@ -65,6 +65,7 @@ sampler CoverSpans : register(s6);
 #define UNTRACED_MIN 3.0
 #define UNTRACED_MAX 8.0
 #define GLOSS_FAR 0.7
+#define GLOSS_SEED (179.0 / 255.0)
 #define FAR_COLUMN 128.0
 #define FAR_COLUMNS 64.0
 #define GLOSS_FADE 4.0
@@ -160,6 +161,21 @@ float3 farAt(float2 col)
 	return decodeColumn(tex2Dlod(FarGloss, float4((col + 0.5) / FAR_COLUMNS, 0.0, 0.0)));
 }
 
+float2 farSample(float3 p)
+{
+	float2 off = abs(p.xy - FAR_CENTER) / FAR_COLUMN;
+	float window = saturate(FAR_COLUMNS * 0.5 - 1.0 - max(off.x, off.y));
+	float2 fg = p.xy / FAR_COLUMN - 0.5;
+	float2 fcol = floor(fg);
+	float2 ff = fg - fcol;
+	float3 f00 = farAt(fcol);
+	float3 f10 = farAt(fcol + float2(1.0, 0.0));
+	float3 f01 = farAt(fcol + float2(0.0, 1.0));
+	float3 f11 = farAt(fcol + float2(1.0, 1.0));
+
+	return float2(lerp(GLOSS_FAR, lerp(lerp(f00.y, f10.y, ff.x), lerp(f01.y, f11.y, ff.x), ff.y), window), window > 0.0 ? max(max(f00.z, f10.z), max(f01.z, f11.z)) : Z_MIN);
+}
+
 float4 exposure(float3 p, float3 n, float2 eyeCol)
 {
 	float2 g = p.xy / COLUMN - 0.5;
@@ -171,17 +187,9 @@ float4 exposure(float3 p, float3 n, float2 eyeCol)
 	float level = Z_MIN;
 	[branch] if (columnsLeft < GLOSS_FADE)
 	{
-		float2 off = abs(p.xy - FAR_CENTER) / FAR_COLUMN;
-		float window = saturate(FAR_COLUMNS * 0.5 - 1.0 - max(off.x, off.y));
-		float2 fg = p.xy / FAR_COLUMN - 0.5;
-		float2 fcol = floor(fg);
-		float2 ff = fg - fcol;
-		float3 f00 = farAt(fcol);
-		float3 f10 = farAt(fcol + float2(1.0, 0.0));
-		float3 f01 = farAt(fcol + float2(0.0, 1.0));
-		float3 f11 = farAt(fcol + float2(1.0, 1.0));
-		far = lerp(GLOSS_FAR, lerp(lerp(f00.y, f10.y, ff.x), lerp(f01.y, f11.y, ff.x), ff.y), window);
-		level = window > 0.0 ? max(max(f00.z, f10.z), max(f01.z, f11.z)) : Z_MIN;
+		float2 farInfo = farSample(p);
+		far = farInfo.x;
+		level = farInfo.y;
 	}
 
 	float gloss = far;
@@ -195,7 +203,14 @@ float4 exposure(float3 p, float3 n, float2 eyeCol)
 		open = lerp(lerp(step(c00.x, z), step(c10.x, z), f.x), lerp(step(c01.x, z), step(c11.x, z), f.x), f.y);
 		open *= 1.0 - smoothstep(UNTRACED_MIN, UNTRACED_MAX, p.z - max(max(c00.x, c10.x), max(c01.x, c11.x)));
 		level = max(level, max(max(c00.z, c10.z), max(c01.z, c11.z)));
-		gloss = lerp(far, lerp(lerp(c00.y, c10.y, f.x), lerp(c01.y, c11.y, f.x), f.y), saturate(columnsLeft / GLOSS_FADE));
+		float4 corners = float4(c00.y, c10.y, c01.y, c11.y);
+		float4 seeded = step(abs(corners - GLOSS_SEED), 0.5 / 255.0);
+		[branch] if (dot(seeded, 1.0) > 0.0)
+		{
+			corners = lerp(corners, columnsLeft < GLOSS_FADE ? far : farSample(p).x, seeded);
+		}
+
+		gloss = lerp(far, lerp(lerp(corners.x, corners.y, f.x), lerp(corners.z, corners.w, f.x), f.y), saturate(columnsLeft / GLOSS_FADE));
 	}
 	else if (SPANS_ON > 0.5)
 	{

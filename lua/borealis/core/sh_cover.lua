@@ -10,6 +10,7 @@ local TRACE_SLOT = 80
 local TRACE_HALF = 480
 local TRACES_PER_FRAME = 60
 local IDLE_TRACES_PER_FRAME = 24
+local PENDING_TIME = 0.002
 local SPLASH_SLOPE = 0.8
 local SEED_GLOSS = 0.7
 local SOLID = MASK_SOLID
@@ -864,8 +865,9 @@ local function updateColumns(eye)
 		upTrace.filter, downTrace.filter = players, players
 	end
 	local budget = (fastSweep or #pending > 0) and TRACES_PER_FRAME or IDLE_TRACES_PER_FRAME
+	local deadline = SysTime() + PENDING_TIME
 	render.PushRenderTarget(coverRT)
-	while budget > 0 and #pending > 0 do
+	while #pending > 0 and (budget > 0 or SysTime() < deadline) do
 		local key = table.remove(pending)
 		queued[key] = nil
 		local cx, cy = columnFromKey(key)
