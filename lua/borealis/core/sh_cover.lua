@@ -46,7 +46,7 @@ local IGNORED_FLAGS = bit.bor(SURF_TRIGGER, SURF_HINT, SURF_SKIP)
 local MSG_KEY, MSG_CHUNK = 0, 1
 local EXPOSURE_PS, EXPOSURE_VS = "borealis_coverexposure_ps30", "borealis_passthrough_vs30"
 local EXPOSURE_SIZE, EXPOSURE_EXTENT = 256, 4096
-local EXPOSURE_DEPTH, EXPOSURE_SNAP = 384, 64
+local EXPOSURE_STEP = 256
 local EXPOSURE_EVERY = 4
 
 cover.COLUMN, cover.COLUMNS, cover.Z_MIN, cover.Z_RANGE = COLUMN, COLUMNS, Z_MIN, Z_RANGE
@@ -985,7 +985,7 @@ function cover.UpdateExposure(eye)
 	local texel = EXPOSURE_EXTENT / EXPOSURE_SIZE
 	exposureX = math.Round(eye.x / texel) * texel
 	exposureY = math.Round(eye.y / texel) * texel
-	exposureZ = math.Round(eye.z / EXPOSURE_SNAP) * EXPOSURE_SNAP - EXPOSURE_DEPTH
+	exposureZ = (math.floor(eye.z / EXPOSURE_STEP) - 1) * EXPOSURE_STEP
 
 	exposureMat:SetTexture("$texture2", spanTexture)
 	shaderpack.SetConstant(exposureMat, "$c0", exposureX, exposureY)

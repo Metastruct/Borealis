@@ -39,6 +39,7 @@ sampler Exposure : register(s4);
 #define EXPOSED_MIN 0.2
 #define EXPOSED_MAX 0.6
 #define CLEAR_MIN 0.9
+#define EXPOSURE_LIFT 208.0
 
 #define SHADOW_COL float3(0.35, 0.40, 0.52)
 #define OPACITY 3.0
@@ -85,7 +86,7 @@ float4 main(PS_IN i) : COLOR
 		float2 baked = float2(0.0, 0.0);
 		[branch] if (EXPOSURE_FRAME.z > 0.0)
 		{
-			baked = CoverExposureAt(Exposure, p, EXPOSURE_FRAME);
+			baked = CoverExposureAt(Exposure, p + float3(0.0, 0.0, EXPOSURE_LIFT), EXPOSURE_FRAME);
 		}
 
 		float exposed = baked.x;
