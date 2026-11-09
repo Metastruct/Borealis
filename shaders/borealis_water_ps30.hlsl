@@ -13,6 +13,7 @@ sampler NormalMap : register(s2);
 sampler3D Noise : register(s3);
 sampler SkyLut : register(s4);
 sampler CoverTex : register(s5);
+sampler SkyWall : register(s6);
 
 #define R_EARTH 6371.0
 #define EYE_H   0.2
@@ -29,6 +30,7 @@ sampler CoverTex : register(s5);
 #define LIGHT_SCALE Constants13.w
 #define FILL        Constants14.x
 #define BRIGHTNESS  Constants14.y
+#define INV_SCREEN  Constants12.zw
 #define FOG_RANGE   5000.0
 
 #define ICE_CRACK_BIG 260.0
@@ -86,6 +88,7 @@ struct PS_IN
 	float4 row1  : TEXCOORD5;
 	float4 row2  : TEXCOORD6;
 	float4 row3  : TEXCOORD7;
+	float2 vpos  : VPOS;
 };
 
 float4 ProjectToClip(float3 pos, PS_IN i) {
@@ -99,6 +102,7 @@ float2 ClipToUV(float4 pixel) {
 #include "include/common.hlsl"
 #include "include/water_waves.hlsl"
 #include "include/slices.hlsl"
+#include "include/skywall.hlsl"
 #include "include/water_optics.hlsl"
 #include "include/sky_lut.hlsl"
 #include "include/rain_ripples.hlsl"
@@ -143,6 +147,7 @@ float3 IceColor(float3 baked, float3 normal, float3 albedo) {
 
 float4 main(PS_IN i) : COLOR
 {
+    ClipSkyWall(SkyWall, i.vpos, INV_SCREEN, i.spos.w);
     float TIME = Constants0.x;
     float3 EYE_POS = Constants1.xyz;
     bool FROM_BELOW = EYE_POS.z < i.wpos.z;

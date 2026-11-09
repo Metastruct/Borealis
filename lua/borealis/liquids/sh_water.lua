@@ -433,6 +433,7 @@ local function initialize()
 		["$linearread_texture3"] = 1,
 		["$linearread_texture4"] = 1,
 		["$linearread_texture5"] = 1,
+		["$linearread_texture6"] = 1,
 		["$c0_x"] = 0, ["$c0_y"] = 0, ["$c0_z"] = 0, ["$c0_w"] = 0,
 		["$c1_x"] = 0, ["$c1_y"] = 0, ["$c1_z"] = 0, ["$c1_w"] = 0,
 		["$c2_x"] = 0, ["$c2_y"] = 0, ["$c2_z"] = 0, ["$c2_w"] = 0,
@@ -609,13 +610,15 @@ local function drawSurface(eyePos, eyeUnderwater, writeDepth)
 	local amb = render.GetAmbientLightColor()
 	local fill = packColor(amb.x * ICE_FILL_K, amb.y * ICE_FILL_K, amb.z * ICE_FILL_K)
 	local tonemap = render.GetToneMappingScaleLinear().x
+	SURF_MAT:SetTexture("$texture6", shaderpack.skywall.Texture())
+	local invW, invH = shaderpack.skywall.InvSize()
 
 	render.OverrideDepthEnable(true, writeDepth)
 	cam.PushModelMatrix(IDENTITY_MATRIX, false)
 	for _, g in pairs(meshes) do
 		if not bodyDrawable(g, pvs) then continue end
 
-		rainConstants:SetUnpacked(rain, g.openness, fogDensity, fogFalloff, fogBase, g.frozen and 1 or 0, 0, 0, bakedSun.x, bakedSun.y, bakedSun.z, lightScale, fill, tonemap, 0, 0)
+		rainConstants:SetUnpacked(rain, g.openness, fogDensity, fogFalloff, fogBase, g.frozen and 1 or 0, invW, invH, bakedSun.x, bakedSun.y, bakedSun.z, lightScale, fill, tonemap, 0, 0)
 		SURF_MAT:SetMatrix("$viewprojmat", rainConstants)
 		SURF_MAT:SetTexture("$texture2", g.normalmap)
 		local hr, hg, hb, zr, zg, zb = bodySkyColors(g)

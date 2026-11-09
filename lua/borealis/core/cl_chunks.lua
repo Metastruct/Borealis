@@ -32,36 +32,17 @@ function chunks.View()
 	return view
 end
 
-local SIGHT_TESTS_PER_FRAME, SIGHT_REFRESH, SIGHT_MOVE = 40, 0.5, 64
-
-local sightStart, sightEnd, sightRes = Vector(), Vector(), {}
-local sightTrace = { start = sightStart, endpos = sightEnd, mask = CONTENTS_SOLID, output = sightRes, filter = function() return false end }
-
-local function sightBlocked(x, y, z)
-	sightEnd:SetUnpacked(x, y, z)
-	util.TraceLine(sightTrace)
-
-	return sightRes.Hit and not sightRes.StartSolid
-end
-
 local Sight = {}
 Sight.__index = Sight
 
 function chunks.Sight()
-	return setmetatable({ round = 0, next = 0, eye = Vector(), at = Vector(), tests = 0 }, Sight)
+	return setmetatable({}, Sight)
 end
 
 function Sight:Begin(eye)
 	local bspdata = shaderpack.bspdata
 	self.cluster = bspdata.ClusterAt(eye.x, eye.y, eye.z)
 	self.pvs = bspdata.PVS(self.cluster)
-	if RealTime() > self.next or eye:DistToSqr(self.eye) > SIGHT_MOVE * SIGHT_MOVE then
-		self.round, self.next = self.round + 1, RealTime() + SIGHT_REFRESH
-		self.eye:Set(eye)
-	end
-
-	self.at:Set(eye)
-	self.tests = 0
 end
 
 function Sight:Shows(g)
@@ -71,14 +52,7 @@ function Sight:Shows(g)
 	local pvs = self.pvs
 	if pvs ~= nil and c >= 0 and not pvs[c] then return false end
 
-	if g.sightRound ~= self.round and self.tests < SIGHT_TESTS_PER_FRAME then
-		self.tests = self.tests + 1
-		g.sightRound = self.round
-		sightStart:Set(self.at)
-		g.blocked = sightBlocked(g.x, g.y, g.z) and sightBlocked(g.ax, g.ay, g.az) and sightBlocked(g.bx, g.by, g.bz)
-	end
-
-	return not g.blocked
+	return true
 end
 
 local stepStart, stepBudget, lastThinkMs = 0, MIN_BUDGET_MS, 0

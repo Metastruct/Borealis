@@ -1,4 +1,5 @@
 #include "include/common.hlsl"
+#include "include/skywall.hlsl"
 
 const float4 Constants0 : register(c0);
 const float4 Constants1 : register(c1);
@@ -7,10 +8,12 @@ const float4 Constants3 : register(c3);
 const float4 Constants11 : register(c11);
 const float4 Constants12 : register(c12);
 const float4 Constants13 : register(c13);
+const float4 Constants14 : register(c14);
 
 sampler Trail : register(s0);
 sampler3D Noise : register(s1);
 sampler DynamicLights : register(s2);
+sampler SkyWall : register(s3);
 
 #include "include/dynamic_lights.hlsl"
 
@@ -29,6 +32,7 @@ sampler DynamicLights : register(s2);
 #define FOG_END     Constants12.x
 #define FOG_MAX     Constants12.y
 #define SKY_TINT    Constants13.xyz
+#define INV_SCREEN  Constants14.xy
 
 #define SNOW_DEPTH 10.0
 #define TRAIL_SPAN 2048.0
@@ -73,6 +77,7 @@ struct PS_IN
 	float4 row1  : TEXCOORD5;
 	float4 row2  : TEXCOORD6;
 	float4 row3  : TEXCOORD7;
+	float2 vpos  : VPOS;
 };
 
 struct PS_OUT
@@ -113,6 +118,7 @@ PS_OUT main(PS_IN i)
 	float faceZ = max(face.z, WALL_NZ);
 	float dist = distance(p, EYE);
 	clip(smoothstep(FADE_END, FADE_START, dist) - hash(floor(p.xy * 0.25)));
+	ClipSkyWall(SkyWall, i.vpos, INV_SCREEN, i.spos.w);
 
 	float3 v = normalize(p - EYE);
 	float3 q = p;

@@ -576,6 +576,43 @@ function bspdata.WaterFaces(withClusters)
 	return faces
 end
 
+function bspdata.SkyTriangles()
+	local f, lump = openLumps()
+	if not f then return {} end
+
+	local VERTS, TEXINFO, FACES = lump(3), lump(6), lump(7)
+	local EDGES, SURFEDGES, MODELS = lump(12), lump(13), lump(14)
+	f:Close()
+
+	local skyFlags = bit.bor(SURF_SKY, SURF_SKY2D)
+	local firstface = i32(MODELS, 41)
+	local out = {}
+	for fi = firstface, firstface + i32(MODELS, 45) - 1 do
+		local p = fi * 56 + 1
+		local ti = i16(FACES, p + 10)
+		if ti >= 0 and bit.band(i32(TEXINFO, ti * 72 + 65), skyFlags) ~= 0 then
+			local firstedge, numedges = i32(FACES, p + 4), i16(FACES, p + 8)
+			local px, py, pz = {}, {}, {}
+			for n = 0, numedges - 1 do
+				local se = i32(SURFEDGES, (firstedge + n) * 4 + 1)
+				local vi = se >= 0 and u16(EDGES, se * 4 + 1) or u16(EDGES, -se * 4 + 3)
+				local vp = vi * 12 + 1
+				px[n + 1], py[n + 1], pz[n + 1] = f32(VERTS, vp), f32(VERTS, vp + 4), f32(VERTS, vp + 8)
+			end
+
+			for n = 2, numedges - 1 do
+				for _, k in ipairs({ 1, n, n + 1 }) do
+					out[#out + 1] = px[k]
+					out[#out + 1] = py[k]
+					out[#out + 1] = pz[k]
+				end
+			end
+		end
+	end
+
+	return out
+end
+
 local function lightLevel(value)
 	local r, g, b, brightness = (value or ""):match("(%S+)%s+(%S+)%s+(%S+)%s+(%S+)")
 	if not brightness then return 0 end

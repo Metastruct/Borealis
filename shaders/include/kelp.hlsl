@@ -2,6 +2,10 @@ const float4 Constants0 : register(c0);
 const float4 Constants1 : register(c1);
 const float4 Constants2 : register(c2);
 const float4 Constants3 : register(c3);
+const float4 Constants11 : register(c11);
+const float4 Constants12 : register(c12);
+
+sampler SkyWall : register(s2);
 
 #define EYE          Constants0.xyz
 #define FADE_START   Constants1.w
@@ -9,12 +13,15 @@ const float4 Constants3 : register(c3);
 #define BRIGHTNESS   Constants2.w
 #define TRANSLUCENCY Constants3.x
 #define FADE_END     Constants3.w
+#define VIEW_FWD     Constants11.xyz
+#define INV_SCREEN   Constants12.xy
 
 struct PS_IN
 {
 	float3 uv    : TEXCOORD0;
 	float4 color : TEXCOORD1;
 	float3 wpos  : TEXCOORD2;
+	float2 vpos  : VPOS;
 };
 
 float4 main(PS_IN i) : COLOR
@@ -23,6 +30,7 @@ float4 main(PS_IN i) : COLOR
 	float dist = distance(i.wpos, EYE);
 	float fade = smoothstep(FADE_END, FADE_START, dist);
 	clip(fade - hash(floor(i.wpos.xy * 0.5 + i.wpos.z * 0.37) + seed));
+	ClipSkyWall(SkyWall, i.vpos, INV_SCREEN, dot(i.wpos - EYE, VIEW_FWD));
 
 	float u = i.uv.x;
 	float v = i.uv.y;

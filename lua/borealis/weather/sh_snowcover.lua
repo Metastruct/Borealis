@@ -25,7 +25,6 @@ local CHUNK, CELL = 512, 32
 local MIN_NZ = 0.3
 local fadeStart, fadeEnd
 local MESH_TRIS = 10000
-local SIGHT_RAISE = 8
 local MESH_CACHE_TRIS = jit.arch == "x64" and math.huge or 300000
 local PRELOAD = jit.arch == "x64"
 local CACHE_DIR = "shaderpack/snowcover"
@@ -1341,12 +1340,7 @@ local function buildChunk(ch)
 	local o = 0
 	for i, cluster in ipairs(tris > 0 and ch.clusters or {}) do
 		local left = ch.clusterTris[i]
-		local first, last = o, o + (left * 3 - 1) * STRIDE
-		local g = {
-			cluster = cluster, meshes = {}, x = 0, y = 0, z = 0,
-			ax = verts[first + 1], ay = verts[first + 2], az = verts[first + 3] + SIGHT_RAISE,
-			bx = verts[last + 1], by = verts[last + 2], bz = verts[last + 3] + SIGHT_RAISE,
-		}
+		local g = { cluster = cluster, meshes = {} }
 		groups[i] = g
 
 		while left > 0 do
@@ -1357,7 +1351,6 @@ local function buildChunk(ch)
 			for k = 1, count * 3 do
 				local light = verts[o + 6]
 				local nx, ny = verts[o + 4], verts[o + 5]
-				g.x, g.y, g.z = g.x + verts[o + 1], g.y + verts[o + 2], g.z + verts[o + 3]
 				vpos:SetUnpacked(verts[o + 1], verts[o + 2], verts[o + 3])
 				if k % 3 == 1 then markSteps(steps, verts, o) end
 				vnormal:SetUnpacked(nx, ny, math.sqrt(math.max(1 - nx * nx - ny * ny, 0)))
@@ -1372,9 +1365,6 @@ local function buildChunk(ch)
 			g.meshes[#g.meshes + 1] = m
 			left = left - count
 		end
-
-		local n = ch.clusterTris[i] * 3
-		g.x, g.y, g.z = g.x / n, g.y / n, g.z / n + SIGHT_RAISE
 	end
 	ch.steps = steps
 
@@ -1685,6 +1675,8 @@ local function draw(depth, _, sky3d)
 	dynamiclights.Update(eye)
 	MAT:SetTexture("$basetexture", trailRT)
 	MAT:SetTexture("$texture2", dynamiclights.Texture())
+	MAT:SetTexture("$texture3", shaderpack.skywall.Texture())
+	local invW, invH = shaderpack.skywall.InvSize()
 
 	local tonemap = render.GetToneMappingScaleLinear().x
 	local amb = render.GetAmbientLightColor()
@@ -1704,7 +1696,7 @@ local function draw(depth, _, sky3d)
 		toLinear(fr) * tonemap, toLinear(fg) * tonemap, toLinear(fb) * tonemap, fogStart,
 		fogEnd, fogMax, 0, 0,
 		sr, sg, sb, 0,
-		0, 0, 0, 0
+		invW, invH, 0, 0
 	)
 	MAT:SetMatrix("$viewprojmat", extra)
 
@@ -1788,6 +1780,7 @@ local function start()
 		["$linearread_basetexture"] = 1,
 		["$linearread_texture1"] = 1,
 		["$linearread_texture2"] = 1,
+		["$linearread_texture3"] = 1,
 		["$linearwrite"] = 0,
 		["$alpha_blend"] = 0,
 		["$additive"] = 0,

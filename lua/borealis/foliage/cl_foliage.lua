@@ -240,12 +240,10 @@ function Layer:buildMesh(tufts, first, last)
 		local o = (i - 1) * STRIDE
 		local x, y, z, seed, hs, light, cluster = tufts[o + 1], tufts[o + 2], tufts[o + 3] + 0.5, tufts[o + 4], tufts[o + 5], tufts[o + 6], tufts[o + 7]
 		if not g or cluster ~= g.cluster then
-			g = { cluster = cluster, n = 0, x = 0, y = 0, z = 0, ax = x, ay = y, az = z }
+			g = { cluster = cluster }
 			groups[#groups + 1] = g
 		end
 
-		g.n, g.x, g.y, g.z = g.n + 1, g.x + x, g.y + y, g.z + z
-		g.bx, g.by, g.bz = x, y, z
 		if emit then
 			emit(tufts, o, true)
 		else
@@ -254,12 +252,6 @@ function Layer:buildMesh(tufts, first, last)
 	end
 
 	mesh.End()
-
-	local midHeight = quadH * height * 0.5
-	for _, gr in ipairs(groups) do
-		gr.x, gr.y, gr.z = gr.x / gr.n, gr.y / gr.n, gr.z / gr.n + midHeight
-		gr.az, gr.bz = gr.az + midHeight, gr.bz + midHeight
-	end
 
 	return { m = m, groups = groups }
 end
@@ -349,6 +341,16 @@ function Layer:draw(sky3d)
 	MAT:SetFloat("$c2_x", worldLightScale())
 	if self.cfg.frame then self.cfg.frame(MAT, DEPTH_MAT, time) end
 	MAT:SetFloat("$c2_w", v.tonemap)
+
+	local skywall = shaderpack.skywall
+	local skyTex = skywall.Texture()
+	local invW, invH = skywall.InvSize()
+	local skyConstants = self.skyConstants
+	skyConstants:SetUnpacked(fwd.x, fwd.y, fwd.z, 0, invW, invH, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+	for _, m in ipairs({ MAT, DEPTH_MAT }) do
+		m:SetTexture("$texture2", skyTex)
+		m:SetMatrix("$viewprojmat", skyConstants)
+	end
 	render.SetMaterial(MAT)
 
 	local visible = grid:Visible(v)
@@ -426,6 +428,7 @@ function Layer:Start()
 		["$vertexshader"] = cfg.vertexShader,
 		["$linearread_basetexture"] = 1,
 		["$linearread_texture1"] = 1,
+		["$linearread_texture2"] = 1,
 		["$ignorez"] = 0,
 		["$depthtest"] = 1,
 		["$additive"] = 0,
@@ -442,6 +445,7 @@ function Layer:Start()
 		self.depthMat = CreateShaderMaterial("borealis_" .. cfg.name .. "depth_" .. os.time(), {
 			["$pixshader"] = cfg.depthShader,
 			["$vertexshader"] = cfg.vertexShader,
+			["$linearread_texture2"] = 1,
 			["$alpha_blend"] = 0,
 			["$nocull"] = 1,
 			["$c0_x"] = 0, ["$c0_y"] = 0, ["$c0_z"] = 0, ["$c0_w"] = 0,
@@ -464,6 +468,7 @@ function foliage.Layer(cfg)
 		cfg = cfg, height = 1, radius = 3072,
 		drawn = {},
 		sight = chunks.Sight(),
+		skyConstants = Matrix(),
 	}, Layer)
 	layer.grid = chunks.Grid({
 		name = cfg.name, size = CHUNK, radius = layer.radius, pad = cfg.sway, cacheLimit = MESH_CACHE_TUFTS,

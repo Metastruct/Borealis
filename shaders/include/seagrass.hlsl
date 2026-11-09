@@ -2,8 +2,11 @@ const float4 Constants0 : register(c0);
 const float4 Constants1 : register(c1);
 const float4 Constants2 : register(c2);
 const float4 Constants3 : register(c3);
+const float4 Constants11 : register(c11);
+const float4 Constants12 : register(c12);
 
 sampler NormalMap : register(s0);
+sampler SkyWall : register(s2);
 
 #define EYE         Constants0.xyz
 #define TIME        Constants0.w
@@ -14,6 +17,8 @@ sampler NormalMap : register(s0);
 #define BRIGHTNESS  Constants2.w
 #define SUN         Constants3.xyz
 #define FADE_END    Constants3.w
+#define VIEW_FWD    Constants11.xyz
+#define INV_SCREEN  Constants12.xy
 
 #define SURGE_PERIOD   7.0
 #define SURGE_LENGTH   0.004
@@ -34,6 +39,7 @@ struct PS_IN
 	float4 blade2 : TEXCOORD5;
 	float4 blade3 : TEXCOORD6;
 	float4 blade4 : TEXCOORD7;
+	float2 vpos   : VPOS;
 };
 
 float2 ribbon(float4 b, float u, float v, float sway, float phase)
@@ -66,6 +72,7 @@ float4 main(PS_IN i) : COLOR
 	float fade = smoothstep(FADE_END, FADE_START, dist);
 	float dither = hash(floor(i.wpos.xy * 0.5) + seed1);
 	clip(fade - dither);
+	ClipSkyWall(SkyWall, i.vpos, INV_SCREEN, dot(i.wpos - EYE, VIEW_FWD));
 
 	float sway = SWAY * sin(TIME * (6.2832 / SURGE_PERIOD) - dot(i.wpos.xy, float2(0.8, 0.6)) * SURGE_LENGTH + seed1 * 0.005);
 	float phase = seed1 * 0.37;

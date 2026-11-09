@@ -104,6 +104,10 @@ Shared lifecycle for world-grid effects: request within a radius, build queue (n
 
 `chunks.Grid({ name, size, radius, pad, cacheLimit, load, build, destroy, failed })` returns a grid with `Start`, `Stop`, `SetPaused` and `Visible(chunks.View())`. `load` and `build(ch)` run in coroutines and call `chunks.YieldIfOverBudget()` in their loops. `build` sets `ch.cz` and `ch.radius` and returns a cost, 0 for an empty chunk. Finish `mesh.Begin` before calling `YieldIfOverBudget`. The effect keeps its materials, draw calls and finer occlusion.
 
+### cl_skywall
+
+Sky faces write no depth, so anything drawn after the world shows through them. Once per frame the world's sky faces are drawn into a screen-size RGBA16F target with its own depth buffer, as view depth / 4000 (`borealis_waterdepth_ps30`). Snow, grass, seagrass, kelp and water sample it at `VPOS` (`include/skywall.hlsl`) and discard pixels behind a sky face. `skywall.Texture()` renders it on the first call of a frame and returns `vgui/black` (no clipping) inside another render target. `skywall.InvSize()` gives the texel size the shaders need.
+
 ### cl_bench
 
 `borealis_shaderpack_bench` Needs `fps_max 0` and vsync off. Literally the benchmark of the shaderpack.
@@ -141,7 +145,7 @@ Shared lifecycle for world-grid effects: request within a radius, build queue (n
 
 ### Foliage
 
-`cl_foliage` builds tufts per 512-unit chunk on a `cl_chunks` grid, skipping the 3D skybox, batches them into meshes sorted by vis cluster and culls by frustum, PVS and line of sight against world brushes. Lightmap light is baked into vertices and scaled by tod's current light style.
+`cl_foliage` builds tufts per 512-unit chunk on a `cl_chunks` grid, skipping the 3D skybox, batches them into meshes sorted by vis cluster and culls by frustum and PVS. Lightmap light is baked into vertices and scaled by tod's current light style.
 
 - **Grass** `borealis_grass`, `borealis_grass_distance`: tufts of three crossed quads on grass surfaces up to a slope limit. The vertex shader tilts blades downwind. Sparser and fully dry in winter, half dry in autumn.
 - **Seagrass** `borealis_seagrass`: meadows on sunlit sandy water beds.
