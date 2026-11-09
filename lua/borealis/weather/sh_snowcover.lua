@@ -1400,6 +1400,7 @@ end
 local trailRT, stampRT, winX, winY
 local stampMat, blurMat
 local capturing = false
+local stampSky = {}
 
 local function eachRTRect(X0, Y0, w, h, fn)
 	local px, py = X0 % TRAIL_TEXELS, Y0 % TRAIL_TEXELS
@@ -1442,6 +1443,7 @@ local function recentre(eye)
 	end
 	render.PopRenderTarget()
 	winX, winY = cx, cy
+	stampSky = {}
 end
 
 local nextRefill = 0
@@ -1526,6 +1528,7 @@ local function stampRect(e)
 
 	local top = groundRes.HitPos.z + DEPTH
 	if mins.z > top then return end
+	if not reachesSky(mx, my, groundRes.HitPos.z + 4, stampSky) then return end
 
 	local X0 = math.max(math.floor(mins.x / TEXEL) - CAPTURE_PAD, winX)
 	local X1 = math.min(math.ceil(maxs.x / TEXEL) + CAPTURE_PAD, winX + TRAIL_TEXELS)
