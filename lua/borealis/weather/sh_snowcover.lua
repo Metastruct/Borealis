@@ -28,7 +28,7 @@ local MESH_TRIS = 10000
 local MESH_CACHE_TRIS = jit.arch == "x64" and math.huge or 300000
 local PRELOAD = jit.arch == "x64"
 local CACHE_DIR = "shaderpack/snowcover"
-local CACHE_VERSION = 2
+local CACHE_VERSION = 3
 local CACHE_COUNT_BYTES, CACHE_HEADER_BYTES, CACHE_CLUSTER_BYTES, CACHE_SAMPLE_BYTES, CACHE_VERTEX_BYTES = 4, 11, 5, 9, 17
 local CACHE_COORD_SCALE, CACHE_COORD_OFFSET, CACHE_NORMAL_SCALE = 32, 8388608, 32767.5
 local CACHE_YIELD_VERTS = 256
@@ -261,7 +261,7 @@ local function loadGeometry()
 					local qx, qy, qz = ax + (bx - ax) * f1, ay + (by - ay) * f1, az + (bz - az) * f1
 					local mx, my, mz = (px + qx) * 0.5, (py + qy) * 0.5, (pz + qz) * 0.5
 					if snowEndsAt(grid, mx, my, mz, ox, oy) then
-						addSnowEnd(endGrid, { px, py, pz, qx, qy, qz, ox, oy })
+						addSnowEnd(endGrid, { px, py, pz, qx, qy, qz, ox, oy, t.nx, t.ny, t.nz })
 					elseif dropsToSnow(grid, mx, my, mz, ox, oy) then
 						addSnowEnd(mergeGrid, { px, py, pz, qx, qy, qz, ox, oy })
 					end
@@ -301,11 +301,12 @@ local function edgeSlopeAt(x, y, z)
 		local px, py = ax + dx * f, ay + dy * f
 		local ex, ey = x - px, y - py
 		local d2 = ex * ex + ey * ey
-		if d2 < best then
+		local sz = seg[3] + (seg[6] - seg[3]) * f
+		if d2 < best and math.abs(z - sz + (seg[9] * ex + seg[10] * ey) / seg[11]) <= EDGE_MATCH_Z then
 			local unobstructed = d2 < 1
 			if not unobstructed then
 				edgeTrace.start:SetUnpacked(x, y, z + 2)
-				edgeTrace.endpos:SetUnpacked(px, py, seg[3] + (seg[6] - seg[3]) * f + 2)
+				edgeTrace.endpos:SetUnpacked(px, py, sz + 2)
 				util.TraceLine(edgeTrace)
 				unobstructed = not edgeRes.Hit
 			end
@@ -454,7 +455,9 @@ local function reachesSky(x, y, z, rays)
 		skyTrace.start:SetUnpacked(x, y, z)
 		skyTrace.endpos:SetUnpacked(x, y, z + SKY_TRACE_DISTANCE)
 		local tr = util.TraceLine(skyTrace)
-		open = (not tr.Hit or tr.HitSky) and not tr.StartSolid
+		if tr.StartSolid then return false end
+
+		open = not tr.Hit or tr.HitSky
 		rays[key] = open
 	end
 
