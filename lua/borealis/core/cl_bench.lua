@@ -5,7 +5,7 @@ local VIEWS = { { "horizon", 0 }, { "up", -30 } }
 local GENERAL = { "borealis_procsky", "borealis_clouds", "cl_draw_skyterrain", "borealis_sunshafts", "borealis_water", "borealis_grass", "borealis_seagrass", "borealis_kelp", "borealis_vclouds", "borealis_ssao", "borealis_leaves", "borealis_lava", "borealis_grade" }
 local RAIN = { "borealis_precipitations", "borealis_fog", "borealis_wetness" }
 local SNOW = { "borealis_precipitations", "borealis_fog" }
-local WINTER = { "borealis_snowcover" }
+local WINTER = { "borealis_snow" }
 local NIGHT = { "borealis_auroras" }
 local LISTS = { GENERAL, RAIN, SNOW, WINTER, NIGHT }
 
@@ -21,10 +21,10 @@ local PAUSED = {
 	borealis_grass = pauseFoliage("grass"),
 	borealis_seagrass = pauseFoliage("seagrass"),
 	borealis_kelp = pauseFoliage("kelp"),
-	borealis_snowcover = function(state)
-		local snowcover = shaderpack.snowcover
-		if snowcover and snowcover.SetPaused then
-			snowcover.SetPaused(state)
+	borealis_snow = function(state)
+		local snow = shaderpack.snow
+		if snow and snow.SetPaused then
+			snow.SetPaused(state)
 		end
 	end,
 }

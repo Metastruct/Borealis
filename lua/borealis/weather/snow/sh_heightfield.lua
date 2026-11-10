@@ -1,29 +1,27 @@
-local snowspans = shaderpack.snowspans or {}
-shaderpack.snowspans = snowspans
+local snow = shaderpack.snow
+local heightfield = snow.heightfield or {}
+snow.heightfield = heightfield
 
 local bspdata = shaderpack.bspdata
 
-local CHUNK, CELL, MARGIN = 512, 16, 6
-local DEPTH = 10
+local CHUNK, DEPTH = snow.CHUNK, snow.DEPTH
+local CELL, MARGIN = 16, 6
 local STEP = 24
 local MIN_RISE = 0.5
 local STEP_MIN = 1
 local CLEARANCE = 8
-local MATCH = 12
-local SKY_DISTANCE = 16384
+local SKY_DISTANCE, RAY_HEIGHT = snow.SKY_DISTANCE, snow.RAY_HEIGHT
 local SLOPE_WIDTH = 48
 local EDGE_MIN_HEIGHT = 0.3
 local DRIFT_PER_WALL_HEIGHT, DRIFT_MAX = 0.2, 24
 local DRIFT_WIDTH_PER_HEIGHT, DRIFT_MIN_WIDTH = 3, 32
-local DRIFT_RAY_HEIGHT, WALL_INSET, WALL_MAX_NZ = 4, 2, 0.5
+local WALL_INSET, WALL_MAX_NZ = 2, 0.5
 local WALL_CHECK_HEIGHT = DRIFT_MAX / DRIFT_PER_WALL_HEIGHT
 local CORNER_SHARE = 0.5
 local RISE_SINK = 0.5
-local SOLID_TOLERANCE = 1
 local REPOSE = 0.8
 local SHED_START, SHED_END = 0.9, 1.6
 local RELAX_PASSES, RELAX_RATE = 4, 0.5
-local GRADIENT_STEP = CELL * 0.5
 local DIAGONAL = math.sqrt(2)
 local WALL_FIELDS = { "wall1", "wall2", "wall3", "wall4" }
 local WALL_EDGES = { "wallEdge1", "wallEdge2", "wallEdge3", "wallEdge4" }
@@ -33,11 +31,14 @@ local DIRS = {
 }
 
 local KIND_SNOW, KIND_SHELTERED, KIND_WATER = 1, 2, 3
-snowspans.KIND_SNOW, snowspans.KIND_SHELTERED, snowspans.KIND_WATER = KIND_SNOW, KIND_SHELTERED, KIND_WATER
+
+heightfield.CELL, heightfield.MARGIN = CELL, MARGIN
+heightfield.STEP, heightfield.STEP_MIN, heightfield.MIN_RISE = STEP, STEP_MIN, MIN_RISE
+heightfield.EDGE_MIN_HEIGHT, heightfield.SLOPE_WIDTH, heightfield.DRIFT_MAX = EDGE_MIN_HEIGHT, SLOPE_WIDTH, DRIFT_MAX
+heightfield.KIND_SNOW, heightfield.KIND_SHELTERED, heightfield.KIND_WATER = KIND_SNOW, KIND_SHELTERED, KIND_WATER
 
 local res = {}
 local trace = { mask = MASK_SOLID_BRUSHONLY, start = Vector(), endpos = Vector(), output = res }
-local point = Vector()
 
 local function noYield() end
 
@@ -70,7 +71,6 @@ end
 
 local function buildSpans(data, yield)
 	local n, gx0, gy0, columns, spans = data.n, data.gx0, data.gy0, data.columns, data.spans
-	local traces = 0
 	for j = 0, n - 1 do
 		local y = (gy0 + j + 0.5) * CELL
 		for i = 0, n - 1 do
@@ -86,13 +86,11 @@ local function buildSpans(data, yield)
 					trace.start:SetUnpacked(x, y, floor + 1)
 					trace.endpos:SetUnpacked(x, y, floor + SKY_DISTANCE)
 					util.TraceLine(trace)
-					traces = traces + 1
 					if not res.StartSolid then
 						local ceil = res.Hit and res.HitPos.z or floor + SKY_DISTANCE
 						if ceil - floor >= CLEARANCE then
 							local kind = (not res.Hit or res.HitSky) and KIND_SNOW or KIND_SHELTERED
-							point:SetUnpacked(x, y, floor + 2)
-							if bit.band(util.PointContents(point), MASK_WATER) ~= 0 then kind = KIND_WATER end
+							if snow.Submerged(x, y, floor) then kind = KIND_WATER end
 
 							local s = { x = x, y = y, i = i, j = j, floor = floor, ceil = ceil, nx = f[2], ny = f[3], nz = math.max(f[4], 0.3), kind = kind, links = {}, drops = {}, delta = 0 }
 							list[#list + 1] = s
@@ -106,8 +104,6 @@ local function buildSpans(data, yield)
 			yield()
 		end
 	end
-
-	return traces
 end
 
 local function link(a, b)
@@ -123,7 +119,7 @@ local function link(a, b)
 end
 
 local function wallHeight(s, dx, dy)
-	local z = s.floor + DRIFT_RAY_HEIGHT
+	local z = s.floor + RAY_HEIGHT
 	trace.start:SetUnpacked(s.x, s.y, z)
 	trace.endpos:SetUnpacked(s.x + dx * CELL, s.y + dy * CELL, z)
 	util.TraceLine(trace)
@@ -309,7 +305,7 @@ local function wallLift(s, x, y)
 	return first + second * CORNER_SHARE
 end
 
-local function surfaceOf(s, x, y)
+local function profile(s, x, y)
 	local fade = math.min(edgeDistance(s, "fade", s.fadeEdge, x, y) / SLOPE_WIDTH, 1)
 	local height = EDGE_MIN_HEIGHT + (1 - EDGE_MIN_HEIGHT) * fade
 	local lift = wallLift(s, x, y) * fade
@@ -326,20 +322,22 @@ local function surfaceOf(s, x, y)
 	return height, lift
 end
 
+heightfield.Profile = profile
+
 local function shedFactor(s)
 	local slope = math.sqrt(s.nx * s.nx + s.ny * s.ny) / s.nz
 
 	return math.Clamp((SHED_END - slope) / (SHED_END - SHED_START), 0, 1)
 end
 
-local function relax(snow, yield)
+local function relax(snowSpans, yield)
 	local excess = {}
 	for _ = 1, RELAX_PASSES do
-		for _, s in ipairs(snow) do
+		for _, s in ipairs(snowSpans) do
 			s.inflow, s.outflow = 0, 0
 		end
 
-		for _, s in ipairs(snow) do
+		for _, s in ipairs(snowSpans) do
 			local amount = s.amount
 			if amount > 0 then
 				local top = s.floor + amount
@@ -372,7 +370,7 @@ local function relax(snow, yield)
 			end
 		end
 
-		for _, s in ipairs(snow) do
+		for _, s in ipairs(snowSpans) do
 			s.amount = s.amount - s.outflow + s.inflow
 		end
 
@@ -380,9 +378,8 @@ local function relax(snow, yield)
 	end
 end
 
-function snowspans.Build(triGrid, cx, cy, yield)
+function heightfield.Build(triGrid, cx, cy, yield)
 	yield = yield or noYield
-	local t0 = SysTime()
 	local n = CHUNK / CELL + MARGIN * 2
 	local data = { cx = cx, cy = cy, n = n, gx0 = cx * CHUNK / CELL - MARGIN, gy0 = cy * CHUNK / CELL - MARGIN, columns = {}, spans = {}, points = {} }
 	for k = 0, n * n - 1 do
@@ -390,11 +387,8 @@ function snowspans.Build(triGrid, cx, cy, yield)
 	end
 
 	gatherFloors(triGrid, data, yield)
-	local t1 = SysTime()
-	local traces = buildSpans(data, yield)
-	local t2 = SysTime()
+	buildSpans(data, yield)
 	local fadeSeeds, wallSeeds, riseSeeds = linkSpans(data, yield)
-	local t3 = SysTime()
 	distanceField("fade", "fadeEdge", fadeSeeds, yield)
 	for k = 1, 4 do
 		distanceField(WALL_FIELDS[k], WALL_EDGES[k], wallSeeds[k], yield)
@@ -402,297 +396,26 @@ function snowspans.Build(triGrid, cx, cy, yield)
 	for _, seed in ipairs(riseSeeds) do
 		local s, edge = seed[1], seed[3]
 		local upper = edge.upper
-		local _, lift = surfaceOf(upper, (s.x + upper.x) * 0.5, (s.y + upper.y) * 0.5)
+		local _, lift = profile(upper, (s.x + upper.x) * 0.5, (s.y + upper.y) * 0.5)
 		edge.top = upper.floor + lift
 		edge.upper = nil
 	end
 	distanceField("rise", "riseEdge", riseSeeds, yield, belowRise)
 
-	local snow = {}
+	local snowSpans = {}
 	for _, s in ipairs(data.spans) do
 		if s.kind == KIND_SNOW then
-			snow[#snow + 1] = s
-			s.height, s.lift = surfaceOf(s, s.x, s.y)
+			snowSpans[#snowSpans + 1] = s
+			s.height, s.lift = profile(s, s.x, s.y)
 			s.base = DEPTH * s.height + s.lift
 			s.amount = s.base * shedFactor(s)
 		end
 	end
 
-	local t4 = SysTime()
-	relax(snow, yield)
-	for _, s in ipairs(snow) do
+	relax(snowSpans, yield)
+	for _, s in ipairs(snowSpans) do
 		s.delta = s.amount - s.base
 	end
 
-	local t5 = SysTime()
-	data.stats = {
-		columns = n * n, spans = #data.spans, snow = #snow, traces = traces,
-		gatherMs = (t1 - t0) * 1000, spanMs = (t2 - t1) * 1000, linkMs = (t3 - t2) * 1000, fieldMs = (t4 - t3) * 1000, relaxMs = (t5 - t4) * 1000,
-	}
-
 	return data
 end
-
-local function matchSpan(list, z)
-	local best, bestDz
-	for _, s in ipairs(list) do
-		local dz = math.abs(s.floor - z)
-		if dz <= MATCH and (not best or dz < bestDz) then best, bestDz = s, dz end
-	end
-
-	return best
-end
-
-local function exposedPoint(data, x, y, z)
-	local key = math.floor(x * 4 + 0.5) .. "," .. math.floor(y * 4 + 0.5) .. "," .. math.floor(z * 4 + 0.5)
-	local open = data.points[key]
-	if open == nil then
-		trace.start:SetUnpacked(x, y, z + 2)
-		trace.endpos:SetUnpacked(x, y, z + SKY_DISTANCE)
-		util.TraceLine(trace)
-		open = not res.StartSolid and (not res.Hit or res.HitSky)
-		if open then
-			point:SetUnpacked(x, y, z + 2)
-			open = bit.band(util.PointContents(point), MASK_WATER) == 0
-		end
-		data.points[key] = open
-	end
-
-	return open
-end
-
-local picks = { {}, {}, {}, {} }
-
-local function reachable(x, y, z, s)
-	local dx, dy, dz = s.x - x, s.y - y, s.floor - z
-	trace.start:SetUnpacked(x, y, z + DRIFT_RAY_HEIGHT)
-	trace.endpos:SetUnpacked(s.x, s.y, s.floor + DRIFT_RAY_HEIGHT)
-	util.TraceLine(trace)
-	if res.StartSolid and res.FractionLeftSolid * math.sqrt(dx * dx + dy * dy + dz * dz) > SOLID_TOLERANCE then return false end
-
-	return res.Fraction >= 1
-end
-
-local function sample(data, x, y, z, nx, ny, nz, allowPoint)
-	local n, gx0, gy0, columns = data.n, data.gx0, data.gy0, data.columns
-	local fx, fy = x / CELL - 0.5 - gx0, y / CELL - 0.5 - gy0
-	local i0, j0 = math.floor(fx), math.floor(fy)
-	local tx, ty = fx - i0, fy - j0
-	local count, slots = 0, 0
-	for k = 0, 3 do
-		local di, dj = k % 2, math.floor(k / 2)
-		local w = (di == 1 and tx or 1 - tx) * (dj == 1 and ty or 1 - ty)
-		local i, j = i0 + di, j0 + dj
-		if w > 0 and i >= 0 and i < n and j >= 0 and j < n then
-			slots = slots + 1
-			local cx, cy = (gx0 + i + 0.5) * CELL, (gy0 + j + 0.5) * CELL
-			local cz = z - (nx * (cx - x) + ny * (cy - y)) / nz
-			local s = matchSpan(columns[j * n + i], cz)
-			if s then
-				count = count + 1
-				local p = picks[count]
-				p.s, p.w, p.o = s, w, s.floor - cz
-			end
-		end
-	end
-
-	if count < slots then
-		local kept = 0
-		for c = 1, count do
-			local p = picks[c]
-			if reachable(x, y, z, p.s) then
-				kept = kept + 1
-				picks[c], picks[kept] = picks[kept], p
-			end
-		end
-		count = kept
-	end
-
-	local near
-	for c = 1, count do
-		local p = picks[c]
-		if not near or math.abs(p.o) < math.abs(near.o) then near = p end
-	end
-
-	local matched, snowW, height, lift, bestW, best = 0, 0, 0, 0, 0
-	for c = 1, count do
-		local p = picks[c]
-		local s, w, gap = p.s, p.w, p.o - (near and near.o or 0)
-		if p == near or not (gap > STEP_MIN and near.s.riseEdge or gap < -STEP_MIN and s.riseEdge) then
-			matched = matched + w
-			if s.kind == KIND_SNOW then
-				local h, l = surfaceOf(s, x, y)
-				snowW = snowW + w
-				height = height + w * h
-				lift = lift + w * (l + s.delta)
-				if w > bestW then bestW, best = w, s end
-			end
-		end
-	end
-
-	if matched <= 0 then
-		local nearest, nearestD
-		for j = j0 - 1, j0 + 2 do
-			for i = i0 - 1, i0 + 2 do
-				if (i < i0 or i > i0 + 1 or j < j0 or j > j0 + 1) and i >= 0 and i < n and j >= 0 and j < n then
-					local cx, cy = (gx0 + i + 0.5) * CELL, (gy0 + j + 0.5) * CELL
-					local d = (cx - x) * (cx - x) + (cy - y) * (cy - y)
-					if not nearestD or d < nearestD then
-						local s = matchSpan(columns[j * n + i], z - (nx * (cx - x) + ny * (cy - y)) / nz)
-						if s and reachable(x, y, z, s) then nearest, nearestD = s, d end
-					end
-				end
-			end
-		end
-
-		if not nearest then
-			if allowPoint and exposedPoint(data, x, y, z) then return EDGE_MIN_HEIGHT, 0, { x = x, y = y, floor = z } end
-
-			return 0, 0
-		end
-
-		if nearest.kind ~= KIND_SNOW then return 0, 0 end
-
-		local h, l = surfaceOf(nearest, x, y)
-
-		return h, l + nearest.delta, nearest
-	end
-
-	if snowW <= 0 then return 0, 0 end
-
-	return height / matched, lift / snowW, best
-end
-
-function snowspans.Surface(data, x, y, z, nx, ny)
-	nx, ny = nx or 0, ny or 0
-	local nz = math.max(math.sqrt(math.max(1 - nx * nx - ny * ny, 0)), 0.3)
-	local height, lift, best = sample(data, x, y, z, nx, ny, nz, true)
-	if height <= 0 or DEPTH * height + lift <= 0 then return 0 end
-
-	local e = GRADIENT_STEP
-	local function surfaceAt(dx, dy)
-		local h, l = sample(data, x + dx, y + dy, z - (nx * dx + ny * dy) / nz, nx, ny, nz)
-		if h <= 0 then return end
-
-		return DEPTH * h + l
-	end
-
-	local here = DEPTH * height + lift
-	local px, mx, py, my = surfaceAt(e, 0), surfaceAt(-e, 0), surfaceAt(0, e), surfaceAt(0, -e)
-	local gx = px and mx and (px - mx) / (2 * e) or px and (px - here) / e or mx and (here - mx) / e or 0
-	local gy = py and my and (py - my) / (2 * e) or py and (py - here) / e or my and (here - my) / e or 0
-	if lift < 0 then height, lift = height + lift / DEPTH, 0 end
-
-	return height, lift, best.x, best.y, best.floor, gx, gy
-end
-
-function snowspans.SnowBelow(data, x, y, z)
-	local n = data.n
-	local i, j = math.floor(x / CELL - data.gx0), math.floor(y / CELL - data.gy0)
-	if i < 0 or i >= n or j < 0 or j >= n then return false end
-
-	for _, s in ipairs(data.columns[j * n + i]) do
-		if s.kind == KIND_SNOW and s.floor < z - MIN_RISE and s.floor >= z - STEP then return true end
-	end
-
-	return false
-end
-
-function snowspans.ChunkAt(pos)
-	return math.floor(pos.x / CHUNK), math.floor(pos.y / CHUNK)
-end
-
-if SERVER then return end
-
-local COLORS = {
-	[KIND_SHELTERED] = { 200, 40, 40 },
-	[KIND_WATER] = { 40, 80, 220 },
-}
-
-local overlays = {}
-local mode = "depth"
-
-local function spanColor(s)
-	if s.kind ~= KIND_SNOW then
-		local c = COLORS[s.kind]
-
-		return c[1], c[2], c[3]
-	end
-
-	if mode == "fade" then
-		local f = math.min(s.fade / SLOPE_WIDTH, 1) * 255
-
-		return 255 - f, f, 0
-	elseif mode == "wall" then
-		local f = math.min(s.lift / DRIFT_MAX, 1) * 255
-
-		return f, f, 255
-	elseif mode == "relax" then
-		local f = math.min(math.abs(s.delta) / DEPTH, 1) * 255
-
-		return s.delta < 0 and 255 or 255 - f, s.delta > 0 and 255 or 255 - f, 255 - f
-	end
-
-	local f = 80 + 175 * math.min(math.max(s.amount, 0) / (DEPTH + DRIFT_MAX), 1)
-
-	return f, f, f
-end
-
-local function buildMesh(data)
-	local quads = {}
-	local half = CELL * 0.45
-	for _, s in ipairs(data.spans) do
-		if s.i >= MARGIN and s.i < data.n - MARGIN and s.j >= MARGIN and s.j < data.n - MARGIN then
-			quads[#quads + 1] = s
-		end
-	end
-
-	if #quads == 0 then return end
-
-	local m = Mesh()
-	local pos = Vector()
-	mesh.Begin(m, MATERIAL_QUADS, #quads)
-	for _, s in ipairs(quads) do
-		local z = s.floor + 1 + (s.kind == KIND_SNOW and math.max(s.amount, 0) or 0)
-		local r, g, b = spanColor(s)
-		for _, c in ipairs({ { -half, -half }, { -half, half }, { half, half }, { half, -half } }) do
-			pos:SetUnpacked(s.x + c[1], s.y + c[2], z)
-			mesh.Position(pos)
-			mesh.Color(r, g, b, 200)
-			mesh.AdvanceVertex()
-		end
-	end
-	mesh.End()
-
-	return m
-end
-
-function snowspans.Show(data)
-	local key = data.cx .. ":" .. data.cy
-	if overlays[key] and overlays[key].mesh then overlays[key].mesh:Destroy() end
-	overlays[key] = { data = data, mesh = buildMesh(data) }
-end
-
-function snowspans.SetMode(m)
-	mode = m
-	for _, o in pairs(overlays) do
-		if o.mesh then o.mesh:Destroy() end
-		o.mesh = buildMesh(o.data)
-	end
-end
-
-function snowspans.Clear()
-	for _, o in pairs(overlays) do
-		if o.mesh then o.mesh:Destroy() end
-	end
-	overlays = {}
-end
-
-hook.Add("PostDrawTranslucentRenderables", "borealis_snowspans", function(depth, _, sky3d)
-	if depth or sky3d or next(overlays) == nil then return end
-
-	render.SetColorMaterial()
-	for _, o in pairs(overlays) do
-		if o.mesh then o.mesh:Draw() end
-	end
-end)
