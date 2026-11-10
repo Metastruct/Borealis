@@ -14,6 +14,7 @@ sampler Trail : register(s0);
 sampler3D Noise : register(s1);
 sampler DynamicLights : register(s2);
 sampler SkyWall : register(s3);
+sampler Flashlight : register(s4);
 
 #include "include/dynamic_lights.hlsl"
 
@@ -33,6 +34,7 @@ sampler SkyWall : register(s3);
 #define FOG_MAX     Constants12.y
 #define SKY_TINT    Constants13.xyz
 #define INV_SCREEN  Constants14.xy
+#define INV_FLASH   Constants14.zw
 
 #define SNOW_DEPTH 10.0
 #define TRAIL_SPAN 2048.0
@@ -203,7 +205,8 @@ PS_OUT main(PS_IN i)
 	float slopeLight = share * saturate(dot(nrm, sunDir)) * (1.0 - sunShadow) + (1.0 - share) * (0.5 + 0.5 * nrm.z);
 	float3 light = (i.color.rgb * 2.0 * LIGHT_SCALE + unpackColor(FILL)) * (slopeLight / max(flatLight, 1e-3)) + DynamicLightAt(DynamicLights, q.xy, EYE.xy);
 
-	float3 color = albedo * light * (1.0 - CAVITY * carve) * BRIGHTNESS;
+	float3 flashlight = tex2Dlod(Flashlight, float4((i.vpos + 0.5) * INV_FLASH, 0.0, 0.0)).rgb * (albedo / FRESH_ALBEDO);
+	float3 color = (albedo * light * BRIGHTNESS + flashlight) * (1.0 - CAVITY * carve);
 	color += SKY_TINT * SSS * carve * saturate(1.0 - nrm.z);
 
 	[branch] if (dist < GLINT_RANGE)

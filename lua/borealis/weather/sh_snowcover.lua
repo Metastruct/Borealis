@@ -1643,15 +1643,61 @@ local function skyTint(tonemap)
 end
 
 local visible = {}
-local visibleCount = 0
 local sight = chunks.Sight()
 
-local function drawVisible()
-	render.SetMaterial(FLASHLIGHT_MAT)
-	for i = 1, visibleCount do
-		visible[i]:Draw()
+local function flashlightRenderer()
+	local RT_FLAGS = 1 + 4 + 8
+	local NONE = "vgui/black"
+	local rt
+	local any = false
+	local count = 0
+
+	local function drawVisible()
+		render.SetMaterial(FLASHLIGHT_MAT)
+		for i = 1, count do
+			visible[i]:Draw()
+		end
+	end
+
+	local function mark()
+		any = true
+	end
+
+	local function target()
+		local w, h = ScrW(), ScrH()
+		if not shaderpack.UsableRT(rt, w, h) then
+			rt = GetRenderTargetEx("borealis_snowcover_flashlight_" .. w .. "x" .. h, w, h, RT_SIZE_LITERAL, MATERIAL_RT_DEPTH_SEPARATE, RT_FLAGS, 0, IMAGE_FORMAT_RGBA16161616F)
+			if not shaderpack.UsableRT(rt, w, h) then
+				rt = nil
+
+				return
+			end
+		end
+
+		return rt
+	end
+
+	return function(nvis)
+		count = nvis
+		any = false
+		render.RenderFlashlights(mark)
+		if not any or not target() then return NONE, 0, 0 end
+
+		render.PushRenderTarget(rt)
+		render.Clear(0, 0, 0, 0, true, true)
+		render.OverrideColorWriteEnable(true, false)
+		render.OverrideDepthEnable(true, true)
+		drawVisible()
+		render.OverrideDepthEnable(false, false)
+		render.OverrideColorWriteEnable(false, false)
+		render.RenderFlashlights(drawVisible)
+		render.PopRenderTarget()
+
+		return rt, 1 / rt:Width(), 1 / rt:Height()
 	end
 end
+
+local renderFlashlights = flashlightRenderer()
 
 local function draw(depth, _, sky3d)
 	if paused or not grid.ready or depth or sky3d or render.GetRenderTarget() then return end
@@ -1679,6 +1725,9 @@ local function draw(depth, _, sky3d)
 	if nvis == 0 then return end
 
 	dynamiclights.Update(eye)
+	cam.PushModelMatrix(Matrix(), false)
+	local flashlightTex, flashInvW, flashInvH = renderFlashlights(nvis)
+	MAT:SetTexture("$texture4", flashlightTex)
 	MAT:SetTexture("$basetexture", trailRT)
 	MAT:SetTexture("$texture2", dynamiclights.Texture())
 	MAT:SetTexture("$texture3", shaderpack.skywall.Texture())
@@ -1702,20 +1751,16 @@ local function draw(depth, _, sky3d)
 		toLinear(fr) * tonemap, toLinear(fg) * tonemap, toLinear(fb) * tonemap, fogStart,
 		fogEnd, fogMax, 0, 0,
 		sr, sg, sb, 0,
-		invW, invH, 0, 0
+		invW, invH, flashInvW, flashInvH
 	)
 	MAT:SetMatrix("$viewprojmat", extra)
 
-	cam.PushModelMatrix(Matrix(), false)
 	render.SetMaterial(MAT)
 	render.OverrideDepthEnable(true, true)
 	for i = 1, nvis do
 		visible[i]:Draw()
 	end
 	render.OverrideDepthEnable(false, false)
-
-	visibleCount = nvis
-	render.RenderFlashlights(drawVisible)
 
 	if DEPTH_MAT and depthslices.BeginDepthWrite() then
 		render.SetMaterial(DEPTH_MAT)
@@ -1787,6 +1832,7 @@ local function start()
 		["$linearread_texture1"] = 1,
 		["$linearread_texture2"] = 1,
 		["$linearread_texture3"] = 1,
+		["$linearread_texture4"] = 1,
 		["$linearwrite"] = 0,
 		["$alpha_blend"] = 0,
 		["$additive"] = 0,
