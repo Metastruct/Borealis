@@ -53,9 +53,17 @@ sampler Flashlight : register(s4);
 #define SHADOW_MIN_SUN 0.2
 #define SHADOW_BIAS 0.3
 #define SHADOW_SOFT 2.0
-#define BUMP_SCALE (1.0 / 48.0)
-#define BUMP_STEP 6.0
+#define SLICE_TILT float2(0.21, 0.13)
+#define OCTAVE_TEXELS 32.0
+#define BUMP_SCALE_A (1.0 / 48.0)
+#define BUMP_SCALE_B (1.0 / 137.0)
+#define BUMP_SCALE_C (1.0 / 19.0)
+#define BUMP_WEIGHTS float3(1.0, 0.7, 0.35)
+#define BUMP_STEP 0.125
 #define BUMP 0.35
+#define ROT_B float2x2(0.799, -0.602, 0.602, 0.799)
+#define ROT_C float2x2(0.485, 0.875, -0.875, 0.485)
+#define FLAKE_SCALE_B (1.0 / 563.0)
 #define FRESH_ALBEDO float3(0.235, 0.24, 0.25)
 #define PACKED_ALBEDO float3(0.165, 0.175, 0.195)
 #define PACKED_GAIN 1.5
@@ -105,9 +113,52 @@ float softTrail(float2 xy)
 	return (trailAt(xy + SOFT_A) + trailAt(xy - SOFT_A) + trailAt(xy + SOFT_B) + trailAt(xy - SOFT_B)) * 0.25;
 }
 
-float noiseAt(float2 xy)
+float noiseSlice(float2 uv, float slice)
 {
-	return tex3Dlod(Noise, float4(xy * BUMP_SCALE, 0.6, 0.0)).r;
+	return tex3Dlod(Noise, float4(uv, dot(uv, SLICE_TILT) + slice, 0.0)).r;
+}
+
+float octaveWeight(float footprint, float scale)
+{
+	return saturate(2.0 - footprint * scale * OCTAVE_TEXELS);
+}
+
+float2 bumpOctave(float2 uv, float slice)
+{
+	float here = noiseSlice(uv, slice);
+
+	return float2(noiseSlice(uv + float2(BUMP_STEP, 0.0), slice) - here, noiseSlice(uv + float2(0.0, BUMP_STEP), slice) - here) * 2.0;
+}
+
+float2 snowBump(float2 xy, float footprint)
+{
+	float3 w = BUMP_WEIGHTS * float3(octaveWeight(footprint, BUMP_SCALE_A), octaveWeight(footprint, BUMP_SCALE_B), octaveWeight(footprint, BUMP_SCALE_C));
+	float2 bump = 0.0;
+	[branch] if (w.x > 0.0)
+	{
+		bump += bumpOctave(xy * BUMP_SCALE_A, 0.6) * w.x;
+	}
+
+	[branch] if (w.y > 0.0)
+	{
+		bump += mul(bumpOctave(mul(ROT_B, xy) * BUMP_SCALE_B, 0.15), ROT_B) * w.y;
+	}
+
+	[branch] if (w.z > 0.0)
+	{
+		bump += mul(bumpOctave(mul(ROT_C, xy) * BUMP_SCALE_C, 0.85), ROT_C) * w.z;
+	}
+
+	return bump;
+}
+
+float flakeAt(float2 xy, float footprint)
+{
+	float wa = octaveWeight(footprint, FLAKE_SCALE);
+	float a = noiseSlice(xy * FLAKE_SCALE, 0.3);
+	float b = noiseSlice(mul(ROT_B, xy) * FLAKE_SCALE_B, 0.45);
+
+	return lerp(0.5, a, wa) * 0.5 + b * 0.5;
 }
 
 PS_OUT main(PS_IN i)
@@ -115,6 +166,7 @@ PS_OUT main(PS_IN i)
 	float3 p = i.wpos;
 	float3 n = float3(i.uv, sqrt(saturate(1.0 - dot(i.uv, i.uv))));
 	float a = i.color.a;
+	float footprint = max(length(ddx(p.xy)), length(ddy(p.xy)));
 	float3 face = cross(ddx(p), ddy(p));
 	face *= sign(face.z) / max(length(face), 1e-6);
 	float faceZ = max(face.z, WALL_NZ);
@@ -192,14 +244,12 @@ PS_OUT main(PS_IN i)
 			}
 		}
 
-		float2 b = float2(BUMP_STEP, 0.0);
-		float2 bump = float2(noiseAt(q.xy + b.xy) - noiseAt(q.xy - b.xy), noiseAt(q.xy + b.yx) - noiseAt(q.xy - b.yx));
+		float2 bump = snowBump(q.xy, footprint);
 		nrm = normalize(nrm - float3(bump * BUMP * (1.0 - carve), 0.0));
 	}
 
 	float3 albedo = lerp(FRESH_ALBEDO, PACKED_ALBEDO, saturate(carve * PACKED_GAIN));
-	float flake = tex3Dlod(Noise, float4(q.xy * FLAKE_SCALE, 0.3, 0.0)).r;
-	albedo *= 1.0 + (flake - 0.5) * FLAKE_VAR;
+	albedo *= 1.0 + (flakeAt(q.xy, footprint) - 0.5) * FLAKE_VAR;
 
 	float flatLight = share * saturate(sunDir.z) + (1.0 - share);
 	float slopeLight = share * saturate(dot(nrm, sunDir)) * (1.0 - sunShadow) + (1.0 - share) * (0.5 + 0.5 * nrm.z);
