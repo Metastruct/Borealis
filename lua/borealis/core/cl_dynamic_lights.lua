@@ -3,6 +3,7 @@ shaderpack.dynamiclights = dynamiclights
 
 local CELL, CELLS = 64, 24
 local HEIGHT_CACHE_LIMIT = 16384
+local HEIGHT_BAND, HEIGHT_BANDS = 64, 1024
 local TRACE_UP, TRACE_DOWN = 128, 1024
 local SAMPLE_HEIGHT = 12
 local PROJECTED_TEXELS = 256
@@ -18,15 +19,22 @@ local rt, updatedFrame, wasLit
 local heights, heightCount = {}, 0
 local litX, litY, litR, litG, litB = {}, {}, {}, {}, {}
 
+local function heightBand(z)
+	return math.floor(z / HEIGHT_BAND)
+end
+
 local function groundHeight(cx, cy, x, y, z)
-	local key = shaderpack.chunks.Key(cx, cy)
+	local band = heightBand(z)
+	local key = shaderpack.chunks.Key(cx, cy) * HEIGHT_BANDS + band
 	local height = heights[key]
 	if height then return height end
 
-	heightTrace.start:SetUnpacked(x, y, z + TRACE_UP)
-	heightTrace.endpos:SetUnpacked(x, y, z - TRACE_DOWN)
+	local base = band * HEIGHT_BAND
+	local top, bottom = base + TRACE_UP, base - TRACE_DOWN
+	heightTrace.start:SetUnpacked(x, y, top)
+	heightTrace.endpos:SetUnpacked(x, y, bottom)
 	util.TraceLine(heightTrace)
-	height = heightRes.StartSolid and z or heightRes.HitPos.z
+	height = heightRes.AllSolid and base or heightRes.HitPos.z
 
 	if heightCount >= HEIGHT_CACHE_LIMIT then
 		heights, heightCount = {}, 0
@@ -94,7 +102,7 @@ function dynamiclights.Update(eye)
 	render.PopRenderTarget()
 end
 
-local projectedRT, projectedMat, proxy, proxyX, proxyY, projectedFrame, projectedLit
+local projectedRT, projectedMat, proxy, proxyX, proxyY, proxyBand, projectedFrame, projectedLit
 local anyProjected = false
 local proxyPos = Vector()
 local projectedView = { type = "3D", origin = Vector(), angles = Angle(90, 90, 0), x = 0, y = 0, w = PROJECTED_TEXELS, h = PROJECTED_TEXELS, znear = 1, zfar = PROJECTED_VIEW_HEIGHT * 2, ortho = {} }
@@ -148,7 +156,7 @@ local function buildProxy(x0, y0, z)
 		end
 	end
 	mesh.End()
-	proxyX, proxyY = x0, y0
+	proxyX, proxyY, proxyBand = x0, y0, heightBand(z)
 end
 
 local function markProjected()
@@ -174,7 +182,7 @@ function dynamiclights.UpdateProjected(eye)
 	render.Clear(0, 0, 0, 255)
 	if anyProjected then
 		local x0, y0 = math.floor(eye.x / CELL + 0.5) - CELLS / 2, math.floor(eye.y / CELL + 0.5) - CELLS / 2
-		if not proxy or x0 ~= proxyX or y0 ~= proxyY then
+		if not proxy or x0 ~= proxyX or y0 ~= proxyY or heightBand(eye.z) ~= proxyBand then
 			buildProxy(x0, y0, eye.z)
 		end
 
