@@ -1,4 +1,5 @@
 shaderpack = shaderpack or {}
+borealis = shaderpack -- just an alias
 
 local HAS_SHADER_TO_GMA = file.Exists("includes/modules/shader_to_gma.lua", "LUA")
 if HAS_SHADER_TO_GMA then
