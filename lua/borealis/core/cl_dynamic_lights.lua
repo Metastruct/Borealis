@@ -12,6 +12,7 @@ local PROJECTED_ALBEDO = "[0.5 0.5 0.5]"
 
 local UP = Vector(0, 0, 1)
 local samplePos = Vector()
+local exitPos = Vector()
 local heightRes = {}
 local heightTrace = { mask = MASK_SOLID_BRUSHONLY, start = Vector(), endpos = Vector(), output = heightRes }
 
@@ -34,6 +35,14 @@ local function groundHeight(cx, cy, x, y, z)
 	heightTrace.start:SetUnpacked(x, y, top)
 	heightTrace.endpos:SetUnpacked(x, y, bottom)
 	util.TraceLine(heightTrace)
+	if heightRes.StartSolid and not heightRes.AllSolid then
+		local exit = top + (bottom - top) * heightRes.FractionLeftSolid - 1
+		exitPos:SetUnpacked(x, y, exit)
+		if bit.band(util.PointContents(exitPos), CONTENTS_SOLID) == 0 then
+			heightTrace.start:SetUnpacked(x, y, exit)
+			util.TraceLine(heightTrace)
+		end
+	end
 	height = heightRes.AllSolid and base or heightRes.HitPos.z
 
 	if heightCount >= HEIGHT_CACHE_LIMIT then
