@@ -6,8 +6,26 @@ const float3 cAmbientCube[6] : register(c21);
 #define TIME     cAmbientCube[0].x
 #define LEAN     cAmbientCube[0].y
 #define QUAD_H   cAmbientCube[0].z
-#define WIND_DIR cAmbientCube[1].xy
+#define WIND_DIR float2(0.9396926, 0.3420201)
 #define LEAN_MAX 0.95
+#define PUSH_LEAN 0.85
+#define PUSH_ABOVE 40.0
+#define PUSH_BELOW 32.0
+
+float2 Push(float3 slot, float3 root)
+{
+	float2 centre = float2(slot.x, floor(slot.y));
+	float radius = max(frac(slot.y) * 128.0, 1.0);
+	float strength = frac(slot.z) / 0.99;
+	float2 d = root.xy - centre;
+	float dist = length(d);
+	float k = saturate(1.0 - dist / radius);
+	k = k * k * (3.0 - 2.0 * k);
+	float dz = floor(slot.z) - root.z;
+	float vertical = saturate(1.0 - max(dz, 0.0) / PUSH_ABOVE) * saturate(1.0 + min(dz, 0.0) / PUSH_BELOW);
+
+	return d / max(dist, 1e-3) * (k * strength * vertical * PUSH_LEAN);
+}
 #endif
 
 #define BLADES 5
@@ -57,8 +75,16 @@ VS_OUTPUT main(VS_INPUT i)
 #ifdef WIND_LEAN
 	float heightScale = 0.5 + floor(i.uv.x * 0.5 + 0.001) / 7.0 * 0.9;
 	float h = QUAD_H * heightScale * (1.0 - i.uv.y);
-	float s = min(LEAN * (0.5 + 0.5 * GrassGust(pos.xy, WIND_DIR, TIME, seed1)), LEAN_MAX);
-	pos.xy += WIND_DIR * (h * s);
+	float3 root = float3(pos.xy, pos.z - h);
+	float2 lean = WIND_DIR * min(LEAN * (0.5 + 0.5 * GrassGust(pos.xy, WIND_DIR, TIME, seed1)), LEAN_MAX);
+	[branch] if (frac(cAmbientCube[1].z) > 0.0)
+	{
+		lean += Push(cAmbientCube[1], root) + Push(cAmbientCube[2], root) + Push(cAmbientCube[3], root) + Push(cAmbientCube[4], root) + Push(cAmbientCube[5], root);
+	}
+	float s = length(lean);
+	lean *= min(s, LEAN_MAX) / max(s, 1e-4);
+	s = min(s, LEAN_MAX);
+	pos.xy += lean * h;
 	pos.z -= h * (1.0 - sqrt(1.0 - s * s));
 #endif
 

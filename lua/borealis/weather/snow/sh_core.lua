@@ -1,9 +1,9 @@
 local snow = shaderpack.snow or {}
 shaderpack.snow = snow
 
-snow.PS, snow.VS, snow.DEPTH_PS, snow.STAMP_PS = "borealis_snowcover_ps30", "borealis_water_vs30", "borealis_waterdepth_ps30", "borealis_snowstamp_ps30"
+snow.PS, snow.VS, snow.DEPTH_PS = "borealis_snowcover_ps30", "borealis_water_vs30", "borealis_waterdepth_ps30"
 snow.NOISE = "shaderpack/procsky/fognoise"
-snow.SHADERS = { snow.PS, snow.VS, snow.DEPTH_PS, snow.STAMP_PS }
+snow.SHADERS = { snow.PS, snow.VS, snow.DEPTH_PS, "borealis_trailstamp_ps30" }
 
 if SERVER then
 	shaderpack.AddResources(snow.SHADERS, { snow.NOISE })

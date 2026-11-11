@@ -346,9 +346,16 @@ function Layer:draw(sky3d)
 	local skyTex = skywall.Texture()
 	local invW, invH = skywall.InvSize()
 	local skyConstants = self.skyConstants
-	skyConstants:SetUnpacked(fwd.x, fwd.y, fwd.z, 0, invW, invH, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+	local trails, trailTex = shaderpack.trails, nil
+	local tx0, ty0, tx1, ty1 = 0, 0, 0, 0
+	if self.cfg.trails then
+		trailTex = trails.Texture()
+		tx0, ty0, tx1, ty1 = trails.Window()
+	end
+	skyConstants:SetUnpacked(fwd.x, fwd.y, fwd.z, 0, invW, invH, 0, 0, tx0, ty0, tx1, ty1, self.cfg.quadH * self.height, 0, 0, 0)
 	for _, m in ipairs({ MAT, DEPTH_MAT }) do
 		m:SetTexture("$texture2", skyTex)
+		if self.cfg.trails then m:SetTexture("$texture3", trailTex or "vgui/black") end
 		m:SetMatrix("$viewprojmat", skyConstants)
 	end
 	render.SetMaterial(MAT)
@@ -405,6 +412,7 @@ end
 
 function Layer:Stop()
 	hook.Remove("PostDrawOpaqueRenderables", "borealis_" .. self.cfg.name)
+	if self.cfg.trails then shaderpack.trails.Use(self.cfg.name, nil) end
 	self.grid:Stop()
 	self.tuftCache, self.triGrid = nil, nil
 end
@@ -429,6 +437,7 @@ function Layer:Start()
 		["$linearread_basetexture"] = 1,
 		["$linearread_texture1"] = 1,
 		["$linearread_texture2"] = 1,
+		["$linearread_texture3"] = 1,
 		["$ignorez"] = 0,
 		["$depthtest"] = 1,
 		["$additive"] = 0,
@@ -446,6 +455,7 @@ function Layer:Start()
 			["$pixshader"] = cfg.depthShader,
 			["$vertexshader"] = cfg.vertexShader,
 			["$linearread_texture2"] = 1,
+			["$linearread_texture3"] = 1,
 			["$alpha_blend"] = 0,
 			["$nocull"] = 1,
 			["$c0_x"] = 0, ["$c0_y"] = 0, ["$c0_z"] = 0, ["$c0_w"] = 0,
@@ -459,6 +469,7 @@ function Layer:Start()
 	self:SetDistance(self.radius)
 
 	self.tuftCache = {}
+	if cfg.trails then shaderpack.trails.Use(cfg.name, cfg.trails) end
 	self.grid:Start()
 	hook.Add("PostDrawOpaqueRenderables", "borealis_" .. cfg.name, function(_, _, sky3d) self:draw(sky3d) end)
 end

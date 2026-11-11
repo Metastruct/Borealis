@@ -13,7 +13,7 @@ local FILL_K = 0.5
 
 local setConstant, packColor, toLinear = shaderpack.SetConstant, shaderpack.PackColor, shaderpack.ToLinear
 
-local paused = false
+local paused, running = false, false
 local fadeStart, fadeEnd
 local cacheDir
 local grid
@@ -21,6 +21,13 @@ local grid
 function snow.SetPaused(state)
 	paused = state
 	grid:SetPaused(state)
+	if not running then return end
+
+	if state then
+		trails.Stop()
+	else
+		trails.Start()
+	end
 end
 
 local function readChunk(ch)
@@ -109,12 +116,6 @@ local function destroyChunk(ch)
 		end
 	end
 	ch.groups, ch.steps = nil, nil
-end
-
-local function prepare()
-	if paused then return end
-
-	trails.Prepare()
 end
 
 local MAT, DEPTH_MAT
@@ -211,7 +212,7 @@ end
 local winterRemoved = false
 
 local function stop()
-	hook.Remove("PreRender", "borealis_snow")
+	running = false
 	hook.Remove("PostDrawOpaqueRenderables", "borealis_snow")
 	trails.Stop()
 	grid:Stop()
@@ -245,7 +246,7 @@ local function start()
 
 	materialSerial = materialSerial + 1
 	local suffix = os.time() .. "_" .. materialSerial
-	if not trails.Start(suffix) then return end
+	if not trails.Start() then return end
 
 	MAT = CreateShaderMaterial("borealis_snow_" .. suffix, {
 		["$pixshader"] = snow.PS,
@@ -276,7 +277,7 @@ local function start()
 	flashlight.Start(suffix)
 
 	grid:Start()
-	hook.Add("PreRender", "borealis_snow", prepare)
+	running = true
 	hook.Add("PostDrawOpaqueRenderables", "borealis_snow", draw)
 end
 

@@ -8,19 +8,20 @@ sampler Stamp : register(s0);
 float4 main(float2 vpos : VPOS) : COLOR
 {
 	float2 uv = (vpos + 0.5) / TRAIL_TEXELS;
-	float sum = 0.0;
+	float mask = 0.0;
 	float weights = 0.0;
+	float press = 0.0;
 	[unroll] for (int y = -RADIUS; y <= RADIUS; y++)
 	{
 		[unroll] for (int x = -RADIUS; x <= RADIUS; x++)
 		{
 			float w = exp(-(x * x + y * y) / SIGMA2);
-			sum += tex2Dlod(Stamp, float4(uv + float2(x, y) / TRAIL_TEXELS, 0.0, 0.0)).r * w;
+			float2 s = tex2Dlod(Stamp, float4(uv + float2(x, y) / TRAIL_TEXELS, 0.0, 0.0)).rg;
+			mask += s.r * w;
 			weights += w;
+			press = max(press, s.g * w);
 		}
 	}
 
-	float v = saturate(sum / weights * GAIN);
-
-	return float4(v, v, v, 1.0);
+	return float4(saturate(mask / weights * GAIN), press, 0.0, 1.0);
 }

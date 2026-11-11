@@ -86,7 +86,7 @@ Detection of things that are drawing into the translucent pass even though they 
 
 ### cl_wind
 
-`shaderpack.wind`: fixed heading of 20 degrees, wind blows toward it. `Strength()` is a wall-clock breeze (0.15 to 0.45), pulled to 1.5 by rain, 0.5 by snow, cut by fog. The heading cannot change at runtime: clouds and fog animate as `position - wind * time`. Used by grass, seagrass, kelp, rain, snow, leaves, clouds and fog.
+`shaderpack.wind`: fixed heading of 20 degrees, wind blows toward it. `Strength()` is a wall-clock breeze (0.15 to 0.45), pulled to 1.5 by rain, 0.5 by snow, cut by fog. The heading cannot change at runtime: clouds and fog animate as `position - wind * time`, and the grass vertex shader has it hardcoded (`WIND_DIR` in `include/grass_vs.hlsl`). Used by grass, seagrass, kelp, rain, snow, leaves, clouds and fog.
 
 ### halo
 
@@ -103,6 +103,17 @@ Detection of things that are drawing into the translucent pass even though they 
 Shared lifecycle for world-grid effects: request within a radius, build queue (nearest first, chunks behind the eye last), frustum culling, eviction, pause and teardown. All grids share one adaptive build budget (4 to 8 ms per frame), so adding a grid cannot stack another budget on the frame. One grid loads at a time.
 
 `chunks.Grid({ name, size, radius, pad, cacheLimit, load, build, destroy, failed })` returns a grid with `Start`, `Stop`, `SetPaused` and `Visible(chunks.View())`. `load` and `build(ch)` run in coroutines and call `chunks.YieldIfOverBudget()` in their loops. `build` sets `ch.cz` and `ch.radius` and returns a cost, 0 for an empty chunk. Finish `mesh.Begin` before calling `YieldIfOverBudget`. The effect keeps its materials, draw calls and finer occlusion.
+
+### sh_trails
+
+`shaderpack.trails`: the ground contact map shared by snow and grass.
+
+- A 1024² RGBA16F window of 2048 units around the eye, addressed toroidally (`frac(x, -y) / 2048`), so recentring only clears the strips that enter.
+- Entities whose bottom is near the brush ground under them (any `.mdl` entity, players, and their children) are drawn from above with an ortho camera into a stamp RT (Arkham Origins' capture), once per slice height with a clip plane at that height, with a MAX blend. `borealis_trailstamp_ps30` blurs the stamps into the trail map, also with a MAX blend.
+- `trails.Use(id, user)` registers a consumer, `nil` removes it. The map runs while there is at least one. `user` is `{ channel, slices, live, recover, accept }`: the channel it owns (1 = R, 2 = G), its slice heights ascending, whether the channel is live, a function giving the refill per second for a trail channel, and `accept(groundTrace, x, y, groundZ, cache)` to skip entities. With slices `s1..sn`, geometry between `s(k-1)` and `sk` writes `1 - s(k-1) / sn`, so a texel holds the clearance under the lowest thing above it.
+- Trail channels keep prints and refill: once a second they are decremented with a reverse-subtract blend, never resampled, so prints cannot drift. Surface colours are sRGB-decoded before blending, so the decrement is picked through `ToLinear`. Stationary entities are restamped once a second.
+- Live channels hold where things are now. Each tracked entity keeps its stamp until it moves or goes away, then its old rect is cleared in the live channels (reverse subtract then MAX with 0, which leaves the others alone) and every live entity overlapping it is restamped in the same frame. `OnEntityCreated` forces a gather, so new props count on their first frame instead of within 0.25 s.
+- Prints only exist inside the window and only for entities in your PVS. `ents.FindInBox` does not return clientside models, so they are never stamped.
 
 ### cl_skywall
 
@@ -131,10 +142,9 @@ Sky faces write no depth, so anything drawn after the world shows through them. 
 - **Wetness** `borealis_wetness`: darkens and glosses up-facing surfaces the rain reaches (cover window, far gloss map beyond it), with puddles on level ground using screen-space reflections and the procsky LUT as fallback. Wets toward tod's rain amount and dries slowly. Off in winter, when the ground is frozen.
 - **Deep snow** `borealis_snow`: winter only. A 10-unit snow layer built from the world's BSP triangles up to about 72 degrees of slope, whatever their material (water and `tools/` textures excepted), so feet, wheels and props sink into it. Brush entities get none, since their faces move.
   - Mesh: triangles are clipped to a 32-unit grid in 512-unit chunks, lifted along z, given welded vertex normals and skirts on open edges. Depth thins to 30% over 48 units toward real drop-offs. Across a step of up to 24 units the lower snow ramps up over 48 units to meet the upper snow. Against taller walls snow drifts up: 20% of the wall's height, capped at 24 units, curving down over three times that width. Vertices under a roof or in water get no snow. Light is baked per vertex like foliage. It draws in `PostDrawOpaqueRenderables` and writes the engine depth pass with `borealis_waterdepth_ps30`.
-  - Trail map: a 1024² RGBA16F window of 2048 units around the eye, addressed toroidally (`frac(x, -y) / 2048`), so recentring only clears the strips that enter. Entities touching the snow are drawn from above with an ortho camera into a stamp RT, clipped at the snow top (Arkham Origins' capture), then `borealis_snowstamp_ps30` blurs them into the trail map with a MAX blend. Stationary entities are restamped once a second.
-  - Refill: once a second the trail map is decremented with a reverse-subtract blend, never resampled, so prints cannot drift. Full refill takes 20 minutes, 2 minutes under heavy snowfall. Surface colours are sRGB-decoded before blending, so the decrement is picked through `ToLinear`.
+  - Trails: the R channel of `core/sh_trails`, one 10-unit slice, so it is a mask of everything below the snow top, blurred and gained by 1.6. Entities on ground that cannot see the sky are skipped, since the map is 2D and the snow above them may be on a roof. Full refill takes 20 minutes, 2 minutes under heavy snowfall.
   - `borealis_snowcover_ps30` raymarches the trail map down from the snow top (POM), outputs depth at the hit so sunk feet show inside their prints, and adds self-shadowing toward the baked sun, sky-tinted walls and glints. `screenspace_general` gets no engine fog, so the shader applies it.
-  - Prints only exist inside the window and only for entities in your PVS. Projected shadows and decals on the ground under the snow are hidden by it.
+  - Projected shadows and decals on the ground under the snow are hidden by it.
   - Engine lights: projected textures (flashlights, lamps) come from `render.RenderFlashlights` drawing the chunks again with a `VertexLitGeneric` material. Dynamic lights have no listing API, so `core/cl_dynamic_lights` samples `render.ComputeDynamicLighting` on a 24x24 grid of 64-unit cells around the eye into a texture the shader reads. Grass reads the same dynamic light texture. Its blades are cut out in the pixel shader, so projected textures are rendered from above onto a ground-following proxy mesh into a second texture, which the grass shader samples at each blade's position.
 
 ### Liquids
@@ -148,6 +158,8 @@ Sky faces write no depth, so anything drawn after the world shows through them. 
 `cl_foliage` builds tufts per 512-unit chunk on a `cl_chunks` grid, skipping the 3D skybox, batches them into meshes sorted by vis cluster and culls by frustum and PVS. Lightmap light is baked into vertices and scaled by tod's current light style.
 
 - **Grass** `borealis_grass`, `borealis_grass_distance`: tufts of three crossed quads on grass surfaces up to a slope limit. The vertex shader tilts blades downwind. Sparser and fully dry in winter, half dry in autumn.
+  - Pushing: the vertex shader leans tufts away from up to 5 pushers, added to the wind lean and capped at the same maximum. They ride in ambient cube rows 1 to 5 (`shaderpack.SetVertexConstants`) as `(x, floor(y) + radius / 128, floor(z) + strength * 0.99)`, since vertex shaders cannot read textures here. Active slots are packed first, so the shader skips all of them with one branch when row 1 is empty. Pushers are players and NPCs, plus any other model entity moving faster than 20 units/s, with a radius of their AABB half width plus 32. Every 32 units of travel they drop a trail point that recovers over 2.5 seconds on a smoothstep. Nothing switches in one frame: a pusher eases in and out over 0.35 s, slots keep their item across frames, a new item fades in over 0.3 s and an evicted one fades out over 0.4 s before its slot is reused. The 5 strongest and nearest to the eye win (pushers count double), so trails only show near the camera and shorten when several things move at once.
+  - Trampling: the live G channel of `core/sh_trails`, slices at 10, 24, 40 and 64 units. The pixel shader reads the clearance at each pixel and shortens blades to it, leaning them out as they shorten, so grass stays under props and around feet, and stands back up as soon as they leave. The quads are not moved: the trail texture is only readable in the pixel shader. Every entity is stamped whatever the ground under it, so something on a balcony also flattens the grass below.
 - **Seagrass** `borealis_seagrass`: meadows on sunlit sandy water beds.
 - **Kelp** `borealis_kelp`: forests on sunlit rocky sea beds.
 - **Leaves** `borealis_leaves`: falling and fallen leaves, October only.

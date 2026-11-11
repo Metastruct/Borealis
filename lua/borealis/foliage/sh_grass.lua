@@ -30,6 +30,7 @@ local LEAN = 0.5
 local LEAN_MAX = 0.95
 local QUAD_H = 40
 local TRANSLUCENCY = 0.35
+local TRAMPLE_SLICES = { 10, 24, 40, 64 }
 
 local packColor, setConstant = shaderpack.PackColor, shaderpack.SetConstant
 
@@ -53,7 +54,179 @@ local function palette(mat, depthMat)
 	lastWet = -1
 end
 
-local vertexRows = { {}, {} }
+local PUSH_SLOTS = 5
+local PUSH_RANGE = 1536
+local PUSH_GATHER = 0.25
+local PUSH_STEP = 32
+local PUSH_LIFE = 2.5
+local PUSH_MIN_SPEED = 20
+local PUSH_PAD = 32
+local PUSH_MAX_RADIUS = 127
+local PUSH_MAX_POINTS = 128
+local PUSH_HEAD_FADE = 0.35
+local PUSH_ATTACK = 0.3
+local PUSH_EVICT = 0.4
+
+local pushCandidates, nextPushGather = {}, 0
+local pushState = {}
+local pushItems = {}
+local pushSlots = {}
+local pushFrame, pushTime = -1, 0
+
+local function pushable(e)
+	if not IsValid(e) or e:IsDormant() or e:GetNoDraw() or IsValid(e:GetParent()) then return false end
+	if e:IsPlayer() then return e:Alive() and not e:InVehicle() end
+
+	return (e:GetModel() or ""):sub(-4):lower() == ".mdl"
+end
+
+local function gatherPushers(eye)
+	local now = RealTime()
+	if now < nextPushGather then return end
+	nextPushGather = now + PUSH_GATHER
+
+	pushCandidates = {}
+	local keep = {}
+	for _, e in ipairs(ents.FindInSphere(eye, PUSH_RANGE)) do
+		if pushable(e) then
+			pushCandidates[#pushCandidates + 1] = e
+			keep[e] = pushState[e]
+		end
+	end
+	pushState = keep
+end
+
+local function placeItem(item, mins, maxs)
+	item.x, item.y, item.z = (mins.x + maxs.x) * 0.5, (mins.y + maxs.y) * 0.5, mins.z
+	item.r = math.min(math.max(maxs.x - mins.x, maxs.y - mins.y) * 0.5 + PUSH_PAD, PUSH_MAX_RADIUS)
+end
+
+local function approach(v, target, step)
+	if v < target then return math.min(v + step, target) end
+
+	return math.max(v - step, target)
+end
+
+local function updateItems(now, dt)
+	for _, item in ipairs(pushItems) do
+		item.active = false
+	end
+
+	for _, e in ipairs(pushCandidates) do
+		if pushable(e) then
+			local pos = e:GetPos()
+			local st = pushState[e]
+			if not st then
+				st = { pos = pos, trail = pos, speed = 0 }
+				pushState[e] = st
+			end
+
+			local speed = dt > 0 and pos:Distance(st.pos) / dt or 0
+			st.speed = st.speed + (speed - st.speed) * 0.3
+			st.pos = pos
+
+			if e:IsPlayer() or e:IsNPC() or e:IsNextBot() or st.speed > PUSH_MIN_SPEED then
+				local mins, maxs = e:WorldSpaceAABB()
+				local head = st.head
+				if not head or head.dead then
+					head = { head = true, s = 0 }
+					st.head = head
+					pushItems[#pushItems + 1] = head
+				end
+				placeItem(head, mins, maxs)
+				head.active = true
+
+				local dx, dy = pos.x - st.trail.x, pos.y - st.trail.y
+				if dx * dx + dy * dy > PUSH_STEP * PUSH_STEP then
+					st.trail = pos
+					if #pushItems < PUSH_MAX_POINTS then
+						local point = { born = now, s = 1 }
+						placeItem(point, mins, maxs)
+						pushItems[#pushItems + 1] = point
+					end
+				end
+			end
+		end
+	end
+
+	for i = #pushItems, 1, -1 do
+		local item = pushItems[i]
+		if item.head then
+			item.s = approach(item.s, item.active and 1 or 0, dt / PUSH_HEAD_FADE)
+			item.dead = not item.active and item.s <= 0
+		else
+			local age = math.min((now - item.born) / PUSH_LIFE, 1)
+			item.s = 1 - age * age * (3 - 2 * age)
+			item.dead = age >= 1
+		end
+
+		if item.dead then table.remove(pushItems, i) end
+	end
+end
+
+local function rankItems(eye)
+	local ranked = {}
+	for _, item in ipairs(pushItems) do
+		if item.s > 0 then
+			local dx, dy, dz = item.x - eye.x, item.y - eye.y, item.z - eye.z
+			item.score = item.s * (item.head and 2 or 1) / (1 + math.sqrt(dx * dx + dy * dy + dz * dz) / 256)
+			ranked[#ranked + 1] = item
+		end
+	end
+	table.sort(ranked, function(a, b) return a.score > b.score end)
+
+	local wanted = {}
+	for i = 1, math.min(PUSH_SLOTS, #ranked) do
+		wanted[ranked[i]] = true
+	end
+
+	return ranked, wanted
+end
+
+local function updatePushers(eye)
+	local frameNumber = FrameNumber()
+	if frameNumber == pushFrame then return end
+	pushFrame = frameNumber
+
+	local now = RealTime()
+	local dt = math.min(now - pushTime, 0.1)
+	pushTime = now
+	gatherPushers(eye)
+	updateItems(now, dt)
+
+	local ranked, wanted = rankItems(eye)
+	local held = {}
+	for i = 1, PUSH_SLOTS do
+		local slot = pushSlots[i]
+		if slot then
+			local item = slot.item
+			if wanted[item] and not item.dead then
+				slot.shown = math.min(slot.shown + dt / PUSH_ATTACK, item.s)
+				held[item] = true
+			else
+				slot.shown = math.max(math.min(slot.shown - dt / PUSH_EVICT, item.s), 0)
+				if slot.shown <= 0 then pushSlots[i] = nil end
+			end
+		end
+	end
+
+	local nextItem = 1
+	for i = 1, PUSH_SLOTS do
+		if not pushSlots[i] then
+			while ranked[nextItem] and (held[ranked[nextItem]] or not wanted[ranked[nextItem]]) do
+				nextItem = nextItem + 1
+			end
+
+			local item = ranked[nextItem]
+			if not item then break end
+
+			held[item] = true
+			pushSlots[i] = { item = item, shown = 0 }
+		end
+	end
+end
+
+local vertexRows = { {}, {}, {}, {}, {}, {} }
 local function frame(mat, depthMat, time)
 	local strength = wind.Strength()
 	local curl = math.min(CURL * strength, CURL_MAX)
@@ -64,7 +237,20 @@ local function frame(mat, depthMat, time)
 
 	local r = vertexRows
 	r[1][1], r[1][2], r[1][3] = time, LEAN * strength, QUAD_H * HEIGHT
-	r[2][1], r[2][2], r[2][3] = wind.X, wind.Y, 0
+	updatePushers(EyePos())
+	local used = 0
+	for i = 1, PUSH_SLOTS do
+		local slot = pushSlots[i]
+		if slot and slot.shown > 0.002 then
+			used = used + 1
+			local p, row = slot.item, r[used + 1]
+			row[1], row[2], row[3] = p.x, math.floor(p.y) + p.r / 128, math.floor(p.z) + slot.shown * 0.99
+		end
+	end
+	for i = used + 1, PUSH_SLOTS do
+		local row = r[i + 1]
+		row[1], row[2], row[3] = 0, 0, 0
+	end
 	shaderpack.SetVertexConstants(r)
 
 	local wet = tod and tod.rain and tod.rain.amount or 0
@@ -82,6 +268,12 @@ local layer = foliage.Layer({
 	spacing = 18, jitter = 8, quadW = 26, quadH = QUAD_H,
 	sway = QUAD_H * 1.4 * LEAN_MAX,
 	keep = keep, palette = palette, frame = frame, engineLights = true,
+	trails = {
+		channel = 2,
+		slices = TRAMPLE_SLICES,
+		live = true,
+		accept = function() return true end,
+	},
 })
 layer.height = HEIGHT
 
@@ -91,7 +283,7 @@ end
 
 setDistance()
 
-local apply = shaderpack.Toggle("borealis_grass", GRASS_ENABLED, { "borealis_grass_ps30", "borealis_grass_vs30" }, function() layer:Start() end, function() layer:Stop() end)
+local apply = shaderpack.Toggle("borealis_grass", GRASS_ENABLED, { "borealis_grass_ps30", "borealis_grass_vs30", "borealis_trailstamp_ps30" }, function() layer:Start() end, function() layer:Stop() end)
 
 cvars.RemoveChangeCallback("borealis_grass_distance", "borealis_grass")
 cvars.AddChangeCallback("borealis_grass_distance", setDistance, "borealis_grass")

@@ -4,8 +4,11 @@ const float4 Constants2 : register(c2);
 const float4 Constants3 : register(c3);
 const float4 Constants11 : register(c11);
 const float4 Constants12 : register(c12);
+const float4 Constants13 : register(c13);
+const float4 Constants14 : register(c14);
 
 sampler SkyWall : register(s2);
+sampler Trail : register(s3);
 
 #define EYE        Constants0.xyz
 #define TIME       Constants0.w
@@ -19,6 +22,13 @@ sampler SkyWall : register(s2);
 #define FADE_END   Constants3.w
 #define VIEW_FWD   Constants11.xyz
 #define INV_SCREEN Constants12.xy
+#define TRAIL_MIN  Constants13.xy
+#define TRAIL_MAX  Constants13.zw
+#define QUAD_UNITS Constants14.x
+
+#define TRAIL_SPAN 2048.0
+#define TRAMPLE_H 64.0
+#define TRAMPLE_LEAN 0.6
 
 #ifndef DEPTH_ONLY
 sampler DynamicLights : register(s0);
@@ -48,6 +58,26 @@ float2 test(float4 b, float u, float v, float bend)
 	return float2(inside, inside * t);
 }
 
+float clearanceAt(float2 xy)
+{
+	float press = 0.0;
+	[branch] if (all(xy >= TRAIL_MIN) && all(xy <= TRAIL_MAX))
+	{
+		press = tex2Dlod(Trail, float4(frac(float2(xy.x, -xy.y) / TRAIL_SPAN), 0.0, 0.0)).g;
+	}
+
+	return (1.0 - press) * TRAMPLE_H;
+}
+
+float4 trample(float4 b, float clearance, float quadUnits)
+{
+	float k = saturate(clearance / max(b.y * quadUnits, 1e-3));
+	b.y = max(b.y * k, 1e-3);
+	b.z += (b.z >= 0.0 ? 1.0 : -1.0) * (1.0 - k) * TRAMPLE_LEAN;
+
+	return b;
+}
+
 float4 main(PS_IN i) : COLOR
 {
 	float seed1 = i.color.a * 255.0;
@@ -69,12 +99,24 @@ float4 main(PS_IN i) : COLOR
 	float facing = dot(axis, windDir) * rsqrt(max(dot(axis, axis), 1e-12));
 	float bend = WIND * gust * facing * (0.6 + 0.4 * heightScale);
 
-	float2 r = test(i.blade0, u, v, bend + flutter);
+	float4 b0 = i.blade0, b1 = i.blade1, b2 = i.blade2, b3 = i.blade3, b4 = i.blade4;
+	float clearance = clearanceAt(i.wpos.xy);
+	float quadUnits = QUAD_UNITS * heightScale;
+	[branch] if (clearance < quadUnits)
+	{
+		b0 = trample(b0, clearance, quadUnits);
+		b1 = trample(b1, clearance, quadUnits);
+		b2 = trample(b2, clearance, quadUnits);
+		b3 = trample(b3, clearance, quadUnits);
+		b4 = trample(b4, clearance, quadUnits);
+	}
+
+	float2 r = test(b0, u, v, bend + flutter);
 	float2 q;
-	q = test(i.blade1, u, v, bend - flutter); r = max(r, q);
-	q = test(i.blade2, u, v, bend + flutter * 0.5); r = max(r, q);
-	q = test(i.blade3, u, v, bend - flutter * 0.5); r = max(r, q);
-	q = test(i.blade4, u, v, bend); r = max(r, q);
+	q = test(b1, u, v, bend - flutter); r = max(r, q);
+	q = test(b2, u, v, bend + flutter * 0.5); r = max(r, q);
+	q = test(b3, u, v, bend - flutter * 0.5); r = max(r, q);
+	q = test(b4, u, v, bend); r = max(r, q);
 	clip(r.x - 0.5);
 #ifdef DEPTH_ONLY
 	float d = dot(i.wpos - EYE, Constants2.xyz) / DEPTH_SCALE;
