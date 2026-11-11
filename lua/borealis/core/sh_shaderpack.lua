@@ -1,10 +1,7 @@
 shaderpack = shaderpack or {}
 borealis = shaderpack -- just an alias
 
-local HAS_SHADER_TO_GMA = file.Exists("includes/modules/shader_to_gma.lua", "LUA")
-if HAS_SHADER_TO_GMA then
-	require("shader_to_gma")
-end
+require("shader_to_gma")
 
 local function le16(v)
 	return string.char(v % 256, math.floor(v / 256) % 256)
@@ -33,10 +30,8 @@ end
 
 if SERVER then
 	function shaderpack.AddResources(shaders, textures)
-		if resource.AddShader then
-			for _, name in ipairs(shaders) do
-				resource.AddShader(name)
-			end
+		for _, name in ipairs(shaders) do
+			resource.AddShader(name)
 		end
 
 		for _, tex in ipairs(textures or {}) do
@@ -77,7 +72,7 @@ local presentTextures, missingTextures = {}, {}
 function shaderpack.Available(shaders, textures)
 	for _, name in ipairs(shaders) do
 		if not mountedShaders[name] then
-			if not file.Exists("shaders/fxc/" .. name .. ".vcs", "GAME") then return false end
+			if not ShaderExists(name) then return false end
 			mountedShaders[name] = true
 		end
 	end
@@ -106,7 +101,7 @@ function shaderpack.WhenMounted(id, shaders, start, textures)
 		return true
 	end
 
-	if HAS_SHADER_TO_GMA and not SHADER_MOUNTED then
+	if not SHADER_MOUNTED then
 		hook.Add("ShaderMounted", id, function()
 			hook.Remove("ShaderMounted", id)
 			if shaderpack.Available(shaders, textures) then

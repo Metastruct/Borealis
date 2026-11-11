@@ -450,7 +450,7 @@ function Layer:Start()
 		["$c3_x"] = 0, ["$c3_y"] = 0, ["$c3_z"] = 0, ["$c3_w"] = 0,
 	})
 
-	if not self.depthMat and file.Exists("shaders/fxc/" .. cfg.depthShader .. ".vcs", "GAME") then
+	if not self.depthMat and ShaderExists(cfg.depthShader) then
 		self.depthMat = CreateShaderMaterial("borealis_" .. cfg.name .. "depth_" .. os.time(), {
 			["$pixshader"] = cfg.depthShader,
 			["$vertexshader"] = cfg.vertexShader,

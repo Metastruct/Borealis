@@ -1,3 +1,5 @@
+require("shader_to_gma")
+
 module("halo", package.seeall)
 
 local ROWS_PS, OUTLINE_PS, QUAD_VS = "borealis_halo_rows_ps30", "borealis_halo_ps30", "borealis_passthrough_vs30"
@@ -263,14 +265,14 @@ end
 
 local function shaderReady(w, h)
 	master = master or GetConVar("borealis_enabled")
-	if not master or not master:GetBool() or not CreateShaderMaterial then return false end
+	if not master or not master:GetBool() then return false end
 	if rt_Store:Width() ~= w or rt_Store:Height() ~= h or rt_Blur:Width() ~= w or rt_Blur:Height() ~= h then return false end
 	if OUTLINE_MAT then return true end
 	if RealTime() < retryAt then return false end
 	retryAt = RealTime() + RETRY
 
 	for _, name in ipairs(SHADERS) do
-		if not file.Exists("shaders/fxc/" .. name .. ".vcs", "GAME") then return false end
+		if not ShaderExists(name) then return false end
 	end
 
 	local mask, rows = rt_Store, rt_Blur
