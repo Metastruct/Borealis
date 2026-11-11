@@ -149,22 +149,67 @@ end
 local captureView = { type = "3D", origin = Vector(), angles = Angle(90, 90, 0), znear = 1, zfar = CAPTURE_HEIGHT * 2, ortho = {} }
 local groundRes = {}
 local groundTrace = { mask = MASK_SOLID_BRUSHONLY, start = Vector(), endpos = Vector(), output = groundRes }
-local CLIP_NORMAL = Vector(0, 0, -1)
+local GROUND_INSET = 0.35
+local GROUND_MAX_SLOPE = 1.2
+local SAMPLES = { { 0, 0 }, { -1, -1 }, { 1, -1 }, { -1, 1 }, { 1, 1 } }
 
 local stamps, dirty = {}, {}
+
+local function groundPlane(mins, maxs, mx, my)
+	local hx, hy = (maxs.x - mins.x) * GROUND_INSET, (maxs.y - mins.y) * GROUND_INSET
+	local n, sx, sy, sz, sxx, sxy, syy, sxz, syz = 0, 0, 0, 0, 0, 0, 0, 0, 0
+	local high = -math.huge
+	local centre
+	for _, o in ipairs(SAMPLES) do
+		local dx, dy = o[1] * hx, o[2] * hy
+		groundTrace.start:SetUnpacked(mx + dx, my + dy, maxs.z + SINK)
+		groundTrace.endpos:SetUnpacked(mx + dx, my + dy, mins.z - reach)
+		util.TraceLine(groundTrace)
+		if groundRes.Hit and not groundRes.StartSolid then
+			local z = groundRes.HitPos.z
+			n = n + 1
+			sx, sy, sz = sx + dx, sy + dy, sz + z
+			sxx, sxy, syy = sxx + dx * dx, sxy + dx * dy, syy + dy * dy
+			sxz, syz = sxz + dx * z, syz + dy * z
+			high = math.max(high, z)
+			if o[1] == 0 then centre = z end
+		end
+	end
+	if n == 0 then return end
+
+	local b, c = 0, 0
+	if n >= 3 then
+		local mxv, myv, mz = sx / n, sy / n, sz / n
+		local cxx, cxy, cyy = sxx - n * mxv * mxv, sxy - n * mxv * myv, syy - n * myv * myv
+		local cxz, cyz = sxz - n * mxv * mz, syz - n * myv * mz
+		local det = cxx * cyy - cxy * cxy
+		if math.abs(det) > 1e-6 then
+			b = (cxz * cyy - cyz * cxy) / det
+			c = (cyz * cxx - cxz * cxy) / det
+			if b * b + c * c > GROUND_MAX_SLOPE * GROUND_MAX_SLOPE then
+				b, c = 0, 0
+			end
+		end
+
+		if b ~= 0 or c ~= 0 then return mz - b * mxv - c * myv, b, c, high end
+	end
+
+	return centre or high, 0, 0, high
+end
 
 local function measure(e)
 	local mins, maxs = e:WorldSpaceAABB()
 	local mx, my = (mins.x + maxs.x) * 0.5, (mins.y + maxs.y) * 0.5
-	groundTrace.start:SetUnpacked(mx, my, mins.z + SINK)
-	groundTrace.endpos:SetUnpacked(mx, my, mins.z - reach)
-	util.TraceLine(groundTrace)
-	if not groundRes.Hit then return end
+	local ground, b, c, high = groundPlane(mins, maxs, mx, my)
+	if not ground then return end
 
-	local ground = groundRes.HitPos.z
+	local nz = 1 / math.sqrt(1 + b * b + c * c)
+	local clipNormal = Vector(b * nz, c * nz, -nz)
+	local clipBase = -nz * (ground - b * mx - c * my)
+
 	local accepted, height, live, persistent = {}, 0, false, false
 	for id, u in pairs(users) do
-		if mins.z <= ground + u.height and u.accept(groundRes, mx, my, ground, u.cache) then
+		if mins.z <= high + u.height and u.accept(groundRes, mx, my, ground, u.cache) then
 			accepted[id] = true
 			height = math.max(height, u.height)
 			if u.live then
@@ -182,7 +227,7 @@ local function measure(e)
 	local Y1 = math.min(math.ceil(-mins.y / TEXEL) + CAPTURE_PAD, winY + TRAIL_TEXELS)
 	if X1 <= X0 or Y1 <= Y0 then return end
 
-	return { e = e, ground = ground, height = height, accepted = accepted, live = live, persistent = persistent, X0 = X0, Y0 = Y0, w = X1 - X0, h = Y1 - Y0 }
+	return { e = e, top = maxs.z, clipNormal = clipNormal, clipBase = clipBase, height = height, accepted = accepted, live = live, persistent = persistent, X0 = X0, Y0 = Y0, w = X1 - X0, h = Y1 - Y0 }
 end
 
 local function overlaps(a, b)
@@ -259,7 +304,7 @@ end
 local color = { 0, 0, 0 }
 
 local function drawStamp(s)
-	local top = s.ground + s.height
+	local top = s.top
 	for _, pass in ipairs(passes) do
 		if pass.height > s.height then break end
 
@@ -276,7 +321,7 @@ local function drawStamp(s)
 
 		if lit then
 			render.SetColorModulation(color[1], color[2], color[3])
-			render.PushCustomClipPlane(CLIP_NORMAL, -(s.ground + pass.height))
+			render.PushCustomClipPlane(s.clipNormal, s.clipBase - pass.height)
 			eachRTRect(s.X0, s.Y0, s.w, s.h, function(px, py, w, h, ox, oy)
 				local hw, hh = w * TEXEL * 0.5, h * TEXEL * 0.5
 				captureView.x, captureView.y, captureView.w, captureView.h = px, py, w, h
