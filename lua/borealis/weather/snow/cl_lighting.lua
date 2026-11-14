@@ -10,6 +10,13 @@ local YIELD_SAMPLES = 256
 local cellKey = snow.CellKey
 local UP = Vector(0, 0, 1)
 local samplePos = Vector()
+local sumR, sumG, sumB, sumN = 0, 0, 0, 0
+
+function lighting.Average()
+	if sumN == 0 then return end
+
+	return sumR / sumN, sumG / sumN, sumB / sumN
+end
 
 local NEIGHBOURS = {}
 for dz = -1, 1 do
@@ -35,7 +42,9 @@ function lighting.Resolve(ch, verts, tris)
 		local at = i * 3
 		samplePos:SetUnpacked(samples[at - 2], samples[at - 1], samples[at])
 		local l, d = render.ComputeLighting(samplePos, UP), render.ComputeDynamicLighting(samplePos, UP)
-		lights[i] = math.Clamp(math.floor((l.x - d.x) * 127.5), 0, 255) * 65536 + math.Clamp(math.floor((l.y - d.y) * 127.5), 0, 255) * 256 + math.Clamp(math.floor((l.z - d.z) * 127.5), 0, 255)
+		local r, g, b = math.Clamp(l.x - d.x, 0, 2), math.Clamp(l.y - d.y, 0, 2), math.Clamp(l.z - d.z, 0, 2)
+		lights[i] = math.floor(r * 127.5) * 65536 + math.floor(g * 127.5) * 256 + math.floor(b * 127.5)
+		sumR, sumG, sumB, sumN = sumR + r, sumG + g, sumB + b, sumN + 1
 		computed = computed + 1
 		if computed % YIELD_SAMPLES == 0 then yieldIfOverBudget() end
 	end

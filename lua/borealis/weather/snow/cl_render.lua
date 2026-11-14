@@ -10,6 +10,9 @@ local MESH_TRIS = 10000
 local MESH_CACHE_TRIS = jit.arch == "x64" and math.huge or 300000
 local PRELOAD = jit.arch == "x64"
 local FILL_K = 0.5
+local TOD_MATCH = 0.29
+local TOD_SUN_GAIN = 1.05
+local TOD_RETINT = 0.02
 
 local setConstant, packColor, toLinear = shaderpack.SetConstant, shaderpack.PackColor, shaderpack.ToLinear
 
@@ -137,9 +140,34 @@ end
 
 local visible = {}
 local sight = chunks.Sight()
+local matchedScale, matchedR, matchedG, matchedB
+
+local function todChannel(light, amb, scale)
+	return TOD_MATCH * (light * scale + amb * FILL_K) / math.max(amb + TOD_SUN_GAIN * math.max(light - amb, 0) * scale, 1e-3)
+end
+
+local function matchTodSnow(scale, amb)
+	local setTint = tod and tod.snow and tod.snow.SetTint
+	if not setTint then return end
+
+	local r, g, b = lighting.Average()
+	if not r then return end
+	if scale == matchedScale and math.abs(r - matchedR) + math.abs(g - matchedG) + math.abs(b - matchedB) < TOD_RETINT then return end
+
+	matchedScale, matchedR, matchedG, matchedB = scale, r, g, b
+	setTint(Vector(todChannel(r, amb.x, scale), todChannel(g, amb.y, scale), todChannel(b, amb.z, scale)))
+end
+
+local function releaseTodSnow()
+	matchedScale = nil
+	if tod and tod.snow and tod.snow.SetTint then tod.snow.SetTint() end
+end
 
 local function draw(depth, _, sky3d)
 	if paused or not grid.ready or depth or sky3d or render.GetRenderTarget() then return end
+
+	local amb = render.GetAmbientLightColor()
+	matchTodSnow(foliage.WorldLightScale(), amb)
 
 	local view = chunks.View()
 	local eye = view.eye
@@ -173,7 +201,6 @@ local function draw(depth, _, sky3d)
 	local invW, invH = shaderpack.skywall.InvSize()
 
 	local tonemap = render.GetToneMappingScaleLinear().x
-	local amb = render.GetAmbientLightColor()
 	local sun = bspdata.BakedSun()
 	setConstant(MAT, "$c0", eye.x, eye.y, eye.z, CurTime() % 1000)
 	setConstant(MAT, "$c1", trails.Window())
@@ -213,6 +240,7 @@ local winterRemoved = false
 
 local function stop()
 	running = false
+	releaseTodSnow()
 	hook.Remove("PostDrawOpaqueRenderables", "borealis_snow")
 	trails.Stop()
 	grid:Stop()
