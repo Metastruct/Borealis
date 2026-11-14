@@ -16,8 +16,18 @@ tod.AddOverrideConfig("snow", config, 0.2)
 
 if CLIENT then
 	local lastOvercast
+	local DEFAULT_TINT = Vector(0.31, 0.35, 0.46)
+	local snowPaths = {}
+	local snowTint = DEFAULT_TINT
 
 	tod.snow = tod.snow or { amount = 0 }
+
+	function tod.snow.SetTint(tint)
+		snowTint = tint or DEFAULT_TINT
+		for _, path in ipairs(snowPaths) do
+			tod.SetTextureColor(path, snowTint)
+		end
+	end
 
 	hook.Add("Think", "tod_snow", function()
 		time = RealTime()
@@ -55,7 +65,8 @@ if CLIENT then
 				tod.ReplaceTexture(path, "nature/snowfloor002a", "$basetexture2")
 			end
 
-			tod.SetTextureColor(path, Vector(0.31, 0.35, 0.46))
+			snowPaths[#snowPaths + 1] = path
+			tod.SetTextureColor(path, snowTint)
 			tod.SetDetailBlend(path, 0)
 		end
 	end)
