@@ -167,8 +167,9 @@ if CLIENT then
 	do
 		tod.replaced_textures = {}
 
-		function tod.ReplaceTexture(path, to)
+		function tod.ReplaceTexture(path, to, key)
 			path = path:lower()
+			key = key or "$basetexture"
 			local mat = Material(path)
 
 			if mat and not mat:IsError() then
@@ -185,10 +186,11 @@ if CLIENT then
 					return false
 				end
 
-				tod.replaced_textures[path] = tod.replaced_textures[path] or {}
-				tod.replaced_textures[path].OldTexture = tod.replaced_textures[path].OldTexture or mat:GetTexture("$basetexture")
-				tod.replaced_textures[path].NewTexture = tex
-				mat:SetTexture("$basetexture", tex)
+				local tbl = tod.replaced_textures[path] or { OldTextures = {} }
+				tod.replaced_textures[path] = tbl
+				tbl.OldTextures = tbl.OldTextures or {}
+				tbl.OldTextures[key] = tbl.OldTextures[key] or mat:GetTexture(key)
+				mat:SetTexture(key, tex)
 
 				return mat
 			end
@@ -230,8 +232,8 @@ if CLIENT then
 		function tod.RestoreAllTextures()
 			for name, tbl in pairs(tod.replaced_textures) do
 				if not pcall(function()
-					if tbl.OldTexture then
-						tod.ReplaceTexture(name, tbl.OldTexture)
+					for key, tex in pairs(tbl.OldTextures or {}) do
+						tod.ReplaceTexture(name, tex, key)
 					end
 
 					if tbl.OldColor then

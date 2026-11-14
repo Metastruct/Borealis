@@ -33,9 +33,8 @@ if CLIENT then
 		end
 	end)
 
-	hook.Add("TOD_ReplaceGrassTexture", "tod_snow", function(path)
-		path = path:lower()
-		if
+	local function isGround(path)
+		return
 			(
 				path:find("grass") or
 				path:find("mud") or
@@ -43,12 +42,20 @@ if CLIENT then
 			) and not
 			(
 				path:find("water") or
-				path:find("gm_flatgrass") or
-				path:find("blendsandrock004c")
+				path:find("gm_flatgrass")
 			)
-			then
-			tod.ReplaceTexture(path, "nature/snowfloor002a")
-			tod.SetTextureColor(path, Vector(1.55, 1.74, 2.3))
+	end
+
+	hook.Add("TOD_ReplaceGrassTexture", "tod_snow", function(path)
+		path = path:lower()
+		if isGround(path) then
+			local mat = tod.ReplaceTexture(path, "nature/snowfloor002a")
+			local second = mat and mat:GetTexture("$basetexture2")
+			if second and not second:IsError() and isGround(second:GetName():lower()) then
+				tod.ReplaceTexture(path, "nature/snowfloor002a", "$basetexture2")
+			end
+
+			tod.SetTextureColor(path, Vector(0.31, 0.35, 0.46))
 			tod.SetDetailBlend(path, 0)
 		end
 	end)
