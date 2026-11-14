@@ -47,7 +47,8 @@ if CLIENT then
 			)
 			then
 			tod.ReplaceTexture(path, "nature/snowfloor002a")
-			tod.SetTextureColor(path, Vector(1,1,1) * 0.2)
+			tod.SetTextureColor(path, Vector(1.55, 1.74, 2.3))
+			tod.SetDetailBlend(path, 0)
 		end
 	end)
 

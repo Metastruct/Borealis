@@ -202,9 +202,24 @@ if CLIENT then
 
 			if not mat:IsError() then
 				tod.replaced_textures[path] = tod.replaced_textures[path] or {}
-				tod.replaced_textures[path].OldColor = tod.replaced_textures[path].OldColor or mat:GetVector("$color")
+				tod.replaced_textures[path].OldColor = tod.replaced_textures[path].OldColor or mat:GetVector("$color2")
 				tod.replaced_textures[path].NewColor = color
-				mat:SetVector("$color", color)
+				mat:SetVector("$color2", color)
+
+				return true
+			end
+
+			return false
+		end
+
+		function tod.SetDetailBlend(path, factor)
+			path = path:lower()
+			local mat = Material(path)
+
+			if not mat:IsError() and mat:GetTexture("$detail") then
+				tod.replaced_textures[path] = tod.replaced_textures[path] or {}
+				tod.replaced_textures[path].OldDetailBlend = tod.replaced_textures[path].OldDetailBlend or mat:GetFloat("$detailblendfactor") or 1
+				mat:SetFloat("$detailblendfactor", factor)
 
 				return true
 			end
@@ -221,6 +236,10 @@ if CLIENT then
 
 					if tbl.OldColor then
 						tod.SetTextureColor(name, tbl.OldColor)
+					end
+
+					if tbl.OldDetailBlend then
+						tod.SetDetailBlend(name, tbl.OldDetailBlend)
 					end
 				end) then
 					print("Failed to restore: " .. tostring(name))
