@@ -43,7 +43,8 @@ if CLIENT then
 			) and not
 			(
 				path:find("water") or
-				path:find("gm_flatgrass")
+				path:find("gm_flatgrass") or
+				path:find("blendsandrock004c")
 			)
 			then
 			tod.ReplaceTexture(path, "nature/snowfloor002a")
