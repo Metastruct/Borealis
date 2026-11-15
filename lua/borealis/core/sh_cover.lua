@@ -48,9 +48,14 @@ local EXPOSURE_PS, EXPOSURE_VS = "borealis_coverexposure_ps30", "borealis_passth
 local EXPOSURE_SIZE, EXPOSURE_EXTENT = 256, 4096
 local EXPOSURE_STEP = 256
 local EXPOSURE_EVERY = 4
+local PACK_PS = "borealis_spanpack_ps30"
+local PACK_RT_FLAGS = 0x1 + 0x4 + 0x8
+local PACK_BYTES_FORMAT = 0
+local PACK_BYTES_FLAGS = SPAN_VTF_FLAGS + 0x2000
 
 cover.COLUMN, cover.COLUMNS, cover.Z_MIN, cover.Z_RANGE = COLUMN, COLUMNS, Z_MIN, Z_RANGE
 cover.EXPOSURE_SHADERS = { EXPOSURE_PS, EXPOSURE_VS }
+cover.PACK_SHADERS = { PACK_PS, EXPOSURE_VS }
 cover.GLOSS = GLOSS
 cover.listeners = cover.listeners or {}
 
@@ -333,6 +338,7 @@ end
 if SERVER then
 	util.AddNetworkString(SPAN_NET)
 	shaderpack.AddResources(cover.EXPOSURE_SHADERS)
+	shaderpack.AddResources(cover.PACK_SHADERS)
 
 	local key, blob
 	local waiting, sends = {}, {}
@@ -433,15 +439,58 @@ end
 local spanTexture, spanData, spanPending
 local levels, levelFrame, levelResult = {}, -1, nil
 local searchCell, searchTop
+local TOGL = not system.IsWindows()
+local SPAN_PACK = SPAN_NET .. "_pack"
+
+local function packSpans(key)
+	local bytes = key .. "_rgba8"
+	if not file.Exists(spanPath(bytes, "vtf"), "DATA") then
+		file.Write(spanPath(bytes, "vtf"), shaderpack.VTFHeader(SPAN_COLUMNS * 4, SPAN_COLUMNS, PACK_BYTES_FORMAT, PACK_BYTES_FLAGS) .. string.sub(spanData, 81))
+	end
+
+	shaderpack.WhenMounted(SPAN_PACK, cover.PACK_SHADERS, function()
+		hook.Add("PostRender", SPAN_PACK, function()
+			hook.Remove("PostRender", SPAN_PACK)
+			if cover.spanKey ~= key then return end
+
+			local rt = GetRenderTargetEx("borealis_cover_spans_packed", SPAN_COLUMNS * 2, SPAN_COLUMNS, RT_SIZE_LITERAL, MATERIAL_RT_DEPTH_NONE, PACK_RT_FLAGS, 0, IMAGE_FORMAT_RGBA16161616)
+			if not shaderpack.UsableRT(rt, SPAN_COLUMNS * 2, SPAN_COLUMNS) then return end
+
+			local mat = CreateShaderMaterial("borealis_cover_spanpack_" .. bytes, {
+				["$pixshader"] = PACK_PS,
+				["$vertexshader"] = EXPOSURE_VS,
+				["$texture1"] = "../data/" .. SPAN_DIR .. "/" .. bytes,
+				["$linearread_texture1"] = 1,
+				["$alpha_blend"] = 0,
+				["$additive"] = 0,
+			})
+
+			render.PushRenderTarget(rt)
+			render.OverrideAlphaWriteEnable(true, true)
+			render.SetMaterial(mat)
+			render.DrawScreenQuad()
+			render.OverrideAlphaWriteEnable(false)
+			render.PopRenderTarget()
+			spanTexture = rt
+		end)
+	end)
+end
 
 local function loadSpans(key)
-	local mat = CreateMaterial("borealis_cover_spans_" .. key, "UnlitGeneric", { ["$basetexture"] = "../data/" .. SPAN_DIR .. "/" .. key })
-	local tex = mat:GetTexture("$basetexture")
-	spanTexture = tex and not tex:IsError() and tex or nil
-	spanData = spanTexture and file.Read(spanPath(key, "vtf"), "DATA") or nil
+	if TOGL then
+		spanTexture = nil
+		spanData = file.Read(spanPath(key, "vtf"), "DATA")
+	else
+		local mat = CreateMaterial("borealis_cover_spans_" .. key, "UnlitGeneric", { ["$basetexture"] = "../data/" .. SPAN_DIR .. "/" .. key })
+		local tex = mat:GetTexture("$basetexture")
+		spanTexture = tex and not tex:IsError() and tex or nil
+		spanData = spanTexture and file.Read(spanPath(key, "vtf"), "DATA") or nil
+	end
+
 	levels, levelFrame = {}, -1
 	searchCell, searchTop = nil, nil
 	cover.spanKey = spanData and key or nil
+	if TOGL and spanData then packSpans(key) end
 end
 
 if cover.spanKey then
