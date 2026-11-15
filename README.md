@@ -6,7 +6,7 @@ Our most epic *(maybe not)* and beloved *(that's mostly me I think...)* shaderpa
 > 2) **If you add a new shader PLEASE COMMIT THE RELEVANT .hlsl!!!**
 > 3) **Everything in this readme was read, corrected and approved by a human (hi!!!) so it is correct albeit the wording is a bit weird at times, sorry!**
 
-Metastruct's client shader effects built for gm_construct_m3 but will *mostly* work on other maps.
+Metastruct's client shader effects built for gm_construct_m3 but will *mostly* work on other maps, plus [tod](#tod), the time of day, weather and season they're based on.
 
 Relevant documentation and help pages:
 - https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl
@@ -124,6 +124,18 @@ Sky faces write no depth, so anything drawn after the world shows through them. 
 
 `borealis_shaderpack_bench` Needs `fps_max 0` and vsync off. Literally the benchmark of the shaderpack.
 
+## tod
+
+Time of day, weather and season, the `tod` global.
+`lua/autorun/tod.lua` is not tied to the borealis shaderpack and just works without borealis enabled or present.
+- `sv_tod`: 0 manual, 1 realtime on the server's clock (its UTC offset is sent to clients), 2 demo (a day every 20 seconds). `settod <hour|demo|realtime>`, or `!tod` and `!weather` with aowl.
+- Day cycle: hour-stamped keys in `lua/tod/default_cycle.lua` (`tod.SetConfigCycle`), sampled on a monotone cubic by `tod.SampleCycle`. `tod.AlignSunToLight` places the sun from the light level. Keys drive the skypaint, engine fog, shadows, the world light style (`tod.MultToLightEnv`, 98 to 127) and the `grade_*` values of `sh_grade`.
+- Weather: one weather per hour slot, picked from a hash of the slot so every machine agrees, ramped over 10 minutes. `tod.AddOverrideConfig(name, config, probability, curve)` for rain and snow, `tod.AddFogConfig` for fog. `tod.GetWeather(name)` gives 0 to 1, `tod.force_weather` overrides it. `tod.SetVolumetricFog` hands a weather's fog to `borealis_fog`.
+- Seasons: `tod.GetSeason()` is winter from December to February, autumn in October and November, summer otherwise. `sv_tod_season` forces one on the next map load.
+  - Winter loads `snow.lua`: ground textures become snow, tinted by `tod.snow.SetTint`, and snow footsteps.
+  - Other seasons load `rain.lua`: rumble outside, drips under cover, thunder with a flash. `cl_rain_volume`, `cl_rain_mute_losefocus`.
+  - Autumn also loads `autumn.lua`, which recolours grass textures on the client.
+
 ## Effects
 
 ### Sky
@@ -183,4 +195,4 @@ Sky faces write no depth, so anything drawn after the world shows through them. 
 
 ## Data
 
-Clients write caches under `data/shaderpack/`: `cover` (span maps), `lava` (pool masks), `opacity` (cutout measurements). Delete them to force a rebuild.
+Clients write caches under `data/shaderpack/`: `cover` (span maps), `lava` (pool masks), `opacity` (cutout measurements). tod writes autumn grass under `data/tod_autumn/`. Delete them to force a rebuild.
