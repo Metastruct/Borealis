@@ -21,7 +21,7 @@ Relevant documentation and help pages:
 - Every effect draws through `screenspace_general` (or `_8tex`) with a custom `$pixshader` and sometimes `$vertexshader`.
 - Gmod keeps the first shader it loaded under a certain name, so if you recompiled a shader with the same name, you need a restart. (This is also valid for the server e.g you need to reboot, not restart!).
 - `shader_to_gma` packs `shaders/fxc` into a GMA, sends it to clients when they spawn and mounts it. (`ShaderMounted` is called at that point if you need that).
-- The native builds of Linux and MacOS use `ToGL` (https://github.com/valvesoftware/togl), which crashes the game on `tex3Dlod` and on a `cmp` that writes `DEPTH0` (it emits invalid GLSL). `shader_to_gma` adds a `<name>_togl_<ps30/vs30>` copy of each shader that has them and those clients use it instead: `texldl` on volume samplers becomes `texld` (the volumes have no mips, so it samples the same), and the depth `cmp` writes a spare temp that is then moved into `oDepth`. Shaders with other instructions ToGL rejects are left off on those builds. macOS clients do not mount the shaders at all until it is tested there.
+- The native builds of Linux and MacOS use `ToGL` (https://github.com/valvesoftware/togl), which crashes the game on `tex3Dlod` and on a `cmp` that writes `DEPTH0` (it emits invalid GLSL). `shader_to_gma` adds a `<name>_togl_<ps30/vs30>` copy of each shader that has them and those clients use it instead: `texldl` on volume samplers becomes `texld` (the volumes have no mips, so it samples the same), and the depth `cmp` writes a spare temp that is then moved into `oDepth`. Shaders with other instructions ToGL rejects are left off on those builds.
 - Shaders start with `shaderpack.WhenMounted`, this waits for every `.vcs` needed.
 
 ## Compiling
@@ -96,7 +96,7 @@ Detection of things that are drawing into the translucent pass even though they 
 - Entities are drawn through their own path: `RenderOverride`, `ENT:Draw` / `DrawTranslucent`, `SWEP:DrawWorldModel`, PAC3 parts, clientside and bonemerged children (prop2mesh meshes, held weapons). Stock halo only called `DrawModel`, so those were missing. Entities checking `halo.RenderedEntity() == self` can still draw a plain model.
 - Each group gets a stencil id, the ids become codes 230 to 255 in frame alpha (an 8x MSAA edge blend tops out at 223, so it never reads as a group), then `borealis_halo_rows_ps30` and `borealis_halo_ps30` draw a crisp outline from an exact distance, `max(blurx, blury)` pixels wide (max 15). Up to 6 groups per pass. Frame RGB is never copied or restored.
 - Passes are scissored to the screen rect of the drawn entities' render bounds, full screen when a corner is behind the camera or PAC3 is involved. Content drawn outside an entity's render bounds gets no outline.
-- Without the shaders (macOS, `borealis_enabled 0`) it falls back to the stock blur glow, still with the new entity drawing.
+- Without the shaders (ToGL rejected them, `borealis_enabled 0`) it falls back to the stock blur glow, still with the new entity drawing.
 - `core/sv_halo` registers the shaders. The loader keeps `sv_` files on the server and `cl_` files on the client.
 
 ### cl_chunks
