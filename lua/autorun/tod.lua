@@ -273,6 +273,7 @@ if CLIENT then
 				hook.Run("TOD_ReplaceGrassTexture", tex)
 			end
 
+			hook.Run("TOD_TexturesReplaced")
 			hook.Remove("Think", "tod_replacetextures")
 		end)
 	end
@@ -1137,6 +1138,7 @@ do
 		AddCSLuaFile("tod/snow.lua")
 		AddCSLuaFile("tod/rain.lua")
 		AddCSLuaFile("tod/autumn.lua")
+		AddCSLuaFile("tod/grasskey.lua")
 	end
 
 	local season = tod.GetSeason()

@@ -3,6 +3,8 @@ local TINT = Vector(1.7, 1.35, 0.85)
 local KEEP = 0.25
 local SCALE = 0.5
 local LAYERS = { "$basetexture", "$basetexture2" }
+
+include("tod/grasskey.lua")
 local SURFACEPROPS = { ["$basetexture"] = "$surfaceprop", ["$basetexture2"] = "$surfaceprop2" }
 
 tod.autumn = tod.autumn or { originals = {} }
@@ -20,6 +22,7 @@ end
 local function stop()
 	hook.Remove("PostRender", "tod_autumn")
 	hook.Remove("ShutDown", "tod_autumn")
+	tod.grasskey.Stop("autumn")
 end
 
 stop()
@@ -144,6 +147,30 @@ local function baked(name, ext, params, bake, arg)
 	return tex
 end
 
+local function keyedPass(autumnTextures)
+	tod.grasskey.Run("autumn", {
+		version = util.CRC(tostring(TINT) .. KEEP),
+		skip = function(path, key)
+			return state.originals[path] ~= nil and state.originals[path][key] ~= nil
+		end,
+		compose = function(r, g, b)
+			local grey = r * 0.299 + g * 0.587 + b * 0.114
+
+			return math.min(grey * TINT.x, 255) * (1 - KEEP) + r * KEEP,
+				math.min(grey * TINT.y, 255) * (1 - KEEP) + g * KEEP,
+				math.min(grey * TINT.z, 255) * (1 - KEEP) + b * KEEP
+		end,
+		apply = function(layer, tex)
+			state.originals[layer.path] = state.originals[layer.path] or {}
+			state.originals[layer.path][layer.key] = state.originals[layer.path][layer.key] or layer.mat:GetTexture(layer.key)
+			layer.mat:SetTexture(layer.key, tex)
+		end,
+		done = function()
+			hook.Run("TOD_Autumn", autumnTextures)
+		end,
+	})
+end
+
 local function start()
 	if not tod or not tod.GetMapTextures then return end
 	local jobs = grassJobs()
@@ -153,7 +180,7 @@ local function start()
 		local job = table.remove(jobs, 1)
 		if not job then
 			hook.Remove("PostRender", "tod_autumn")
-			hook.Run("TOD_Autumn", autumnTextures)
+			keyedPass(autumnTextures)
 
 			return
 		end

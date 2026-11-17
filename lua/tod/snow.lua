@@ -17,6 +17,8 @@ tod.AddOverrideConfig("snow", config, 0.2)
 if CLIENT then
 	local lastOvercast
 	local DEFAULT_TINT = Vector(0.31, 0.35, 0.46)
+	local GAMMA_INV = 1 / 2.2
+	local FROST = 0.75
 	local snowPaths = {}
 	local snowTint = DEFAULT_TINT
 
@@ -80,6 +82,46 @@ if CLIENT then
 			tod.SetTextureColor(path, snowTint)
 			tod.SetDetailBlend(path, 0)
 		end
+	end)
+
+	include("tod/grasskey.lua")
+
+	local function alreadyHandled(path, key)
+		local replaced = tod.replaced_textures[path]
+
+		return replaced ~= nil and (replaced.NewColor ~= nil or (replaced.OldTextures and replaced.OldTextures[key]) ~= nil)
+	end
+
+	local function replaceLayer(layer, tex)
+		tod.ReplaceTexture(layer.path, tex, layer.key)
+	end
+
+	hook.Add("TOD_TexturesReplaced", "tod_snow", function()
+		local snowTexture = Material("nature/snowfloor002a"):GetTexture("$basetexture")
+		local tr, tg, tb = DEFAULT_TINT.x ^ GAMMA_INV, DEFAULT_TINT.y ^ GAMMA_INV, DEFAULT_TINT.z ^ GAMMA_INV
+		local version = util.CRC(tostring(DEFAULT_TINT) .. GAMMA_INV)
+
+		tod.grasskey.Run("snow", {
+			version = version,
+			overlay = snowTexture,
+			skip = alreadyHandled,
+			compose = function(_, _, _, r, g, b)
+				return r * tr, g * tg, b * tb
+			end,
+			apply = replaceLayer,
+			done = function()
+				tod.grasskey.Run("frost", {
+					source = "props",
+					version = version .. FROST,
+					overlay = snowTexture,
+					skip = alreadyHandled,
+					compose = function(r, g, b, sr, sg, sb)
+						return r + (sr * tr - r) * FROST, g + (sg * tg - g) * FROST, b + (sb * tb - b) * FROST
+					end,
+					apply = replaceLayer,
+				})
+			end,
+		})
 	end)
 
 	hook.Add("PlayerFootstep", "snow", function(ply, pos, foot, sound, volume, rf)

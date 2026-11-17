@@ -630,6 +630,110 @@ function bspdata.SkyTriangles()
 	return out
 end
 
+function bspdata.StaticPropModels()
+	local f, lump = openLumps()
+	if not f then return {} end
+
+	local gameLump = lump(35)
+	local models = {}
+	for k = 0, (#gameLump >= 4 and i32(gameLump, 1) or 0) - 1 do
+		local p = 5 + k * 16
+		if gameLump:sub(p, p + 3) == "prps" then
+			f:Seek(i32(gameLump, p + 8))
+			local data = decompress(f:Read(i32(gameLump, p + 12)) or "")
+			for d = 0, (#data >= 4 and i32(data, 1) or 0) - 1 do
+				models[#models + 1] = data:sub(5 + d * 128, 4 + (d + 1) * 128):match("^[^%z]*")
+			end
+
+			break
+		end
+	end
+	f:Close()
+
+	return models
+end
+
+local function upArea(sum,ax, ay, az, bx, by, bz, cx, cy, cz, nx, ny, nz, minNormalZ)
+	local ux, uy, uz = bx - ax, by - ay, bz - az
+	local vx, vy, vz = cx - ax, cy - ay, cz - az
+	local x, y, z = uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx
+	local len = math.sqrt(x * x + y * y + z * z)
+	if len < 1e-6 then return end
+	if x * nx + y * ny + z * nz < 0 then z = -z end
+	if z / len < minNormalZ then return end
+
+	local a = len * 0.5
+	sum[1] = sum[1] + a
+	sum[2] = sum[2] + (ax + bx + cx) / 3 * a
+	sum[3] = sum[3] + (ay + by + cy) / 3 * a
+	sum[4] = sum[4] + (az + bz + cz) / 3 * a
+end
+
+function bspdata.UpFacingArea(minNormalZ, accept)
+	local f, lump = openLumps()
+	if not f then return {} end
+
+	local strData, strTable, texdataL, texinfoL = lump(43), lump(44), lump(2), lump(6)
+	local faces, faLen = lump(7)
+	local planes, verts, edges, surfedges = lump(1), lump(3), lump(12), lump(13)
+	local dispinfo, dispverts = lump(26), lump(33)
+	f:Close()
+
+	local yieldIfOverBudget = frameBudget()
+	local names, area = {}, {}
+	for i = 0, faLen / 56 - 1 do
+		if i % 512 == 0 then yieldIfOverBudget() end
+		local fp = i * 56 + 1
+		local ti = i16(faces, fp + 10)
+		if ti >= 0 then
+			local pp = u16(faces, fp) * 20 + 1
+			local nx, ny, nz = f32(planes, pp), f32(planes, pp + 4), f32(planes, pp + 8)
+			if byte(faces, fp + 2) ~= 0 then nx, ny, nz = -nx, -ny, -nz end
+
+			local firstedge, numedges, di = i32(faces, fp + 4), i16(faces, fp + 8), i16(faces, fp + 12)
+			local px, py, pz = {}, {}, {}
+			for e = 0, numedges - 1 do
+				local se = i32(surfedges, (firstedge + e) * 4 + 1)
+				local vp = u16(edges, math.abs(se) * 4 + 1 + (se < 0 and 2 or 0)) * 12 + 1
+				px[e + 1], py[e + 1], pz[e + 1] = f32(verts, vp), f32(verts, vp + 4), f32(verts, vp + 8)
+			end
+
+			local sum = { 0, 0, 0, 0 }
+			if di == -1 then
+				for e = 2, numedges - 1 do
+					upArea(sum, px[1], py[1], pz[1], px[e], py[e], pz[e], px[e + 1], py[e + 1], pz[e + 1], nx, ny, nz, minNormalZ)
+				end
+			elseif numedges == 4 then
+				local n, gx, gy, gz = displacementGrid(px, py, pz, dispinfo, dispverts, di)
+				for r = 0, n - 2 do
+					for c = 0, n - 2 do
+						local i00, i01, i10, i11 = r * n + c, r * n + c + 1, (r + 1) * n + c, (r + 1) * n + c + 1
+						upArea(sum, gx[i00], gy[i00], gz[i00], gx[i10], gy[i10], gz[i10], gx[i11], gy[i11], gz[i11], nx, ny, nz, minNormalZ)
+						upArea(sum, gx[i00], gy[i00], gz[i00], gx[i11], gy[i11], gz[i11], gx[i01], gy[i01], gz[i01], nx, ny, nz, minNormalZ)
+					end
+				end
+				yieldIfOverBudget()
+			end
+
+			local up = sum[1]
+			if up > 0 and accept and not accept(sum[2] / up, sum[3] / up, sum[4] / up) then up = 0 end
+
+			if up > 0 then
+				local td = i32(texinfoL, ti * 72 + 69)
+				local name = names[td]
+				if not name then
+					name = string.match(strData, "^[^%z]*", i32(strTable, i32(texdataL, td * 32 + 13) * 4 + 1) + 1)
+					names[td] = name
+				end
+
+				area[name] = (area[name] or 0) + up
+			end
+		end
+	end
+
+	return area
+end
+
 local function lightLevel(value)
 	local r, g, b, brightness = (value or ""):match("(%S+)%s+(%S+)%s+(%S+)%s+(%S+)")
 	if not brightness then return 0 end
