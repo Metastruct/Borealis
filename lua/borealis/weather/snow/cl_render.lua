@@ -1,5 +1,5 @@
 local snow = shaderpack.snow
-local bspdata, depthslices, foliage, chunks, dynamiclights = shaderpack.bspdata, shaderpack.depthslices, shaderpack.foliage, shaderpack.chunks, shaderpack.dynamiclights
+local bspdata, depthslices, foliage, chunks, dynamiclights = bspdata, shaderpack.depthslices, shaderpack.foliage, shaderpack.chunks, shaderpack.dynamiclights
 local geometry, meshBuilder, cache, download, lighting, trails, flashlight, footsteps = snow.geometry, snow.meshBuilder, snow.cache, snow.download, snow.lighting, snow.trails, snow.flashlight, snow.footsteps
 
 local ENABLED = CreateClientConVar("borealis_snow", "1", true, false, "draw deep snow with footprints in winter")

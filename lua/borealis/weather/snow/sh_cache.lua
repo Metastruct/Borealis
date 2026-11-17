@@ -2,7 +2,7 @@ local snow = shaderpack.snow
 local cache = snow.cache or {}
 snow.cache = cache
 
-local bspdata = shaderpack.bspdata
+local bspdata = bspdata
 local STRIDE = snow.STRIDE
 
 local DIR = "shaderpack/snowcover"

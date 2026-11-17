@@ -1,7 +1,7 @@
 local skywall = shaderpack.skywall or {}
 shaderpack.skywall = skywall
 
-local bspdata = shaderpack.bspdata
+local bspdata = bspdata
 local VS, PS = "borealis_water_vs30", "borealis_waterdepth_ps30"
 local MESH_TRIS = 10000
 local RT_FLAGS = 1 + 4 + 8

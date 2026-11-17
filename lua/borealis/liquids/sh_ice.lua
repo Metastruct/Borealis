@@ -1,7 +1,7 @@
 local ice = shaderpack.ice or {}
 shaderpack.ice = ice
 
-local bspdata = shaderpack.bspdata
+local bspdata = bspdata
 
 local CLASS = "borealis_ice"
 local HEIGHT_OFFSET, THICKNESS = 2, 12

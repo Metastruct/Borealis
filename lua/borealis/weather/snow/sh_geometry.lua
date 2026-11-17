@@ -2,7 +2,7 @@ local snow = shaderpack.snow
 local geometry = snow.geometry or {}
 snow.geometry = geometry
 
-local bspdata = shaderpack.bspdata
+local bspdata = bspdata
 local CHUNK = snow.CHUNK
 local MIN_NZ = 0.3
 

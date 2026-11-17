@@ -3,6 +3,7 @@ local TINT = Vector(1.7, 1.35, 0.85)
 local KEEP = 0.25
 local SCALE = 0.5
 local LAYERS = { "$basetexture", "$basetexture2" }
+local SURFACEPROPS = { ["$basetexture"] = "$surfaceprop", ["$basetexture2"] = "$surfaceprop2" }
 
 tod.autumn = tod.autumn or { originals = {} }
 local state = tod.autumn
@@ -89,6 +90,16 @@ local function bakeGrass(tex, path)
 	file.Write(path, data)
 end
 
+local function isGrassLayer(mat, key, tex)
+	local name = tex:GetName():lower()
+	if name:find(DIR, 1, true) then return false end
+	if name:find("grass", 1, true) then return true end
+
+	local prop = mat:GetString(SURFACEPROPS[key])
+
+	return prop ~= nil and prop:lower() == "grass"
+end
+
 local function grassJobs()
 	local jobs, order = {}, {}
 	for _, path in pairs(tod.GetMapTextures()) do
@@ -98,7 +109,7 @@ local function grassJobs()
 			for _, key in ipairs(LAYERS) do
 				local saved = state.originals[path]
 				local tex = saved and saved[key] or mat:GetTexture(key)
-				if tex and not tex:IsError() and tex:GetName():lower():find("grass", 1, true) and not tex:GetName():lower():find(DIR, 1, true) then
+				if tex and not tex:IsError() and isGrassLayer(mat, key, tex) then
 					state.originals[path] = saved or {}
 					state.originals[path][key] = tex
 

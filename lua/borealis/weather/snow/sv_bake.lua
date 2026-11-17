@@ -1,5 +1,5 @@
 local snow = shaderpack.snow
-local bspdata = shaderpack.bspdata
+local bspdata = bspdata
 local geometry, meshBuilder, cache = snow.geometry, snow.meshBuilder, snow.cache
 
 local CHUNK = snow.CHUNK

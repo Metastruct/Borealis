@@ -39,6 +39,7 @@ local MAP_EXTENT = 80000
 local MAP_BAKE_EVERY = 4
 
 local SKY3D_FAR_FRAC = 0.98
+local SKY3D_ZFAR = 56755
 local SKY3D_OVERSIZE = 6
 local SKY3D_NEAR = 12
 local CLAMP = 4 + 8
@@ -250,7 +251,7 @@ local function captureSky3D(bDepth, _, b3DSky)
 	local eye, fwd = EyePos(), EyeAngles():Forward()
 	local halfW, halfH, vs = shaderpack.ViewTan()
 	local near = math.max(SKY3D_NEAR, vs.znear * 1.5)
-	local far = vs.zfar * SKY3D_FAR_FRAC
+	local far = math.min(vs.zfar, SKY3D_ZFAR) * SKY3D_FAR_FRAC
 
 	render.OverrideColorWriteEnable(true, false)
 	render.OverrideAlphaWriteEnable(true, true)

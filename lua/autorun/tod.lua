@@ -1,6 +1,6 @@
 tod = {}
 local tod = tod
-include("tod/bsp.lua")
+require("bspdata")
 
 tod.Params = {}
 tod.CurrentParams = {}
@@ -254,8 +254,7 @@ if CLIENT then
 
 	-- texture collector
 	do
-		local map_data = tod.OpenBSP()
-		local found = map_data:ReadLumpTextDataStringData()
+		local found = bspdata.TextureNames()
 
 		for k, v in pairs(found) do
 			if v:find("water/") then

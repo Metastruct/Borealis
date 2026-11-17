@@ -40,7 +40,7 @@ function chunks.Sight()
 end
 
 function Sight:Begin(eye)
-	local bspdata = shaderpack.bspdata
+	local bspdata = bspdata
 	self.cluster = bspdata.ClusterAt(eye.x, eye.y, eye.z)
 	self.pvs = bspdata.PVS(self.cluster)
 end

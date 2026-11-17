@@ -1,5 +1,7 @@
-local bspdata = shaderpack.bspdata or {}
-shaderpack.bspdata = bspdata
+if SERVER then AddCSLuaFile() end
+
+local bspdata = _G.bspdata or {}
+_G.bspdata = bspdata
 
 local LOAD_BUDGET_MS = 8
 local TRI_CELL = 1024
@@ -63,6 +65,21 @@ local function openLumps()
 end
 
 bspdata.U16, bspdata.I16, bspdata.I32, bspdata.F32, bspdata.OpenLumps = u16, i16, i32, f32, openLumps
+
+function bspdata.TextureNames()
+	local f, lump = openLumps()
+	if not f then return {} end
+
+	local data = lump(43)
+	f:Close()
+
+	local names = {}
+	for name in data:gmatch("[^%z]+") do
+		names[#names + 1] = name
+	end
+
+	return names
+end
 
 local function frameBudget()
 	local sliceStart = SysTime()

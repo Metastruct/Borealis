@@ -56,12 +56,23 @@ if CLIENT then
 			)
 	end
 
+	local GROUND_PROPS = { grass = true, mud = true, sand = true }
+
+	local function isGroundProp(mat, key)
+		local prop = mat:GetString(key)
+
+		return prop ~= nil and GROUND_PROPS[prop:lower()] == true
+	end
+
 	hook.Add("TOD_ReplaceGrassTexture", "tod_snow", function(path)
 		path = path:lower()
-		if isGround(path) then
+		local source = Material(path)
+		if source:IsError() then return end
+
+		if isGround(path) or isGroundProp(source, "$surfaceprop") then
 			local mat = tod.ReplaceTexture(path, "nature/snowfloor002a")
 			local second = mat and mat:GetTexture("$basetexture2")
-			if second and not second:IsError() and isGround(second:GetName():lower()) then
+			if second and not second:IsError() and (isGround(second:GetName():lower()) or isGroundProp(source, "$surfaceprop2")) then
 				tod.ReplaceTexture(path, "nature/snowfloor002a", "$basetexture2")
 			end
 

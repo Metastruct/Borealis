@@ -2,7 +2,7 @@ local snow = shaderpack.snow
 local heightfield = snow.heightfield or {}
 snow.heightfield = heightfield
 
-local bspdata = shaderpack.bspdata
+local bspdata = bspdata
 
 local CHUNK, DEPTH = snow.CHUNK, snow.DEPTH
 local CELL, MARGIN = 16, 6

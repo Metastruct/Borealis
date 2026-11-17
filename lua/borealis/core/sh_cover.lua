@@ -1,7 +1,7 @@
 local cover = shaderpack.cover or {}
 shaderpack.cover = cover
 
-local bspdata = shaderpack.bspdata
+local bspdata = bspdata
 
 local COLUMN = 24
 local COLUMNS = 64

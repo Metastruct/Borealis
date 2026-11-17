@@ -1,12 +1,13 @@
 if SERVER then AddCSLuaFile() end
 
+require("bspdata")
+
 local FILES = {
 	"core/sh_shaderpack",
 	"core/sh_depthslices",
 	"core/cl_wind",
 	"sky/sh_sky",
 	"sky/sh_sunshafts",
-	"core/sh_bsp",
 	"core/cl_chunks",
 	"core/sh_trails",
 	"core/cl_skywall",

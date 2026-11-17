@@ -1,6 +1,6 @@
 local foliage = shaderpack.foliage or {}
 shaderpack.foliage = foliage
-local bspdata, depthslices, chunks = shaderpack.bspdata, shaderpack.depthslices, shaderpack.chunks
+local bspdata, depthslices, chunks = bspdata, shaderpack.depthslices, shaderpack.chunks
 foliage.layers = foliage.layers or {}
 
 local CHUNK = 512

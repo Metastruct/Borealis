@@ -9,7 +9,7 @@ end
 local surfacewater = shaderpack.surfacewater or {}
 shaderpack.surfacewater = surfacewater
 surfacewater.above = surfacewater.above or {}
-local procsky, bspdata, depthslices, cover = shaderpack.procsky, shaderpack.bspdata, shaderpack.depthslices, shaderpack.cover
+local procsky, bspdata, depthslices, cover = shaderpack.procsky, bspdata, shaderpack.depthslices, shaderpack.cover
 
 require("skyboxer")
 

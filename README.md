@@ -71,9 +71,9 @@ A map of where there is open sky. It works with props and whatnot within a short
 - `cover.SkyLevel()` gives the floor of the outdoor level the eye is in. Typically volumetric clouds and auroras use it to set their height in the map.
 - Cover window: a 64x64 grid of 24-unit columns around the eye, traced with `MASK_SOLID` (props included, players filtered). Each column stores where rain stops: a roof, the water surface over a lake bed, the ground, or the top of the world when the sky is blocked. Columns are retraced when the eye moves 80 units in z and continuously at a low rate, so props built later count. Used by rain, ripples, wetness and fog. `cover.Listen` notifies consumers per column.
 
-### sh_bsp
+### bspdata
 
-BSP parser.
+BSP parser shared by borealis and tod, `require("bspdata")` then the `bspdata` global (`lua/includes/modules/bspdata.lua`).
 
 ### cl_depth_hacks
 

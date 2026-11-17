@@ -1,6 +1,6 @@
 local opacity = shaderpack.opacity or {}
 shaderpack.opacity = opacity
-local bspdata = shaderpack.bspdata
+local bspdata = bspdata
 
 local WIREFRAME = 268435456
 local ADDITIVE = 128

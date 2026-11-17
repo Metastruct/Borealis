@@ -6,7 +6,7 @@ if SERVER then
 	return
 end
 
-local bspdata, foliage, surfacewater = shaderpack.bspdata, shaderpack.foliage, shaderpack.surfacewater
+local bspdata, foliage, surfacewater = bspdata, shaderpack.foliage, shaderpack.surfacewater
 local SEAGRASS_ENABLED =CreateClientConVar("borealis_seagrass", "0", true, false, "draw seagrass meadows on sunlit sandy water beds")
 
 local RADIUS = 2048

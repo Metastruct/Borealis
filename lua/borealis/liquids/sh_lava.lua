@@ -23,7 +23,7 @@ if SERVER then
 	return
 end
 
-local depthslices, bspdata = shaderpack.depthslices, shaderpack.bspdata
+local depthslices, bspdata = shaderpack.depthslices, bspdata
 local ENABLED = CreateClientConVar("borealis_lava", "1", true, false, "light, heat shimmer and embers around lava pools")
 
 local ORDER = 0.6

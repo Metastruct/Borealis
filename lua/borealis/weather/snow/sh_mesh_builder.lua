@@ -2,7 +2,7 @@ local snow = shaderpack.snow
 local meshBuilder = snow.meshBuilder or {}
 snow.meshBuilder = meshBuilder
 
-local bspdata = shaderpack.bspdata
+local bspdata = bspdata
 local geometry, heightfield, surface = snow.geometry, snow.heightfield, snow.surface
 
 local DEPTH, CHUNK, STRIDE = snow.DEPTH, snow.CHUNK, snow.STRIDE
