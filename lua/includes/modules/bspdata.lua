@@ -659,10 +659,11 @@ local function upArea(sum,ax, ay, az, bx, by, bz, cx, cy, cz, nx, ny, nz, minNor
 	local x, y, z = uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx
 	local len = math.sqrt(x * x + y * y + z * z)
 	if len < 1e-6 then return end
+	local a = len * 0.5
+	sum[5] = sum[5] + a
 	if x * nx + y * ny + z * nz < 0 then z = -z end
 	if z / len < minNormalZ then return end
 
-	local a = len * 0.5
 	sum[1] = sum[1] + a
 	sum[2] = sum[2] + (ax + bx + cx) / 3 * a
 	sum[3] = sum[3] + (ay + by + cy) / 3 * a
@@ -680,7 +681,7 @@ function bspdata.UpFacingArea(minNormalZ, accept)
 	f:Close()
 
 	local yieldIfOverBudget = frameBudget()
-	local names, area = {}, {}
+	local names, area, total = {}, {}, {}
 	for i = 0, faLen / 56 - 1 do
 		if i % 512 == 0 then yieldIfOverBudget() end
 		local fp = i * 56 + 1
@@ -698,7 +699,7 @@ function bspdata.UpFacingArea(minNormalZ, accept)
 				px[e + 1], py[e + 1], pz[e + 1] = f32(verts, vp), f32(verts, vp + 4), f32(verts, vp + 8)
 			end
 
-			local sum = { 0, 0, 0, 0 }
+			local sum = { 0, 0, 0, 0, 0 }
 			if di == -1 then
 				for e = 2, numedges - 1 do
 					upArea(sum, px[1], py[1], pz[1], px[e], py[e], pz[e], px[e + 1], py[e + 1], pz[e + 1], nx, ny, nz, minNormalZ)
@@ -718,20 +719,21 @@ function bspdata.UpFacingArea(minNormalZ, accept)
 			local up = sum[1]
 			if up > 0 and accept and not accept(sum[2] / up, sum[3] / up, sum[4] / up) then up = 0 end
 
-			if up > 0 then
-				local td = i32(texinfoL, ti * 72 + 69)
-				local name = names[td]
-				if not name then
-					name = string.match(strData, "^[^%z]*", i32(strTable, i32(texdataL, td * 32 + 13) * 4 + 1) + 1)
-					names[td] = name
-				end
+			local td = i32(texinfoL, ti * 72 + 69)
+			local name = names[td]
+			if not name then
+				name = string.match(strData, "^[^%z]*", i32(strTable, i32(texdataL, td * 32 + 13) * 4 + 1) + 1)
+				names[td] = name
+			end
 
+			total[name] = (total[name] or 0) + sum[5]
+			if up > 0 then
 				area[name] = (area[name] or 0) + up
 			end
 		end
 	end
 
-	return area
+	return area, total
 end
 
 local function lightLevel(value)

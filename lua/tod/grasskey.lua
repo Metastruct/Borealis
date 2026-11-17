@@ -3,6 +3,7 @@ require("bspdata")
 local DIR = "tod_grasskey"
 local MIN_NZ = 0.7
 local MIN_UP_AREA = 128 * 128
+local MIN_UP_SHARE = 0.25
 local PROBE = 64
 local HUE_IN0, HUE_IN1 = 42, 52
 local HUE_OUT0, HUE_OUT1 = 110, 140
@@ -294,9 +295,10 @@ local function addLayer(state, path, mat, key, alpha)
 end
 
 local function worldCandidates(state)
-	for name, area in pairs(bspdata.UpFacingArea(MIN_NZ, seesSky)) do
+	local upArea, totalArea = bspdata.UpFacingArea(MIN_NZ, seesSky)
+	for name, area in pairs(upArea) do
 		local path = name:lower()
-		local mat = area >= MIN_UP_AREA and not path:find("^tools/") and Material(path)
+		local mat = area >= MIN_UP_AREA and area >= totalArea[name] * MIN_UP_SHARE and not path:find("^tools/") and Material(path)
 		if mat and not mat:IsError() and isWorldMaterial(mat) then
 			for i, key in ipairs(LAYERS) do
 				if isGroundProp(layerProp(mat, i)) then
