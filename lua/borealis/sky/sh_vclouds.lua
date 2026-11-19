@@ -283,6 +283,8 @@ local function draw()
 	MAT:SetMatrix("$viewprojmat", mapExtra)
 
 	local eye = EyePos()
+	if bit.band(util.PointContents(eye), CONTENTS_SOLID) ~= 0 then return end
+
 	lastEye = eye
 	local fwd = EyeAngles():Forward()
 	local tonemap = render.GetToneMappingScaleLinear().x

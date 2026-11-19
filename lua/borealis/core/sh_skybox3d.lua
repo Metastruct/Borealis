@@ -45,19 +45,26 @@ local function destroy()
 	meshes = nil
 end
 
+local function solid(x, y, z)
+	return bspdata.ClusterAt(x, y, z) < 0
+end
+
 local function writeMeshes(tris)
 	local toWorld, beyond = bspdata.SkyToWorld, bspdata.BeyondWorld
+	local yieldIfOverBudget = bspdata.FrameBudget()
 	local kept, n = {}, 0
 	for i = 1, #tris, 9 do
 		local ax, ay, az = toWorld(tris[i], tris[i + 1], tris[i + 2])
 		local bx, by, bz = toWorld(tris[i + 3], tris[i + 4], tris[i + 5])
 		local cx, cy, cz = toWorld(tris[i + 6], tris[i + 7], tris[i + 8])
-		if beyond(ax, ay, az, EDGE) or beyond(bx, by, bz, EDGE) or beyond(cx, cy, cz, EDGE) then
+		if beyond(ax, ay, az, EDGE) or beyond(bx, by, bz, EDGE) or beyond(cx, cy, cz, EDGE)
+			or solid((ax + bx + cx) / 3, (ay + by + cy) / 3, (az + bz + cz) / 3) or solid(ax, ay, az) or solid(bx, by, bz) or solid(cx, cy, cz) then
 			kept[n + 1], kept[n + 2], kept[n + 3] = ax, ay, az
 			kept[n + 4], kept[n + 5], kept[n + 6] = bx, by, bz
 			kept[n + 7], kept[n + 8], kept[n + 9] = cx, cy, cz
 			n = n + 9
 		end
+		yieldIfOverBudget()
 	end
 
 	local x0, y0, z0, x1, y1, z1 = math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge
@@ -186,7 +193,13 @@ function skybox3d.Visible(eye)
 	if cluster == visibleCluster then return visibleResult end
 	visibleCluster = cluster
 
-	local pvs = cluster >= 0 and bspdata.PVS(cluster)
+	if cluster < 0 then
+		visibleResult = false
+
+		return false
+	end
+
+	local pvs = bspdata.PVS(cluster)
 	visibleResult = not pvs
 	if pvs then
 		for c in pairs(skyClusters) do
