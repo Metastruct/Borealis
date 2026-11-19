@@ -28,7 +28,7 @@ local GLOSS = {
 	[MAT_GRATE] = 0.6,
 }
 
-local SPAN_VERSION = 4
+local SPAN_VERSION = 5
 local SPAN_MIN, SPAN_SIZE = Z_MIN, Z_RANGE
 local SPAN_COLUMNS = 1024
 local SPAN_COLUMN = SPAN_SIZE / SPAN_COLUMNS
@@ -138,6 +138,17 @@ local function columnBytes(list, count, bytes, x, wx, wy)
 	end
 
 	for s = slot, SPAN_SLOTS - 1 do
+		writeSpan(bytes, x, s, 0, 65535)
+	end
+end
+
+local function openColumnBytes(list, count, bytes, x)
+	for k = 1, count do
+		list[k] = nil
+	end
+
+	writeSpan(bytes, x, 0, 65535, 0)
+	for s = 1, SPAN_SLOTS - 1 do
 		writeSpan(bytes, x, s, 0, 65535)
 	end
 end
@@ -299,6 +310,11 @@ function cover.BakeSpans()
 		rowBytes[r] = {}
 	end
 
+	local world = bspdata.SkyCamera()
+	local function beyondWorld(x, y)
+		return world ~= nil and (x < world.x0 or x > world.x1 or y < world.y0 or y > world.y1)
+	end
+
 	for tileY = 0, tilesPerSide - 1 do
 		for tileX = 0, tilesPerSide - 1 do
 			yieldIfOverBudget()
@@ -309,7 +325,12 @@ function cover.BakeSpans()
 				for i = 0, SPAN_TILE - 1 do
 					local idx = j * SPAN_TILE + i
 					local column = tileX * SPAN_TILE + i
-					columnBytes(hits[idx], counts[idx], bytes, column, SPAN_MIN + (column + 0.5) * SPAN_COLUMN, wy)
+					local wx = SPAN_MIN + (column + 0.5) * SPAN_COLUMN
+					if beyondWorld(wx, wy) then
+						openColumnBytes(hits[idx], counts[idx], bytes, column)
+					else
+						columnBytes(hits[idx], counts[idx], bytes, column, wx, wy)
+					end
 					counts[idx] = 0
 				end
 
@@ -709,24 +730,24 @@ local function traceOpenColumn(cx, cy, top, bottom)
 	local x, y = (cx + 0.5) * COLUMN, (cy + 0.5) * COLUMN
 	upTrace.start:SetUnpacked(x, y, top)
 	upTrace.endpos:SetUnpacked(x, y, top + 8192)
-	local up = util.TraceLine(upTrace)
+	local up = bspdata.TraceLine(upTrace)
 	if up.StartSolid or (up.Hit and not up.HitSky) then
 		return Z_MIN + Z_RANGE, false, 1, false
 	end
 
 	downTrace.start:SetUnpacked(x, y, top)
 	downTrace.endpos:SetUnpacked(x, y, bottom)
-	local down = util.TraceLine(downTrace)
+	local down = bspdata.TraceLine(downTrace)
 	if down.Hit then
 		local hit = down.HitPos
 		contentsPos:SetUnpacked(hit.x, hit.y, hit.z + 1)
-		if bit.band(util.PointContents(contentsPos), IN_WATER) == 0 then
+		if bit.band(bspdata.PointContents(contentsPos), IN_WATER) == 0 then
 			local level = false
 			contentsPos.z = hit.z - SHORE_DEPTH
-			if bit.band(util.PointContents(contentsPos), IN_WATER) ~= 0 then
+			if bit.band(bspdata.PointContents(contentsPos), IN_WATER) ~= 0 then
 				waterTrace.start:SetUnpacked(x, y, hit.z + 1)
 				waterTrace.endpos:Set(contentsPos)
-				local shore = util.TraceLine(waterTrace)
+				local shore = bspdata.TraceLine(waterTrace)
 				level = shore.Hit and not shore.StartSolid and shore.HitPos.z
 			end
 
@@ -736,7 +757,7 @@ local function traceOpenColumn(cx, cy, top, bottom)
 
 	waterTrace.start:SetUnpacked(x, y, top)
 	waterTrace.endpos:SetUnpacked(x, y, bottom)
-	local water = util.TraceLine(waterTrace)
+	local water = bspdata.TraceLine(waterTrace)
 	if water.StartSolid then
 		return Z_MIN + Z_RANGE, false, 1, false
 	end

@@ -40,7 +40,9 @@ function lighting.Resolve(ch, verts, tris)
 
 	local function compute(i)
 		local at = i * 3
-		samplePos:SetUnpacked(samples[at - 2], samples[at - 1], samples[at])
+		local x, y, z = samples[at - 2], samples[at - 1], samples[at]
+		if bspdata.BeyondWorld(x, y, z) then x, y, z = bspdata.WorldToSky(x, y, z) end
+		samplePos:SetUnpacked(x, y, z)
 		local l, d = render.ComputeLighting(samplePos, UP), render.ComputeDynamicLighting(samplePos, UP)
 		local r, g, b = math.Clamp(l.x - d.x, 0, 2), math.Clamp(l.y - d.y, 0, 2), math.Clamp(l.z - d.z, 0, 2)
 		lights[i] = math.floor(r * 127.5) * 65536 + math.floor(g * 127.5) * 256 + math.floor(b * 127.5)

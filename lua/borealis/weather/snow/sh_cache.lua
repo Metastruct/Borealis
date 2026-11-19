@@ -6,7 +6,7 @@ local bspdata = bspdata
 local STRIDE = snow.STRIDE
 
 local DIR = "shaderpack/snowcover"
-local VERSION = 4
+local VERSION = 5
 local COUNT_BYTES, HEADER_BYTES, CLUSTER_BYTES, SAMPLE_BYTES, VERTEX_BYTES = 4, 11, 5, 9, 17
 local COORD_SCALE, COORD_OFFSET, NORMAL_SCALE = 32, 8388608, 32767.5
 local YIELD_VERTS = 256
@@ -78,7 +78,7 @@ function cache.Encode(ch, verts, tris)
 		char(z1, z2, z3, r1, r2, r3, clusterCount % 256, math.floor(clusterCount / 256), sampleCount % 256, math.floor(sampleCount / 256) % 256, math.floor(sampleCount / 65536)),
 	}
 	for i, c in ipairs(ch.clusters) do
-		local id, count = c + 1, ch.clusterTris[i]
+		local id, count = c + 2, ch.clusterTris[i]
 		parts[#parts + 1] = char(id % 256, math.floor(id / 256), count % 256, math.floor(count / 256) % 256, math.floor(count / 65536))
 	end
 
@@ -122,7 +122,7 @@ function cache.Decode(ch, raw)
 	local clusters, clusterTris, grouped = {}, {}, 0
 	for i = 1, clusterCount do
 		local lo, hi, n1, n2, n3 = byte(data, p + 1, p + CLUSTER_BYTES)
-		clusters[i], clusterTris[i] = lo + hi * 256 - 1, n1 + n2 * 256 + n3 * 65536
+		clusters[i], clusterTris[i] = lo + hi * 256 - 2, n1 + n2 * 256 + n3 * 65536
 		grouped = grouped + clusterTris[i]
 		p = p + CLUSTER_BYTES
 	end

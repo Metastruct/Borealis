@@ -43,7 +43,7 @@ local function reachable(x, y, z, s)
 	local dx, dy, dz = s.x - x, s.y - y, s.floor - z
 	trace.start:SetUnpacked(x, y, z + RAY_HEIGHT)
 	trace.endpos:SetUnpacked(s.x, s.y, s.floor + RAY_HEIGHT)
-	util.TraceLine(trace)
+	bspdata.TraceLine(trace)
 	if res.StartSolid and res.FractionLeftSolid * math.sqrt(dx * dx + dy * dy + dz * dz) > SOLID_TOLERANCE then return false end
 
 	return res.Fraction >= 1

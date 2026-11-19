@@ -65,14 +65,25 @@ local function readSurfaceWaterBrushes()
 
 	local ice = shaderpack.ice
 	local winter = ice and ice.Winter()
+	local skyboxPVS = vis and shaderpack.skybox3d and shaderpack.skybox3d.Camera() and bspdata.SkyboxPVS()
 	local groups = {}
 	for _, face in ipairs(bspdata.WaterFaces(true)) do
 		local name = face.name
 		local frozen = winter and ice.FaceFreezes(face) or false
-		local key = string.format("%s|%.5f|%.5f|%.5f|%.5f|%d|%s", bodyKey(name), face.su, face.ou, face.sv, face.ov, math.Round(face.dist), tostring(frozen))
+		local sky = false
+		if skyboxPVS and face.model == 0 then
+			for cluster in pairs(face.clusters) do
+				if skyboxPVS[cluster] then
+					sky = true
+					break
+				end
+			end
+		end
+
+		local key = string.format("%s|%.5f|%.5f|%.5f|%.5f|%d|%s|%s", bodyKey(name), face.su, face.ou, face.sv, face.ov, math.Round(face.dist), tostring(frozen), tostring(sky))
 		local g = groups[key]
 		if not g then
-			g = { body = bodyKey(name), materials = {name}, model = face.model, su = face.su, ou = face.ou, sv = face.sv, ov = face.ov, verts = {}, clusters = {}, frozen = frozen }
+			g = { body = bodyKey(name), materials = {name}, model = face.model, su = face.su, ou = face.ou, sv = face.sv, ov = face.ov, verts = {}, clusters = {}, frozen = frozen, sky = sky }
 			groups[key] = g
 		else
 			g.materials[#g.materials + 1] = name
@@ -289,10 +300,11 @@ local function writeBodyMesh(g, ent)
 	local murkByte = math.floor(g.murk / MURK_MAX * 255 + 0.5)
 	local minX, minY, maxX, maxY, maxZ = math.huge, math.huge, -math.huge, -math.huge, -math.huge
 	local lights = g.lights
+	local skybox3d = g.sky and shaderpack.skybox3d
 	for i, v in ipairs(g.verts) do
 		if ent then v = ent:LocalToWorld(v) end
 		local light = lights and lights[i] or NO_LIGHT
-		mesh.Position(v)
+		mesh.Position(skybox3d and skybox3d.ToWorldVector(v) or v)
 		mesh.TexCoord(0, 0, 0)
 		mesh.Color(murkByte, light[1], light[2], light[3])
 		mesh.AdvanceVertex()
@@ -333,7 +345,7 @@ local function buildMeshes()
 			local body = {
 				verts = g.verts, model = g.model, normalmap = normalmap, body = g.body, su = g.su, ou = g.ou, sv = g.sv, ov = g.ov,
 				murk = math.floor(murk / MURK_MAX * 255 + 0.5) / 255 * MURK_MAX, clusters = g.clusters, nonWater = nonWater,
-				frozen = g.frozen,
+				frozen = g.frozen, sky = g.sky,
 			}
 			if g.frozen then body.verts, body.lights = bakeIce(g.verts) end
 			if g.model == 0 then writeBodyMesh(body) end
@@ -366,8 +378,9 @@ local function updateEntityBodies()
 	end
 end
 
-local function bodyDrawable(g, pvs)
+local function bodyDrawable(g, pvs, skyVisible)
 	if not g.mesh or g.hidden or g.nonWater then return false end
+	if g.sky then return skyVisible end
 	if g.model ~= 0 or not pvs then return true end
 
 	for cluster in pairs(g.clusters) do
@@ -572,9 +585,11 @@ local rainConstants = Matrix()
 
 local function drawSurface(eyePos, eyeUnderwater, writeDepth)
 	local pvs = visibleClusters(eyePos)
+	local skybox3d = shaderpack.skybox3d
+	local skyVisible = not eyeUnderwater and skybox3d ~= nil and skybox3d.Visible(eyePos)
 	local anyDrawable = false
 	for _, g in pairs(meshes) do
-		if bodyDrawable(g, pvs) then
+		if bodyDrawable(g, pvs, skyVisible) then
 			anyDrawable = true
 			break
 		end
@@ -610,17 +625,18 @@ local function drawSurface(eyePos, eyeUnderwater, writeDepth)
 	local amb = render.GetAmbientLightColor()
 	local fill = packColor(amb.x * ICE_FILL_K, amb.y * ICE_FILL_K, amb.z * ICE_FILL_K)
 	local tonemap = render.GetToneMappingScaleLinear().x
-	SURF_MAT:SetTexture("$texture6", shaderpack.skywall.Texture())
+	local wallTex = shaderpack.skywall.Texture()
 	local invW, invH = shaderpack.skywall.InvSize()
 
 	render.OverrideDepthEnable(true, writeDepth)
 	cam.PushModelMatrix(IDENTITY_MATRIX, false)
 	for _, g in pairs(meshes) do
-		if not bodyDrawable(g, pvs) then continue end
+		if not bodyDrawable(g, pvs, skyVisible) then continue end
 
 		rainConstants:SetUnpacked(rain, g.openness, fogDensity, fogFalloff, fogBase, g.frozen and 1 or 0, invW, invH, bakedSun.x, bakedSun.y, bakedSun.z, lightScale, fill, tonemap, 0, 0)
 		SURF_MAT:SetMatrix("$viewprojmat", rainConstants)
 		SURF_MAT:SetTexture("$texture2", g.normalmap)
+		SURF_MAT:SetTexture("$texture6", g.sky and "vgui/black" or wallTex)
 		local hr, hg, hb, zr, zg, zb = bodySkyColors(g)
 		setConstant(SURF_MAT, "$c2", hr, hg, hb, bodySunlit(g, sun))
 		setConstant(SURF_MAT, "$c0", nil, zr, zg, zb)
@@ -633,7 +649,7 @@ local function drawSurface(eyePos, eyeUnderwater, writeDepth)
 	if writeDepth and DEPTH_MAT and depthslices.BeginDepthWrite() then
 		render.SetMaterial(DEPTH_MAT)
 		for _, g in pairs(meshes) do
-			if bodyDrawable(g, pvs) then g.mesh:Draw() end
+			if bodyDrawable(g, pvs, skyVisible) then g.mesh:Draw() end
 		end
 		depthslices.EndDepthWrite()
 	end
@@ -701,7 +717,7 @@ end
 local function bodyAt(pos, surfaceZ)
 	local best, bestGap = nil, math.huge
 	for _, g in pairs(meshes) do
-		if g.mesh and not g.hidden and pos.x >= g.minX and pos.x <= g.maxX and pos.y >= g.minY and pos.y <= g.maxY then
+		if g.mesh and not g.hidden and not g.sky and pos.x >= g.minX and pos.x <= g.maxX and pos.y >= g.minY and pos.y <= g.maxY then
 			local gap = math.abs(g.surfaceZ - surfaceZ)
 			if gap < bestGap then best, bestGap = g, gap end
 		end

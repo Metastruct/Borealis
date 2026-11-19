@@ -35,7 +35,9 @@ function geometry.Load()
 	local grid, why = bspdata.Triangles(classify, MIN_NZ, true, SURF_TRANS)
 	if not grid then return false, why end
 
-	grid = bspdata.RemoveSkybox(grid)
+	local sky
+	grid, sky = bspdata.RemoveSkybox(grid)
+	bspdata.AddSkyboxTriangles(grid, sky, snow.SKY_BAND)
 
 	local yieldIfOverBudget = bspdata.FrameBudget()
 	local seen, open, normals, up = {}, {}, {}, {}
@@ -90,6 +92,7 @@ function geometry.Load()
 		yieldIfOverBudget()
 	end
 
+	local bx0, by0, bx1, by1 = snow.BandChunks()
 	local egrid = {}
 	for _, rec in pairs(open) do
 		if rec then
@@ -103,8 +106,8 @@ function geometry.Load()
 				if (t[ic + 1] - ax) * ox + (t[ic + 2] - ay) * oy > 0 then ox, oy = -ox, -oy end
 
 				local edge = { ax, ay, az, t[10 + (e - 1)], bx, by, bz, t[10 + e % 3], ox, oy }
-				for cy = math.floor(math.min(ay, by) / CHUNK), math.floor(math.max(ay, by) / CHUNK) do
-					for cx = math.floor(math.min(ax, bx) / CHUNK), math.floor(math.max(ax, bx) / CHUNK) do
+				for cy = math.max(math.floor(math.min(ay, by) / CHUNK), by0), math.min(math.floor(math.max(ay, by) / CHUNK), by1) do
+					for cx = math.max(math.floor(math.min(ax, bx) / CHUNK), bx0), math.min(math.floor(math.max(ax, bx) / CHUNK), bx1) do
 						local key = snow.ChunkKey(cx, cy)
 						local list = egrid[key]
 						if not list then

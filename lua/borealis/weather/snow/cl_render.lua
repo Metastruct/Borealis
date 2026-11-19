@@ -6,6 +6,8 @@ local ENABLED = CreateClientConVar("borealis_snow", "1", true, false, "draw deep
 local DISTANCE = CreateClientConVar("borealis_snow_distance", "3072", true, false, "snow draw distance in units", 1024, 16384)
 
 local CHUNK, STRIDE = snow.CHUNK, snow.STRIDE
+local SKY_CLUSTER = bspdata.SKY_CLUSTER
+local NO_WALL = "vgui/black"
 local MESH_TRIS = 10000
 local MESH_CACHE_TRIS = jit.arch == "x64" and math.huge or 300000
 local PRELOAD = jit.arch == "x64"
@@ -163,6 +165,31 @@ local function releaseTodSnow()
 	if tod and tod.snow and tod.snow.SetTint then tod.snow.SetTint() end
 end
 
+local function collect(shown, sky, n)
+	for _, ch in ipairs(shown) do
+		for _, g in ipairs(ch.groups) do
+			if (g.cluster == SKY_CLUSTER) == sky and sight:Shows(g) then
+				for _, m in ipairs(g.meshes) do
+					n = n + 1
+					visible[n] = m
+				end
+			end
+		end
+	end
+
+	return n
+end
+
+local function drawRange(mat, first, last, wallTex)
+	if first > last then return end
+
+	mat:SetTexture("$texture3", wallTex)
+	render.SetMaterial(mat)
+	for i = first, last do
+		visible[i]:Draw()
+	end
+end
+
 local function draw(depth, _, sky3d)
 	if paused or not grid.ready or depth or sky3d or render.GetRenderTarget() then return end
 
@@ -173,17 +200,9 @@ local function draw(depth, _, sky3d)
 	local eye = view.eye
 	sight:Begin(eye)
 
-	local nvis = 0
-	for _, ch in ipairs(grid:Visible(view)) do
-		for _, g in ipairs(ch.groups) do
-			if sight:Shows(g) then
-				for _, m in ipairs(g.meshes) do
-					nvis = nvis + 1
-					visible[nvis] = m
-				end
-			end
-		end
-	end
+	local shown = grid:Visible(view)
+	local nworld = collect(shown, false, 0)
+	local nvis = collect(shown, true, nworld)
 
 	for i = #visible, nvis + 1, -1 do
 		visible[i] = nil
@@ -197,7 +216,7 @@ local function draw(depth, _, sky3d)
 	MAT:SetTexture("$texture4", flashlightTex)
 	MAT:SetTexture("$basetexture", trails.Texture())
 	MAT:SetTexture("$texture2", dynamiclights.Texture())
-	MAT:SetTexture("$texture3", shaderpack.skywall.Texture())
+	local wallTex = shaderpack.skywall.Texture()
 	local invW, invH = shaderpack.skywall.InvSize()
 
 	local tonemap = render.GetToneMappingScaleLinear().x
@@ -219,11 +238,9 @@ local function draw(depth, _, sky3d)
 	)
 	MAT:SetMatrix("$viewprojmat", extra)
 
-	render.SetMaterial(MAT)
 	render.OverrideDepthEnable(true, true)
-	for i = 1, nvis do
-		visible[i]:Draw()
-	end
+	drawRange(MAT, 1, nworld, wallTex)
+	drawRange(MAT, nworld + 1, nvis, NO_WALL)
 	render.OverrideDepthEnable(false, false)
 
 	if DEPTH_MAT and depthslices.BeginDepthWrite() then

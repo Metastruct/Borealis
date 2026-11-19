@@ -57,7 +57,7 @@ local function gatherFloors(triGrid, data, yield)
 				for i = i0, i1 do
 					local x = (gx0 + i + 0.5) * CELL
 					local z = bspdata.Sample(t, x, y)
-					if z then
+					if z and (not t.sky or bspdata.BeyondWorld(x, y, z)) then
 						local list = columns[j * n + i]
 						list[#list + 1] = { z, t.nx, t.ny, t.nz }
 					end
@@ -85,7 +85,7 @@ local function buildSpans(data, yield)
 					last = floor
 					trace.start:SetUnpacked(x, y, floor + 1)
 					trace.endpos:SetUnpacked(x, y, floor + SKY_DISTANCE)
-					util.TraceLine(trace)
+					bspdata.TraceLine(trace)
 					if not res.StartSolid then
 						local ceil = res.Hit and res.HitPos.z or floor + SKY_DISTANCE
 						if ceil - floor >= CLEARANCE then
@@ -122,7 +122,7 @@ local function wallHeight(s, dx, dy)
 	local z = s.floor + RAY_HEIGHT
 	trace.start:SetUnpacked(s.x, s.y, z)
 	trace.endpos:SetUnpacked(s.x + dx * CELL, s.y + dy * CELL, z)
-	util.TraceLine(trace)
+	bspdata.TraceLine(trace)
 	if not res.Hit or res.StartSolid or res.HitSky or res.HitNoDraw or math.abs(res.HitNormal.z) >= WALL_MAX_NZ then return end
 	if (res.HitTexture or ""):lower():find("^tools/") then return end
 
@@ -131,7 +131,7 @@ local function wallHeight(s, dx, dy)
 	local wx, wy = hit.x - n.x * WALL_INSET, hit.y - n.y * WALL_INSET
 	trace.start:SetUnpacked(wx, wy, s.floor + WALL_CHECK_HEIGHT)
 	trace.endpos:SetUnpacked(wx, wy, s.floor)
-	util.TraceLine(trace)
+	bspdata.TraceLine(trace)
 
 	return res.StartSolid and WALL_CHECK_HEIGHT or res.Hit and res.HitPos.z - s.floor or 0, distance
 end

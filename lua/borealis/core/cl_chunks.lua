@@ -8,6 +8,7 @@ chunks.MAX_DISTANCE = jit.arch == "x64" and 16384 or 6144
 local MIN_BUDGET_MS, MAX_BUDGET_MS = 8, 12
 local TARGET_FRAME_MS = 16
 local EVICT_INTERVAL = 2
+local SKY_CLUSTER = bspdata.SKY_CLUSTER
 
 local Grid = {}
 Grid.__index = Grid
@@ -40,13 +41,15 @@ function chunks.Sight()
 end
 
 function Sight:Begin(eye)
-	local bspdata = bspdata
+	local bspdata, skybox3d = bspdata, shaderpack.skybox3d
 	self.cluster = bspdata.ClusterAt(eye.x, eye.y, eye.z)
 	self.pvs = bspdata.PVS(self.cluster)
+	self.sky = skybox3d ~= nil and skybox3d.Visible(eye)
 end
 
 function Sight:Shows(g)
 	local c = g.cluster
+	if c == SKY_CLUSTER then return self.sky end
 	if c == self.cluster then return true end
 
 	local pvs = self.pvs

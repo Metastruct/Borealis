@@ -94,6 +94,9 @@ if CLIENT then
 
 	local function replaceLayer(layer, tex)
 		tod.ReplaceTexture(layer.path, tex, layer.key)
+		if layer.color then
+			tod.SetMaterialVector(layer.path, "$color", layer.color)
+		end
 	end
 
 	hook.Add("TOD_TexturesReplaced", "tod_snow", function()

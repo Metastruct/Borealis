@@ -1,7 +1,7 @@
 require("bspdata")
 
 local DIR = "tod_grasskey"
-local MIN_NZ = 0.7
+local MIN_NZ = 0.5
 local MIN_UP_AREA = 128 * 128
 local MIN_UP_SHARE = 0.25
 local PROBE = 64
@@ -22,6 +22,7 @@ local ALPHA_FLAGS = bit.bor(SELFILLUM, ALPHATEST, BASEALPHAENVMAPMASK, TRANSLUCE
 local CUTOUT_FLAGS = bit.bor(ALPHATEST, TRANSLUCENT)
 local GROUND_PROPS = { "default", "dirt", "grass", "gravel", "mud", "sand", "rock", "boulder", "concrete", "snow", "foliage" }
 local SKY_TRACE = 65536
+local GAMMA_INV = 1 / 2.2
 local LAYERS = { "$basetexture", "$basetexture2" }
 local KEY_VERSION = util.CRC(table.concat({ HUE_IN0, HUE_IN1, HUE_OUT0, HUE_OUT1, SAT0, SAT1, DARK0, DARK1, FULL_SHARE, SCALE, MASK_RADIUS, MASK_GAIN }, ","))
 
@@ -284,13 +285,13 @@ local function jobFor(state, tex, alpha)
 	return job
 end
 
-local function addLayer(state, path, mat, key, alpha)
+local function addLayer(state, path, mat, key, alpha, color)
 	local tex = mat:GetTexture(key)
 	if not tex or tex:IsError() or state.skip(path, key) then return end
 
 	local job = jobFor(state, tex, alpha)
 	if job then
-		table.insert(job.layers, { path = path, mat = mat, key = key })
+		table.insert(job.layers, { path = path, mat = mat, key = key, color = color })
 	end
 end
 
@@ -328,6 +329,25 @@ local function propMaterials()
 	return materials
 end
 
+local function neutralColor(mat, light)
+	local c = mat:GetVector("$color") or Vector(1, 1, 1)
+	local peak = math.max(light.x, light.y, light.z, 1e-3)
+	local lr, lg, lb = math.max(light.x / peak, 1e-2), math.max(light.y / peak, 1e-2), math.max(light.z / peak, 1e-2)
+	local lum = c.x ^ 2.2 * lr * 0.2126 + c.y ^ 2.2 * lg * 0.7152 + c.z ^ 2.2 * lb * 0.0722
+
+	return Vector((lum / lr) ^ GAMMA_INV, (lum / lg) ^ GAMMA_INV, (lum / lb) ^ GAMMA_INV)
+end
+
+local function detailCandidate(state)
+	local detail = bspdata.DetailSprites()
+	if not detail then return end
+
+	local mat = Material(detail.material)
+	if not mat:IsError() and bit.band(mat:GetInt("$flags") or 0, CUTOUT_FLAGS) ~= 0 then
+		addLayer(state, detail.material, mat, "$basetexture", true, neutralColor(mat, detail.light))
+	end
+end
+
 local function propCandidates(state)
 	for path in pairs(propMaterials()) do
 		local mat = Material(path)
@@ -335,6 +355,8 @@ local function propCandidates(state)
 			addLayer(state, path, mat, "$basetexture", true)
 		end
 	end
+
+	detailCandidate(state)
 end
 
 function grasskey.Run(id, opts)

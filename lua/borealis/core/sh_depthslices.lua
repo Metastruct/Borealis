@@ -146,12 +146,17 @@ end
 
 local depthFrame, depthFresh = -1, false
 
-function depthslices.BeginDepthWrite()
+function depthslices.DepthPassFresh()
 	if depthFrame ~= FrameNumber() then
 		depthFrame = FrameNumber()
 		depthFresh = hook.Run("NeedsDepthPass") == true
 	end
-	if not depthFresh then return false end
+
+	return depthFresh
+end
+
+function depthslices.BeginDepthWrite()
+	if not depthslices.DepthPassFresh() then return false end
 
 	render.PushRenderTarget(render.GetResolvedFullFrameDepth())
 	render.OverrideBlend(true, BLEND_ONE, BLEND_ONE, BLENDFUNC_MIN, BLEND_ONE, BLEND_ONE, BLENDFUNC_MIN)

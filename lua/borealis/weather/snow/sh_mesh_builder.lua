@@ -90,7 +90,7 @@ end
 local function wallFace(a, b)
 	wallTrace.start:SetUnpacked(a[1], a[2], a[3] + RAY_HEIGHT)
 	wallTrace.endpos:SetUnpacked(b[1], b[2], b[3] + RAY_HEIGHT)
-	local tr = util.TraceLine(wallTrace)
+	local tr = bspdata.TraceLine(wallTrace)
 	if tr.StartSolid then return true end
 	if not tr.Hit or math.abs(tr.HitNormal.z) >= 0.5 then return end
 
@@ -104,7 +104,7 @@ end
 local function solidAt(x, y, z)
 	checkPos:SetUnpacked(x, y, z)
 
-	return bit.band(util.PointContents(checkPos), CONTENTS_SOLID) ~= 0
+	return bit.band(bspdata.PointContents(checkPos), CONTENTS_SOLID) ~= 0
 end
 
 function meshBuilder.Build(ch)
@@ -128,7 +128,7 @@ function meshBuilder.Build(ch)
 	end
 
 	local function useCluster(x, y, z)
-		local c = math.max(bspdata.ClusterAt(x, y, z + DEPTH + 4), -1)
+		local c = snow.ClusterAt(x, y, z + DEPTH + 4)
 		group = groups[c]
 		if not group then
 			group = { verts = {}, n = 0 }
@@ -198,9 +198,9 @@ function meshBuilder.Build(ch)
 			local vn = t.vn
 			local tri = { { t[1], t[2], t[3], t[10], vn[1], vn[2] }, { t[4], t[5], t[6], t[11], vn[3], vn[4] }, { t[7], t[8], t[9], t[12], vn[5], vn[6] } }
 			if t[15] - t[13] <= SMALL_TRI and t[16] - t[14] <= SMALL_TRI then
-				local mx, my = (t[1] + t[4] + t[7]) / 3, (t[2] + t[5] + t[8]) / 3
-				if mx >= x0 and mx < x1 and my >= y0 and my < y1 then
-					useCluster(mx, my, (t[3] + t[6] + t[9]) / 3)
+				local mx, my, mz = (t[1] + t[4] + t[7]) / 3, (t[2] + t[5] + t[8]) / 3, (t[3] + t[6] + t[9]) / 3
+				if mx >= x0 and mx < x1 and my >= y0 and my < y1 and (not t.sky or bspdata.BeyondWorld(mx, my, mz)) then
+					useCluster(mx, my, mz)
 					emitPoly(tri, 0)
 				end
 
@@ -224,8 +224,11 @@ function meshBuilder.Build(ch)
 								px, py, pz = px + p[1], py + p[2], pz + p[3]
 							end
 
-							useCluster(px / #poly, py / #poly, pz / #poly)
-							emitPoly(poly, 0)
+							px, py, pz = px / #poly, py / #poly, pz / #poly
+							if not t.sky or bspdata.BeyondWorld(px, py, pz) then
+								useCluster(px, py, pz)
+								emitPoly(poly, 0)
+							end
 						end
 
 						yieldIfOverBudget()

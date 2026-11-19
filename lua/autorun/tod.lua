@@ -214,6 +214,23 @@ if CLIENT then
 			return false
 		end
 
+		function tod.SetMaterialVector(path, key, value)
+			path = path:lower()
+			local mat = Material(path)
+
+			if not mat:IsError() then
+				local tbl = tod.replaced_textures[path] or {}
+				tod.replaced_textures[path] = tbl
+				tbl.OldVectors = tbl.OldVectors or {}
+				tbl.OldVectors[key] = tbl.OldVectors[key] or mat:GetVector(key)
+				mat:SetVector(key, value)
+
+				return true
+			end
+
+			return false
+		end
+
 		function tod.SetDetailBlend(path, factor)
 			path = path:lower()
 			local mat = Material(path)
@@ -242,6 +259,10 @@ if CLIENT then
 
 					if tbl.OldDetailBlend then
 						tod.SetDetailBlend(name, tbl.OldDetailBlend)
+					end
+
+					for key, value in pairs(tbl.OldVectors or {}) do
+						tod.SetMaterialVector(name, key, value)
 					end
 				end) then
 					print("Failed to restore: " .. tostring(name))

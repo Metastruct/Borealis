@@ -5,6 +5,8 @@ foliage.layers = foliage.layers or {}
 
 local CHUNK = 512
 local MESH_BATCH = 240
+local SKY_CLUSTER = bspdata.SKY_CLUSTER
+local NO_WALL = "vgui/black"
 local STRIDE = 7
 local MESH_CACHE_TUFTS = jit.arch == "x64" and math.huge or 200000
 local FILL_K = 0.5
@@ -101,6 +103,15 @@ foliage.WorldLightScale = worldLightScale
 
 local UP = Vector(0, 0, 1)
 local traceStart, traceEnd, lightPos = Vector(0, 0, 0), Vector(0, 0, 0), Vector(0, 0, 0)
+
+local function probe(t, x, y, z)
+	if not t.sky then return x, y, z, 1 end
+	if not bspdata.BeyondWorld(x, y, z) then return end
+
+	local sx, sy, sz = bspdata.WorldToSky(x, y, z)
+
+	return sx, sy, sz, bspdata.SkyCamera().scale
+end
 local coverTraceRes = {}
 local coverTrace = { mask = MASK_SOLID_BRUSHONLY, start = traceStart, endpos = traceEnd, output = coverTraceRes }
 
@@ -120,16 +131,17 @@ function Layer:raster(ch, cand)
 	end
 
 	local lightCache = {}
-	local function coverLight(x, y, z)
-		traceStart:SetUnpacked(x, y, z + coverHeight)
-		traceEnd:SetUnpacked(x, y, z + 1)
+	local function coverLight(x, y, z, scale)
+		traceStart:SetUnpacked(x, y, z + coverHeight / scale)
+		traceEnd:SetUnpacked(x, y, z + 1 / scale)
 		util.TraceLine(coverTrace)
 		if coverTraceRes.Hit then return nil end
 
-		local lkey = (math.floor(x / (spacing * 2)) * 4096 + math.floor(y / (spacing * 2))) * 1024 + math.floor(z / 64)
+		local cell = spacing * 2 / scale
+		local lkey = (math.floor(x / cell) * 4096 + math.floor(y / cell)) * 1024 + math.floor(z * scale / 64)
 		local light = lightCache[lkey]
 		if not light then
-			lightPos:SetUnpacked(x, y, z + 12)
+			lightPos:SetUnpacked(x, y, z + 12 / scale)
 			local l = render.ComputeLighting(lightPos, UP)
 			light = math.Clamp(math.floor(l.x * 127.5), 0, 255) * 65536 + math.Clamp(math.floor(l.y * 127.5), 0, 255) * 256 + math.Clamp(math.floor(l.z * 127.5), 0, 255)
 			lightCache[lkey] = light
@@ -150,12 +162,19 @@ function Layer:raster(ch, cand)
 			for _, t in ipairs(cand) do
 				if x >= t[13] and x <= t[15] and y >= t[14] and y <= t[16] then
 					local z, alpha = sample(t, x, y)
-					local kept = z and r3 * 255 > alpha and keep(x, y, z, r5)
+					local px, py, pz, scale
+					if z then px, py, pz, scale = probe(t, x, y, z) end
+					if not px then z = nil end
+
+					local kept = z and r3 * 255 > alpha and keep(px, py, pz, r5)
 					if kept then
-						local light = coverLight(x, y, z)
+						local light = coverLight(px, py, pz, scale)
 						if light then
-							local cluster = clusterAt(x, y, z + 8)
-							if cluster < 0 then cluster = clusterAt(x, y, z + 24) end
+							local cluster = SKY_CLUSTER
+							if not t.sky then
+								cluster = clusterAt(x, y, z + 8)
+								if cluster < 0 then cluster = clusterAt(x, y, z + 24) end
+							end
 
 							tufts[n + 1], tufts[n + 2], tufts[n + 3], tufts[n + 4], tufts[n + 5], tufts[n + 6], tufts[n + 7] = x, y, z, seed, 0.5 + r4 * r4 * 0.9 * (kept == true and 1 or kept), light, cluster
 							n = n + STRIDE
@@ -300,14 +319,26 @@ function Layer:buildChunk(ch)
 	self:chunkBounds(ch, tufts)
 
 	local total = #tufts / STRIDE
-	local batch = self.cfg.meshBatch or MESH_BATCH
-	ch.meshes = {}
-	for first = 1, total, batch do
-		chunks.YieldIfOverBudget()
-		ch.meshes[#ch.meshes + 1] = self:buildMesh(tufts, first, math.min(first + batch - 1, total))
+	local skyCount = 0
+	while skyCount < total and tufts[skyCount * STRIDE + 7] == SKY_CLUSTER do
+		skyCount = skyCount + 1
 	end
 
+	ch.meshes = {}
+	self:addBatches(ch, tufts, 1, skyCount, true)
+	self:addBatches(ch, tufts, skyCount + 1, total, false)
+
 	return total
+end
+
+function Layer:addBatches(ch, tufts, first, last, sky)
+	local batch = self.cfg.meshBatch or MESH_BATCH
+	for i = first, last, batch do
+		chunks.YieldIfOverBudget()
+		local b = self:buildMesh(tufts, i, math.min(i + batch - 1, last))
+		b.sky = sky
+		ch.meshes[#ch.meshes + 1] = b
+	end
 end
 
 function Layer:load()
@@ -318,9 +349,22 @@ function Layer:load()
 	grid, why = bspdata.Triangles(self.cfg.classify, self.cfg.minNormalZ)
 	if not grid then return false, why end
 
-	self.triGrid = bspdata.RemoveSkybox(grid)
+	local sky
+	self.triGrid, sky = bspdata.RemoveSkybox(grid)
+	if self.cfg.skybox then bspdata.AddSkyboxTriangles(self.triGrid, sky) end
 
 	return true
+end
+
+local function drawSky(mat, list, count, wallTex)
+	if count == 0 then return end
+
+	mat:SetTexture("$texture2", NO_WALL)
+	render.SetMaterial(mat)
+	for i = 1, count do
+		list[i]:Draw()
+	end
+	mat:SetTexture("$texture2", wallTex)
 end
 
 function Layer:draw(sky3d)
@@ -364,8 +408,8 @@ function Layer:draw(sky3d)
 
 	local sight = self.sight
 	sight:Begin(eye)
-	local drawn = self.drawn
-	local shown = 0
+	local drawn, skyDrawn = self.drawn, self.skyDrawn
+	local shown, skyShown = 0, 0
 	if self.cfg.engineLights then
 		MAT:SetTexture("$basetexture", shaderpack.dynamiclights.Texture() or "vgui/black")
 		MAT:SetTexture("$texture1", shaderpack.dynamiclights.ProjectedTexture() or "vgui/black")
@@ -385,7 +429,10 @@ function Layer:draw(sky3d)
 				end
 			end
 
-			if show then
+			if show and b.sky then
+				skyShown = skyShown + 1
+				skyDrawn[skyShown] = b.m
+			elseif show then
 				b.m:Draw()
 				shown = shown + 1
 				drawn[shown] = b.m
@@ -393,20 +440,25 @@ function Layer:draw(sky3d)
 		end
 	end
 
+	drawSky(MAT, skyDrawn, skyShown, skyTex)
 	render.OverrideDepthEnable(false, false)
 
-	if DEPTH_MAT and shown > 0 and depthslices and depthslices.BeginDepthWrite() then
+	if DEPTH_MAT and shown + skyShown > 0 and depthslices and depthslices.BeginDepthWrite() then
 		setConstant(DEPTH_MAT, "$c0", eye.x, eye.y, eye.z, time)
 		setConstant(DEPTH_MAT, "$c2", fwd.x, fwd.y, fwd.z)
 		render.SetMaterial(DEPTH_MAT)
 		for i = 1, shown do
 			drawn[i]:Draw()
 		end
+		drawSky(DEPTH_MAT, skyDrawn, skyShown, skyTex)
 		depthslices.EndDepthWrite()
 	end
 
 	for i = shown + 1, #drawn do
 		drawn[i] = nil
+	end
+	for i = skyShown + 1, #skyDrawn do
+		skyDrawn[i] = nil
 	end
 end
 
@@ -477,7 +529,7 @@ end
 function foliage.Layer(cfg)
 	local layer = setmetatable({
 		cfg = cfg, height = 1, radius = 3072,
-		drawn = {},
+		drawn = {}, skyDrawn = {},
 		sight = chunks.Sight(),
 		skyConstants = Matrix(),
 	}, Layer)

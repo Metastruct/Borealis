@@ -42,11 +42,12 @@ end
 
 local function chunkList()
 	local seen, list = {}, {}
+	local bx0, by0, bx1, by1 = snow.BandChunks()
 	for _, cell in pairs(geometry.Triangles()) do
 		for _, t in ipairs(cell) do
 			if t.vn then
-				for cy = math.floor(t[14] / CHUNK), math.floor(t[16] / CHUNK) do
-					for cx = math.floor(t[13] / CHUNK), math.floor(t[15] / CHUNK) do
+				for cy = math.max(math.floor(t[14] / CHUNK), by0), math.min(math.floor(t[16] / CHUNK), by1) do
+					for cx = math.max(math.floor(t[13] / CHUNK), bx0), math.min(math.floor(t[15] / CHUNK), bx1) do
 						local k = snow.ChunkKey(cx, cy)
 						if not seen[k] then
 							seen[k] = true

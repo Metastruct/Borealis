@@ -14,10 +14,25 @@ snow.CHUNK = 512
 snow.STRIDE = 7
 snow.SKY_DISTANCE = 16384
 snow.RAY_HEIGHT = 4
+snow.SKY_BAND = 3072
 
 local bakeStart, bakeBudget = 0, math.huge
 local skyTrace = { mask = MASK_SOLID_BRUSHONLY, start = Vector(), endpos = Vector(), output = {} }
 local waterPos = Vector()
+function snow.BandChunks()
+	local band = bspdata.SkyBand(snow.SKY_BAND)
+	if not band then return -math.huge, -math.huge, math.huge, math.huge end
+
+	local size = snow.CHUNK
+
+	return math.floor(band[1] / size), math.floor(band[2] / size), math.floor(band[3] / size), math.floor(band[4] / size)
+end
+
+function snow.ClusterAt(x, y, z)
+	if bspdata.BeyondWorld(x, y, z) then return bspdata.SKY_CLUSTER end
+
+	return math.max(bspdata.ClusterAt(x, y, z), -1)
+end
 
 function snow.ChunkKey(cx, cy)
 	return cx * 65536 + cy
@@ -47,7 +62,7 @@ end
 function snow.SeesSky(x, y, z)
 	skyTrace.start:SetUnpacked(x, y, z)
 	skyTrace.endpos:SetUnpacked(x, y, z + snow.SKY_DISTANCE)
-	local tr = util.TraceLine(skyTrace)
+	local tr = bspdata.TraceLine(skyTrace)
 	if tr.StartSolid then return false, true end
 
 	return not tr.Hit or tr.HitSky, false
@@ -56,7 +71,7 @@ end
 function snow.Submerged(x, y, z)
 	waterPos:SetUnpacked(x, y, z + 2)
 
-	return bit.band(util.PointContents(waterPos), MASK_WATER) ~= 0
+	return bit.band(bspdata.PointContents(waterPos), MASK_WATER) ~= 0
 end
 
 local FILES = {

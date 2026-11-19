@@ -251,11 +251,19 @@ function bspdata.PVS(cluster)
 	return pvsSet
 end
 
-local function addTri(triGrid, ax, ay, az, bx, by, bz, cx, cy, cz, aa, ab, ac)
+local function addTri(triGrid, ax, ay, az, bx, by, bz, cx, cy, cz, aa, ab, ac, clip)
 	local minx, miny, maxx, maxy = math.min(ax, bx, cx), math.min(ay, by, cy), math.max(ax, bx, cx), math.max(ay, by, cy)
+	local gx0, gy0 = math.floor(minx / TRI_CELL), math.floor(miny / TRI_CELL)
+	local gx1, gy1 = math.floor(maxx / TRI_CELL), math.floor(maxy / TRI_CELL)
+	if clip then
+		gx0, gy0 = math.max(gx0, math.floor(clip[1] / TRI_CELL)), math.max(gy0, math.floor(clip[2] / TRI_CELL))
+		gx1, gy1 = math.min(gx1, math.floor(clip[3] / TRI_CELL)), math.min(gy1, math.floor(clip[4] / TRI_CELL))
+		if gx0 > gx1 or gy0 > gy1 then return end
+	end
+
 	local t = { ax, ay, az, bx, by, bz, cx, cy, cz, aa, ab, ac, minx, miny, maxx, maxy }
-	for gy = math.floor(miny / TRI_CELL), math.floor(maxy / TRI_CELL) do
-		for gx = math.floor(minx / TRI_CELL), math.floor(maxx / TRI_CELL) do
+	for gy = gy0, gy1 do
+		for gx = gx0, gx1 do
 			local key = gx .. ":" .. gy
 			local cell = triGrid[key]
 			if not cell then
@@ -266,7 +274,11 @@ local function addTri(triGrid, ax, ay, az, bx, by, bz, cx, cy, cz, aa, ab, ac)
 			cell[#cell + 1] = t
 		end
 	end
+
+	return t
 end
+
+bspdata.AddTriangle = addTri
 
 local function displacementGrid(px, py, pz, dispinfo, dispverts, di)
 	local dp = di * 176 + 1
@@ -445,12 +457,243 @@ local function inSkybox(skybox, x, y, z)
 	return c >= 0 and skybox[c] or false
 end
 
-function bspdata.RemoveSkybox(triGrid)
+function bspdata.InSkybox(x, y, z)
 	local skybox = bspdata.SkyboxPVS()
-	if not skybox then return triGrid end
+
+	return skybox ~= nil and inSkybox(skybox, x, y, z)
+end
+
+local function readWorld()
+	local f, lump = openLumps()
+	if not f then return end
+
+	local entities = lump(0)
+	f:Close()
+
+	local worldspawn = entities:match("%b{}") or ""
+	local mins = worldspawn:match("\"world_mins\" \"([^\"]*)\"")
+	local maxs = worldspawn:match("\"world_maxs\" \"([^\"]*)\"")
+	if not mins or not maxs then return end
+
+	local lo, hi = Vector(mins), Vector(maxs)
+	local world = { x0 = lo.x, y0 = lo.y, z0 = lo.z, x1 = hi.x, y1 = hi.y, z1 = hi.z }
+	for block in entities:gmatch("%b{}") do
+		if block:find("\"classname\" \"sky_camera\"", 1, true) then
+			local origin = block:match("\"origin\" \"([^\"]*)\"")
+			if origin then
+				local o = Vector(origin)
+				world.scale = tonumber(block:match("\"scale\" \"([^\"]*)\"")) or 16
+				world.ox, world.oy, world.oz = o.x, o.y, o.z
+			end
+
+			break
+		end
+	end
+
+	return world
+end
+
+local world, skyCamera
+
+function bspdata.WorldBounds()
+	if world == nil then world = readWorld() or false end
+
+	return world or nil
+end
+
+function bspdata.SkyCamera()
+	if skyCamera == nil then
+		local w = bspdata.WorldBounds()
+		skyCamera = w and w.scale and w or false
+	end
+
+	return skyCamera or nil
+end
+
+bspdata.SKY_CLUSTER = -2
+
+function bspdata.SkyToWorld(x, y, z)
+	local cam = bspdata.SkyCamera()
+	local s = cam.scale
+
+	return (x - cam.ox) * s, (y - cam.oy) * s, (z - cam.oz) * s
+end
+
+function bspdata.WorldToSky(x, y, z)
+	local cam = bspdata.SkyCamera()
+	local s = cam.scale
+
+	return cam.ox + x / s, cam.oy + y / s, cam.oz + z / s
+end
+
+function bspdata.BeyondWorld(x, y, z, margin)
+	local cam = skyCamera
+	if cam == nil then cam = bspdata.SkyCamera() end
+	if not cam then return false end
+
+	local m = margin or 0
+
+	return x < cam.x0 + m or x > cam.x1 - m or y < cam.y0 + m or y > cam.y1 - m or z < cam.z0 + m or z > cam.z1 - m
+end
+
+local savedStart, savedEnd = Vector(), Vector()
+
+function bspdata.TraceLine(trace)
+	local s, e = trace.start, trace.endpos
+	local sx, sy, sz = s:Unpack()
+	if not bspdata.BeyondWorld(sx, sy, sz) then return util.TraceLine(trace) end
+
+	savedStart:Set(s)
+	savedEnd:Set(e)
+	s:SetUnpacked(bspdata.WorldToSky(sx, sy, sz))
+	e:SetUnpacked(bspdata.WorldToSky(e:Unpack()))
+	local tr = util.TraceLine(trace)
+	s:Set(savedStart)
+	e:Set(savedEnd)
+	local hit = tr.HitPos
+	hit:SetUnpacked(bspdata.SkyToWorld(hit:Unpack()))
+
+	return tr
+end
+
+function bspdata.PointContents(pos)
+	local x, y, z = pos:Unpack()
+	if bspdata.BeyondWorld(x, y, z) then
+		pos = Vector(bspdata.WorldToSky(x, y, z))
+	end
+
+	return util.PointContents(pos)
+end
+
+function bspdata.SkyBand(band)
+	local cam = bspdata.SkyCamera()
+	if not cam or not band then return end
+
+	return { cam.x0 - band, cam.y0 - band, cam.x1 + band, cam.y1 + band }
+end
+
+function bspdata.AddSkyboxTriangles(triGrid, tris, band)
+	if not bspdata.SkyCamera() then return 0 end
+
+	local clip = bspdata.SkyBand(band)
+	local toWorld, beyond = bspdata.SkyToWorld, bspdata.BeyondWorld
+	local added = 0
+	for _, s in ipairs(tris) do
+		local ax, ay, az = toWorld(s[1], s[2], s[3])
+		local bx, by, bz = toWorld(s[4], s[5], s[6])
+		local cx, cy, cz = toWorld(s[7], s[8], s[9])
+		if beyond(ax, ay, az) or beyond(bx, by, bz) or beyond(cx, cy, cz) then
+			local t = addTri(triGrid, ax, ay, az, bx, by, bz, cx, cy, cz, s[10], s[11], s[12], clip)
+			if t then
+				t.sky = true
+				added = added + 1
+			end
+		end
+	end
+
+	return added
+end
+
+local SKYBOX_FACE_PROBE = 2
+
+function bspdata.SkyboxTriangles(skipFlags)
+	local skybox = bspdata.SkyboxPVS()
+	if not skybox then return {} end
+
+	local f, lump = openLumps()
+	if not f then return {} end
+
+	local planes, verts, texinfo, faces = lump(1), lump(3), lump(6), lump(7)
+	local edges, surfedges, models = lump(12), lump(13), lump(14)
+	local dispinfo, dispverts = lump(26), lump(33)
+	f:Close()
 
 	local yieldIfOverBudget = frameBudget()
-	local removed = {}
+	local out = {}
+	local function emit(ax, ay, az, bx, by, bz, cx, cy, cz)
+		local n = #out
+		out[n + 1], out[n + 2], out[n + 3] = ax, ay, az
+		out[n + 4], out[n + 5], out[n + 6] = bx, by, bz
+		out[n + 7], out[n + 8], out[n + 9] = cx, cy, cz
+	end
+	local function noAlpha() return 0 end
+
+	local firstFace = i32(models, 41)
+	for i = firstFace, firstFace + i32(models, 45) - 1 do
+		if i % 256 == 0 then yieldIfOverBudget() end
+		local fp = i * 56 + 1
+		local ti = i16(faces, fp + 10)
+		local numedges = i16(faces, fp + 8)
+		if ti >= 0 and numedges >= 3 and bit.band(i32(texinfo, ti * 72 + 65), skipFlags or 0) == 0 then
+			local pp = u16(faces, fp) * 20 + 1
+			local nx, ny, nz = f32(planes, pp), f32(planes, pp + 4), f32(planes, pp + 8)
+			if byte(faces, fp + 2) ~= 0 then nx, ny, nz = -nx, -ny, -nz end
+
+			local firstedge, di = i32(faces, fp + 4), i16(faces, fp + 12)
+			local px, py, pz = {}, {}, {}
+			local cx, cy, cz = 0, 0, 0
+			for e = 0, numedges - 1 do
+				local se = i32(surfedges, (firstedge + e) * 4 + 1)
+				local vp = u16(edges, math.abs(se) * 4 + 1 + (se < 0 and 2 or 0)) * 12 + 1
+				px[e + 1], py[e + 1], pz[e + 1] = f32(verts, vp), f32(verts, vp + 4), f32(verts, vp + 8)
+				cx, cy, cz = cx + px[e + 1], cy + py[e + 1], cz + pz[e + 1]
+			end
+			cx, cy, cz = cx / numedges, cy / numedges, cz / numedges
+
+			local cluster = bspdata.ClusterAt(cx + nx * SKYBOX_FACE_PROBE, cy + ny * SKYBOX_FACE_PROBE, cz + nz * SKYBOX_FACE_PROBE)
+			if cluster >= 0 and skybox[cluster] then
+				if di == -1 then
+					for e = 2, numedges - 1 do
+						emit(px[1], py[1], pz[1], px[e], py[e], pz[e], px[e + 1], py[e + 1], pz[e + 1])
+					end
+				elseif numedges == 4 then
+					addDisplacement(emit, px, py, pz, dispinfo, dispverts, di, noAlpha)
+					yieldIfOverBudget()
+				end
+			end
+		end
+	end
+
+	return out
+end
+
+function bspdata.SkyClusters(excluded)
+	local f, lump = openLumps()
+	if not f then return {} end
+
+	local texinfo, faces = lump(6), lump(7)
+	local leafs, _, leafVersion = lump(10)
+	local leaffaces = lump(16)
+	f:Close()
+
+	local vis = bspdata.vis
+	local leafSize = leafVersion == 0 and 56 or 32
+	local skyFlags = bit.bor(SURF_SKY, SURF_SKY2D)
+	local clusters = {}
+	for leaf = 0, #leafs / leafSize - 1 do
+		local cluster = vis.leafCluster[leaf] or -1
+		if cluster >= 0 and not clusters[cluster] and not (excluded and excluded[cluster]) then
+			local lp = leaf * leafSize + 1
+			local first, count = u16(leafs, lp + 20), u16(leafs, lp + 22)
+			for n = first, first + count - 1 do
+				local ti = i16(faces, u16(leaffaces, n * 2 + 1) * 56 + 11)
+				if ti >= 0 and bit.band(i32(texinfo, ti * 72 + 65), skyFlags) ~= 0 then
+					clusters[cluster] = true
+					break
+				end
+			end
+		end
+	end
+
+	return clusters
+end
+
+function bspdata.RemoveSkybox(triGrid)
+	local skybox = bspdata.SkyboxPVS()
+	if not skybox then return triGrid, {} end
+
+	local yieldIfOverBudget = frameBudget()
+	local removed, removedList = {}, {}
 	for key, cell in pairs(triGrid) do
 		local kept = {}
 		for _, t in ipairs(cell) do
@@ -461,6 +704,7 @@ function bspdata.RemoveSkybox(triGrid)
 					or inSkybox(skybox, t[4], t[5], t[6])
 					or inSkybox(skybox, t[7], t[8], t[9])
 				removed[t] = remove
+				if remove then removedList[#removedList + 1] = t end
 			end
 
 			if not remove then kept[#kept + 1] = t end
@@ -470,7 +714,7 @@ function bspdata.RemoveSkybox(triGrid)
 		triGrid[key] = #kept > 0 and kept or nil
 	end
 
-	return triGrid
+	return triGrid, removedList
 end
 
 function bspdata.Sample(t, x, y)
@@ -630,19 +874,38 @@ function bspdata.SkyTriangles()
 	return out
 end
 
-function bspdata.StaticPropModels()
+local function readStaticProps()
 	local f, lump = openLumps()
-	if not f then return {} end
+	if not f then return {}, {} end
 
 	local gameLump = lump(35)
-	local models = {}
+	local models, props = {}, {}
 	for k = 0, (#gameLump >= 4 and i32(gameLump, 1) or 0) - 1 do
 		local p = 5 + k * 16
 		if gameLump:sub(p, p + 3) == "prps" then
+			local version = u16(gameLump, p + 6)
 			f:Seek(i32(gameLump, p + 8))
 			local data = decompress(f:Read(i32(gameLump, p + 12)) or "")
-			for d = 0, (#data >= 4 and i32(data, 1) or 0) - 1 do
-				models[#models + 1] = data:sub(5 + d * 128, 4 + (d + 1) * 128):match("^[^%z]*")
+			if #data < 12 then break end
+
+			local count = i32(data, 1)
+			for d = 0, count - 1 do
+				models[d + 1] = data:sub(5 + d * 128, 4 + (d + 1) * 128):match("^[^%z]*")
+			end
+
+			local at = 5 + count * 128
+			at = at + 4 + i32(data, at) * 2
+			local total = i32(data, at)
+			at = at + 4
+			local size = total > 0 and math.floor((#data - at + 1) / total) or 0
+			for n = 0, total - 1 do
+				local q = at + n * size
+				props[n + 1] = {
+					model = models[u16(data, q + 24) + 1],
+					origin = Vector(f32(data, q), f32(data, q + 4), f32(data, q + 8)),
+					angles = Angle(f32(data, q + 12), f32(data, q + 16), f32(data, q + 20)),
+					scale = version >= 11 and size >= 80 and f32(data, q + 76) or 1,
+				}
 			end
 
 			break
@@ -650,7 +913,61 @@ function bspdata.StaticPropModels()
 	end
 	f:Close()
 
-	return models
+	return models, props
+end
+
+function bspdata.StaticProps()
+	local _, props = readStaticProps()
+
+	return props
+end
+
+function bspdata.StaticPropModels()
+	return (readStaticProps())
+end
+
+function bspdata.DetailSprites()
+	local f, lump = openLumps()
+	if not f then return nil end
+
+	local entities, gameLump = lump(0), lump(35)
+	local data, version
+	for k = 0, (#gameLump >= 4 and i32(gameLump, 1) or 0) - 1 do
+		local p = 5 + k * 16
+		if gameLump:sub(p, p + 3) == "prpd" then
+			version = u16(gameLump, p + 6)
+			f:Seek(i32(gameLump, p + 8))
+			data = decompress(f:Read(i32(gameLump, p + 12)) or "")
+			break
+		end
+	end
+	f:Close()
+	if not data or version < 4 or #data < 4 then return nil end
+
+	local p = 5 + i32(data, 1) * 128
+	p = p + 4 + i32(data, p) * 32
+	local count = i32(data, p)
+	p = p + 4
+
+	local yieldIfOverBudget = frameBudget()
+	local r, g, b, n = 0, 0, 0, 0
+	for i = 0, count - 1 do
+		if i % 4096 == 4095 then yieldIfOverBudget() end
+		local q = p + i * 52
+		if byte(data, q + 44) ~= 0 then
+			local cr, cg, cb, e = byte(data, q + 28, q + 31)
+			local scale = 2 ^ (e >= 128 and e - 256 or e)
+			r, g, b, n = r + cr * scale, g + cg * scale, b + cb * scale, n + 1
+		end
+	end
+	if n == 0 then return nil end
+
+	local worldspawn = entities:match("%b{}") or ""
+
+	return {
+		material = (worldspawn:match("\"detailmaterial\" \"([^\"]*)\"") or "detail/detailsprites"):lower(),
+		light = Vector(r / n, g / n, b / n),
+	}
 end
 
 local function upArea(sum,ax, ay, az, bx, by, bz, cx, cy, cz, nx, ny, nz, minNormalZ)
