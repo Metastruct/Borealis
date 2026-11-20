@@ -21,6 +21,7 @@ local SELFILLUM, ALPHATEST, BASEALPHAENVMAPMASK, TRANSLUCENT = 0x40, 0x100, 0x10
 local ALPHA_FLAGS = bit.bor(SELFILLUM, ALPHATEST, BASEALPHAENVMAPMASK, TRANSLUCENT)
 local CUTOUT_FLAGS = bit.bor(ALPHATEST, TRANSLUCENT)
 local GROUND_PROPS = { "default", "dirt", "grass", "gravel", "mud", "sand", "rock", "boulder", "concrete", "snow", "foliage" }
+local PROP_CLASSES = { prop_dynamic = true, prop_dynamic_override = true }
 local SKY_TRACE = 65536
 local GAMMA_INV = 1 / 2.2
 local LAYERS = { "$basetexture", "$basetexture2" }
@@ -312,17 +313,20 @@ end
 
 local function propMaterials()
 	local seen, materials = {}, {}
-	for _, model in ipairs(bspdata.StaticPropModels()) do
-		if not seen[model] then
-			seen[model] = true
-			local ent = ClientsideModel(model)
-			if IsValid(ent) then
-				for _, name in ipairs(ent:GetMaterials()) do
-					materials[name:lower()] = true
+	for _, list in ipairs({ bspdata.StaticPropModels(), bspdata.EntityModels(PROP_CLASSES) }) do
+		for _, model in ipairs(list) do
+			model = model:lower()
+			if not seen[model] then
+				seen[model] = true
+				local ent = ClientsideModel(model)
+				if IsValid(ent) then
+					for _, name in ipairs(ent:GetMaterials()) do
+						materials[name:lower()] = true
+					end
+					ent:Remove()
 				end
-				ent:Remove()
+				coroutine.yield()
 			end
-			coroutine.yield()
 		end
 	end
 

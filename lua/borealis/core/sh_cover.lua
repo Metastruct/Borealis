@@ -17,6 +17,7 @@ local SOLID = MASK_SOLID
 local WATER = MASK_WATER
 local IN_WATER = CONTENTS_WATER
 local SHORE_DEPTH = 8
+local EXIT_INSET = 2
 local SPAN_OPEN_MARGIN, SPAN_COLUMN_OFFSET, SPAN_MIN_NORMAL = 16, 24, 0.1
 local GLOSS = {
 	[MAT_GRASS] = 0.05,
@@ -726,11 +727,32 @@ function cover.Unlisten(id)
 	cover.listeners[id] = nil
 end
 
+local function solidExit(x, y, top, bottom)
+	downTrace.start:SetUnpacked(x, y, top)
+	downTrace.endpos:SetUnpacked(x, y, bottom)
+	local down = bspdata.TraceLine(downTrace)
+	if not down.StartSolid then return top end
+	if down.AllSolid then return nil end
+
+	return top + (bottom - top) * down.FractionLeftSolid - EXIT_INSET
+end
+
 local function traceOpenColumn(cx, cy, top, bottom)
 	local x, y = (cx + 0.5) * COLUMN, (cy + 0.5) * COLUMN
 	upTrace.start:SetUnpacked(x, y, top)
 	upTrace.endpos:SetUnpacked(x, y, top + 8192)
 	local up = bspdata.TraceLine(upTrace)
+	if up.StartSolid then
+		top = solidExit(x, y, top, bottom)
+		if not top or top <= bottom then
+			return Z_MIN + Z_RANGE, false, 1, false
+		end
+
+		upTrace.start:SetUnpacked(x, y, top)
+		upTrace.endpos:SetUnpacked(x, y, top + 8192)
+		up = bspdata.TraceLine(upTrace)
+	end
+
 	if up.StartSolid or (up.Hit and not up.HitSky) then
 		return Z_MIN + Z_RANGE, false, 1, false
 	end
@@ -776,7 +798,7 @@ end
 local function traceColumn(cx, cy, top, bottom)
 	local coverZ, level, gloss, waterLevel, normalZ = traceOpenColumn(cx, cy, top, bottom)
 	if spanData and coverZ < Z_MIN + Z_RANGE then
-		local nz = math.max(normalZ or 1, SPAN_MIN_NORMAL)
+		local nz = math.Clamp(normalZ or 1, SPAN_MIN_NORMAL, 1)
 		local margin = SPAN_OPEN_MARGIN + SPAN_COLUMN_OFFSET * math.sqrt(1 - nz * nz) / nz
 		if not spanOpen((cx + 0.5) * COLUMN, (cy + 0.5) * COLUMN, coverZ + margin) then
 			return Z_MIN + Z_RANGE, false, 1, false

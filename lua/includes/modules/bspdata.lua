@@ -922,6 +922,24 @@ function bspdata.StaticProps()
 	return props
 end
 
+function bspdata.EntityModels(classes)
+	local f, lump = openLumps()
+	if not f then return {} end
+
+	local entities = lump(0):lower()
+	f:Close()
+
+	local models = {}
+	for block in entities:gmatch("%b{}") do
+		local model = block:match("\"model\" \"(models/[^\"]+%.mdl)\"")
+		if model and (not classes or classes[block:match("\"classname\" \"([^\"]+)\"")]) then
+			models[#models + 1] = model
+		end
+	end
+
+	return models
+end
+
 function bspdata.StaticPropModels()
 	return (readStaticProps())
 end

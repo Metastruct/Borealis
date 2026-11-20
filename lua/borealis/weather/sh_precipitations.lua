@@ -37,6 +37,7 @@ local COLOR_HEAD_FLOOR = 0.22
 local WRAP = 20
 
 local COLUMN, COLUMNS, Z_MIN = cover.COLUMN, cover.COLUMNS, cover.Z_MIN
+local COVERED = Z_MIN + cover.Z_RANGE
 local IN_WATER = CONTENTS_WATER
 
 local SNOW_COUNT = 12
@@ -431,6 +432,7 @@ local function updateSnowLight(eye)
 		local first = nextSnowLight == 0
 		nextSnowLight = now + SNOW_LIGHT_INTERVAL
 		local top = cover.HeightAt(eye.x, eye.y)
+		if top and top >= COVERED then top = nil end
 		snowLightPos:SetUnpacked(eye.x, eye.y, math.max(eye.z, (top or eye.z) + SNOW_LIGHT_LIFT))
 		local l, d = render.ComputeLighting(snowLightPos, UP), render.ComputeDynamicLighting(snowLightPos, UP)
 		local foliage = shaderpack.foliage
