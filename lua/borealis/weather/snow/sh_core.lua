@@ -16,6 +16,7 @@ snow.STRIDE = 7
 snow.SKY_DISTANCE = 16384
 snow.RAY_HEIGHT = 4
 snow.SKY_BAND = 3072
+snow.SEAM_OFFSET = 8
 
 local bakeStart, bakeBudget = 0, math.huge
 local skyTrace = { mask = MASK_SOLID_BRUSHONLY, start = Vector(), endpos = Vector(), output = {} }
@@ -60,13 +61,31 @@ function snow.Yield()
 	end
 end
 
-function snow.SeesSky(x, y, z)
+local function skyRay(x, y, z)
 	skyTrace.start:SetUnpacked(x, y, z)
 	skyTrace.endpos:SetUnpacked(x, y, z + snow.SKY_DISTANCE)
-	local tr = bspdata.TraceLine(skyTrace)
-	if tr.StartSolid then return false, true end
 
-	return not tr.Hit or tr.HitSky, false
+	return bspdata.TraceLine(skyTrace)
+end
+
+local function coveredRay(x, y, z)
+	local tr = skyRay(x, y, z)
+
+	return not tr.StartSolid and tr.Hit and not tr.HitSky
+end
+
+function snow.SeamLeak(x, y, z)
+	local o = snow.SEAM_OFFSET
+
+	return coveredRay(x + o, y, z) and coveredRay(x - o, y, z) or coveredRay(x, y + o, z) and coveredRay(x, y - o, z)
+end
+
+function snow.SeesSky(x, y, z)
+	local tr = skyRay(x, y, z)
+	if tr.StartSolid then return false, true end
+	if tr.Hit and not tr.HitSky then return false, false end
+
+	return not snow.SeamLeak(x, y, z), false
 end
 
 function snow.Submerged(x, y, z)

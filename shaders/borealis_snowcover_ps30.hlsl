@@ -38,6 +38,8 @@ sampler Flashlight : register(s4);
 
 #define SNOW_DEPTH 10.0
 #define TRAIL_SPAN 2048.0
+#define TRAIL_FADE_START 576.0
+#define TRAIL_FADE_END 880.0
 #define MIN_THICK 0.12
 #define WALL_NZ 0.3
 #define POM_STEPS 16
@@ -96,11 +98,13 @@ struct PS_OUT
 	float depth  : DEPTH0;
 };
 
+static float trailFade;
+
 float trailAt(float2 xy)
 {
 	float2 inside = step(WIN_MIN, xy) * step(xy, WIN_MAX);
 
-	return tex2Dlod(Trail, float4(frac(float2(xy.x, -xy.y) / TRAIL_SPAN), 0.0, 0.0)).r * inside.x * inside.y;
+	return tex2Dlod(Trail, float4(frac(float2(xy.x, -xy.y) / TRAIL_SPAN), 0.0, 0.0)).r * inside.x * inside.y * trailFade;
 }
 
 float carveAt(float2 xy, float thick)
@@ -171,6 +175,7 @@ PS_OUT main(PS_IN i)
 	face *= sign(face.z) / max(length(face), 1e-6);
 	float faceZ = max(face.z, WALL_NZ);
 	float dist = distance(p, EYE);
+	trailFade = saturate((TRAIL_FADE_END - distance(p.xy, EYE.xy)) / (TRAIL_FADE_END - TRAIL_FADE_START));
 	clip(smoothstep(FADE_END, FADE_START, dist) - hash(floor(p.xy * 0.25)));
 	ClipSkyWall(SkyWall, i.vpos, INV_SCREEN, i.spos.w);
 

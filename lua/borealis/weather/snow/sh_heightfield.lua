@@ -89,7 +89,7 @@ local function buildSpans(data, yield)
 					if not res.StartSolid then
 						local ceil = res.Hit and res.HitPos.z or floor + SKY_DISTANCE
 						if ceil - floor >= CLEARANCE then
-							local kind = (not res.Hit or res.HitSky) and KIND_SNOW or KIND_SHELTERED
+							local kind = (not res.Hit or res.HitSky) and not snow.SeamLeak(x, y, floor + 1) and KIND_SNOW or KIND_SHELTERED
 							if snow.Submerged(x, y, floor) then kind = KIND_WATER end
 
 							local s = { x = x, y = y, i = i, j = j, floor = floor, ceil = ceil, nx = f[2], ny = f[3], nz = math.max(f[4], 0.3), kind = kind, links = {}, drops = {}, delta = 0 }
