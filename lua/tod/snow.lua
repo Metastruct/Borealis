@@ -19,6 +19,7 @@ if CLIENT then
 	local DEFAULT_TINT = Vector(0.31, 0.35, 0.46)
 	local GAMMA_INV = 1 / 2.2
 	local FROST = 0.75
+	local DETAIL = 0.5
 	local snowPaths = {}
 	local snowTint = DEFAULT_TINT
 
@@ -92,6 +93,12 @@ if CLIENT then
 		return replaced ~= nil and (replaced.NewColor ~= nil or (replaced.OldTextures and replaced.OldTextures[key]) ~= nil)
 	end
 
+	local function notTinted(path, key)
+		local replaced = tod.replaced_textures[path]
+
+		return replaced == nil or replaced.NewColor == nil or (replaced.OldTextures and replaced.OldTextures[key]) ~= nil
+	end
+
 	local function replaceLayer(layer, tex)
 		tod.ReplaceTexture(layer.path, tex, layer.key)
 		if layer.color then
@@ -99,7 +106,24 @@ if CLIENT then
 		end
 	end
 
+	local function applyDetail()
+		for _, path in ipairs(snowPaths) do
+			local mat = Material(path)
+			local detail = mat:GetTexture("$detail")
+			if detail and not detail:IsError() and (mat:GetInt("$detailblendmode") or 0) == 0 then
+				local r, g, b = tod.grasskey.MeanColor(detail)
+				tod.SetMaterialVector(path, "$detailtint", Vector(127.5 / math.max(r, 1), 127.5 / math.max(g, 1), 127.5 / math.max(b, 1)))
+				tod.SetDetailBlend(path, DETAIL)
+			end
+		end
+	end
+
 	hook.Add("TOD_TexturesReplaced", "tod_snow", function()
+		hook.Add("PostRender", "tod_snow_detail", function()
+			hook.Remove("PostRender", "tod_snow_detail")
+			applyDetail()
+		end)
+
 		local snowTexture = Material("nature/snowfloor002a"):GetTexture("$basetexture")
 		local tr, tg, tb = DEFAULT_TINT.x ^ GAMMA_INV, DEFAULT_TINT.y ^ GAMMA_INV, DEFAULT_TINT.z ^ GAMMA_INV
 		local version = util.CRC(tostring(DEFAULT_TINT) .. GAMMA_INV)
@@ -113,15 +137,26 @@ if CLIENT then
 			end,
 			apply = replaceLayer,
 			done = function()
-				tod.grasskey.Run("frost", {
-					source = "props",
-					version = version .. FROST,
+				tod.grasskey.Run("snow_tinted", {
+					version = version,
 					overlay = snowTexture,
-					skip = alreadyHandled,
-					compose = function(r, g, b, sr, sg, sb)
-						return r + (sr * tr - r) * FROST, g + (sg * tg - g) * FROST, b + (sb * tb - b) * FROST
+					skip = notTinted,
+					compose = function(_, _, _, r, g, b)
+						return r, g, b
 					end,
 					apply = replaceLayer,
+					done = function()
+						tod.grasskey.Run("frost", {
+							source = "props",
+							version = version .. FROST,
+							overlay = snowTexture,
+							skip = alreadyHandled,
+							compose = function(r, g, b, sr, sg, sb)
+								return r + (sr * tr - r) * FROST, g + (sg * tg - g) * FROST, b + (sb * tb - b) * FROST
+							end,
+							apply = replaceLayer,
+						})
+					end,
 				})
 			end,
 		})

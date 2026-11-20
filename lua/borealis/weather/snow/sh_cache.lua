@@ -6,7 +6,7 @@ local bspdata = bspdata
 local STRIDE = snow.STRIDE
 
 local DIR = "shaderpack/snowcover"
-local VERSION = 6
+local VERSION = 7
 local COUNT_BYTES, HEADER_BYTES, CLUSTER_BYTES, SAMPLE_BYTES, VERTEX_BYTES = 4, 11, 5, 9, 17
 local COORD_SCALE, COORD_OFFSET, NORMAL_SCALE = 32, 8388608, 32767.5
 local YIELD_VERTS = 256

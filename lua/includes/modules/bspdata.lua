@@ -463,11 +463,32 @@ function bspdata.InSkybox(x, y, z)
 	return skybox ~= nil and inSkybox(skybox, x, y, z)
 end
 
+local function playableBounds(leaves, count, size)
+	if not bspdata.LoadVis() then return end
+
+	local skybox = bspdata.SkyboxPVS() or {}
+	local x0, y0, z0 = math.huge, math.huge, math.huge
+	local x1, y1, z1 = -math.huge, -math.huge, -math.huge
+	for i = 0, count - 1 do
+		local p = i * size + 1
+		local cluster = i16(leaves, p + 4)
+		if cluster >= 0 and not skybox[cluster] then
+			x0, y0, z0 = math.min(x0, i16(leaves, p + 8)), math.min(y0, i16(leaves, p + 10)), math.min(z0, i16(leaves, p + 12))
+			x1, y1, z1 = math.max(x1, i16(leaves, p + 14)), math.max(y1, i16(leaves, p + 16)), math.max(z1, i16(leaves, p + 18))
+		end
+	end
+
+	if x0 > x1 then return end
+
+	return Vector(x0, y0, z0), Vector(x1, y1, z1)
+end
+
 local function readWorld()
 	local f, lump = openLumps()
 	if not f then return end
 
 	local entities = lump(0)
+	local leaves, leLen, leVer = lump(10)
 	f:Close()
 
 	local worldspawn = entities:match("%b{}") or ""
@@ -475,7 +496,11 @@ local function readWorld()
 	local maxs = worldspawn:match("\"world_maxs\" \"([^\"]*)\"")
 	if not mins or not maxs then return end
 
-	local lo, hi = Vector(mins), Vector(maxs)
+	local leafSize = leVer == 0 and 56 or 32
+	local lo, hi = playableBounds(leaves, leLen / leafSize, leafSize)
+	if not lo then
+		lo, hi = Vector(mins), Vector(maxs)
+	end
 	local world = { x0 = lo.x, y0 = lo.y, z0 = lo.z, x1 = hi.x, y1 = hi.y, z1 = hi.z }
 	for block in entities:gmatch("%b{}") do
 		if block:find("\"classname\" \"sky_camera\"", 1, true) then

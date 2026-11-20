@@ -76,6 +76,16 @@ local function capture(tex, w, h, alpha)
 	return out
 end
 
+function grasskey.MeanColor(tex)
+	local px = capture(tex, PROBE, PROBE)
+	local r, g, b, n = 0, 0, 0, #px / 3
+	for i = 1, #px, 3 do
+		r, g, b = r + px[i], g + px[i + 1], b + px[i + 2]
+	end
+
+	return r / n, g / n, b / n
+end
+
 local function smooth(a, b, x)
 	local t = math.Clamp((x - a) / (b - a), 0, 1)
 

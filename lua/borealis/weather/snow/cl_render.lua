@@ -14,6 +14,7 @@ local PRELOAD = jit.arch == "x64"
 local FILL_K = 0.5
 local TOD_MATCH = 0.29
 local TOD_SUN_GAIN = 1.05
+local TOD_STYLE_GAIN = 1
 local TOD_RETINT = 0.02
 
 local setConstant, packColor, toLinear = shaderpack.SetConstant, shaderpack.PackColor, shaderpack.ToLinear
@@ -149,7 +150,9 @@ local sight = chunks.Sight()
 local matchedScale, matchedR, matchedG, matchedB
 
 local function todChannel(light, amb, scale)
-	return TOD_MATCH * (light * scale + amb * FILL_K) / math.max(amb + TOD_SUN_GAIN * math.max(light - amb, 0) * scale, 1e-3)
+	local world = tod.light_environment_named and amb + TOD_SUN_GAIN * math.max(light - amb, 0) * scale or TOD_STYLE_GAIN * light * scale
+
+	return TOD_MATCH * (light * scale + amb * FILL_K) / math.max(world, 1e-3)
 end
 
 local function matchTodSnow(scale, amb)
