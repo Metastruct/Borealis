@@ -126,12 +126,4 @@ if CLIENT then
 			end,
 		})
 	end)
-
-	hook.Add("PlayerFootstep", "snow", function(ply, pos, foot, sound, volume, rf)
-		sound = sound:lower()
-		if sound:find("grass", nil, true) or sound:find("dirt", nil, true) then
-			ply:EmitSound(("player/footsteps/snow%s.wav"):format(math.random(6)), 60, math.random(95,105))
-			return true
-		end
-	end)
 end

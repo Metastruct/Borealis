@@ -34,10 +34,16 @@ function footsteps.OnSnow(pos)
 	return steps ~= nil and (steps[cellKey(pos.x, pos.y, pos.z, CELL)] or steps[cellKey(pos.x, pos.y, pos.z + DEPTH, CELL)]) == true
 end
 
-hook.Add("PlayerFootstep", "borealis_snow", function(ply, pos, _, _, volume)
-	if not footsteps.OnSnow(pos) then return end
+local function snowTextured(sound)
+	sound = sound:lower()
 
-	ply:EmitSound("player/footsteps/snow" .. math.random(6) .. ".wav", 75, 100, volume)
+	return (sound:find("grass", 1, true) or sound:find("dirt", 1, true)) and shaderpack.Season() == "winter"
+end
+
+hook.Add("PlayerFootstep", "borealis_snow", function(ply, pos, _, sound, volume)
+	if not footsteps.OnSnow(pos) and not snowTextured(sound) then return end
+
+	ply:EmitSound("player/footsteps/snow" .. math.random(6) .. ".wav", 75, math.random(95, 105), volume)
 
 	return true
 end)
