@@ -6,10 +6,9 @@ local DEPTH, STRIDE = snow.DEPTH, snow.STRIDE
 local CELL = 32
 
 local cellKey = snow.CellKey
-local grid
 
 function footsteps.SetGrid(g)
-	grid = g
+	footsteps.grid = g
 end
 
 function footsteps.Mark(steps, verts, o)
@@ -27,10 +26,16 @@ function footsteps.Mark(steps, verts, o)
 	end
 end
 
-hook.Add("PlayerFootstep", "borealis_snow", function(ply, pos, _, _, volume)
+function footsteps.OnSnow(pos)
+	local grid = footsteps.grid
 	local ch = grid and grid.chunks and grid.chunks[snow.ChunkKey(snow.ChunkAt(pos.x, pos.y))]
 	local steps = ch and ch.steps
-	if not steps or not (steps[cellKey(pos.x, pos.y, pos.z, CELL)] or steps[cellKey(pos.x, pos.y, pos.z + DEPTH, CELL)]) then return end
+
+	return steps ~= nil and (steps[cellKey(pos.x, pos.y, pos.z, CELL)] or steps[cellKey(pos.x, pos.y, pos.z + DEPTH, CELL)]) == true
+end
+
+hook.Add("PlayerFootstep", "borealis_snow", function(ply, pos, _, _, volume)
+	if not footsteps.OnSnow(pos) then return end
 
 	ply:EmitSound("player/footsteps/snow" .. math.random(6) .. ".wav", 75, 100, volume)
 

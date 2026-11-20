@@ -412,12 +412,87 @@ local function capture()
 	render.PopRenderTarget()
 end
 
+local discs = {}
+local DISC_SIDES = 20
+local LEVEL_STEPS = 1023
+local levelBytes = {}
+
+local function levelByte(v)
+	local key = math.floor(v * LEVEL_STEPS + 0.5)
+	local b = levelBytes[key]
+	if not b then
+		b = decrementByte(key / LEVEL_STEPS)
+		levelBytes[key] = b
+	end
+
+	return b
+end
+
+local function discPoly(cx, cy, r)
+	local poly = {}
+	for i = 1, DISC_SIDES do
+		local a = i / DISC_SIDES * math.pi * 2
+		poly[i] = { x = cx + math.cos(a) * r, y = cy + math.sin(a) * r }
+	end
+
+	return poly
+end
+
+local function drawWrapped(px, py, r)
+	for ox = -1, 1 do
+		for oy = -1, 1 do
+			local cx, cy = px + ox * TRAIL_TEXELS, py + oy * TRAIL_TEXELS
+			if cx + r >= 0 and cx - r < TRAIL_TEXELS and cy + r >= 0 and cy - r < TRAIL_TEXELS then
+				surface.DrawPoly(discPoly(cx, cy, r))
+			end
+		end
+	end
+end
+
+local function drawDisc(d)
+	local X, Y, r = d.x / TEXEL, -d.y / TEXEL, d.r / TEXEL
+	if X + r < winX or X - r >= winX + TRAIL_TEXELS or Y + r < winY or Y - r >= winY + TRAIL_TEXELS then return end
+
+	local px, py = X % TRAIL_TEXELS, Y % TRAIL_TEXELS
+	local rings = math.Clamp(math.ceil(r), 2, 12)
+	for k = 1, rings do
+		color[1], color[2], color[3] = 0, 0, 0
+		color[d.channel] = levelByte(d.v * k / rings)
+		surface.SetDrawColor(color[1], color[2], color[3], 255)
+		drawWrapped(px, py, r * math.sqrt(1 - (k - 1) / rings))
+	end
+end
+
+local function drawDiscs()
+	if #discs == 0 or not winX then return end
+
+	render.PushRenderTarget(trailRT)
+	cam.Start2D()
+	draw.NoTexture()
+	render.OverrideBlend(true, BLEND_ONE, BLEND_ONE, BLENDFUNC_MAX, BLEND_ONE, BLEND_ONE, BLENDFUNC_MAX)
+	for _, d in ipairs(discs) do
+		drawDisc(d)
+	end
+	render.OverrideBlend(false)
+	cam.End2D()
+	render.PopRenderTarget()
+	discs = {}
+end
+
+function trails.Stamp(id, x, y, radius, depth)
+	local u = users[id]
+	if not u or not trailRT then return end
+
+	discs[#discs + 1] = { x = x, y = y, r = radius, v = math.Clamp(depth, 0, 1), channel = u.channel }
+end
+
 local function prepare()
 	local eye = EyePos()
 	recentre(eye)
 	refill()
 	gather(eye)
 	capture()
+	drawDiscs()
 end
 
 local function rebuildPasses()
@@ -505,7 +580,7 @@ local function stop()
 	hook.Remove("ShouldDrawLocalPlayer", "borealis_trails")
 	hook.Remove("OnEntityCreated", "borealis_trails")
 	trailRT, stampRT, winX, winY = nil, nil, nil, nil
-	tracked = {}
+	tracked, discs = {}, {}
 end
 
 function trails.Use(id, user)

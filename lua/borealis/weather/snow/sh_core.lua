@@ -9,6 +9,7 @@ if SERVER then
 	shaderpack.AddResources(snow.SHADERS, { snow.NOISE })
 end
 
+snow.IMPACT_NET = "borealis_snow_impact"
 snow.DEPTH = 10
 snow.CHUNK = 512
 snow.STRIDE = 7
@@ -87,6 +88,9 @@ local FILES = {
 	"cl_trails",
 	"cl_flashlight",
 	"cl_footsteps",
+	"cl_powder",
+	"cl_impacts",
+	"sv_impacts",
 	"cl_render",
 }
 

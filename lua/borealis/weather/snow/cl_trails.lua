@@ -47,6 +47,10 @@ function trails.Start()
 	return shared.Use("snow", user)
 end
 
+function trails.Stamp(x, y, radius, depth)
+	shared.Stamp("snow", x, y, radius, depth)
+end
+
 function trails.Stop()
 	shared.Use("snow", nil)
 end

@@ -35,6 +35,10 @@ function snow.SetPaused(state)
 	end
 end
 
+function snow.Running()
+	return running and not paused
+end
+
 local function readChunk(ch)
 	if download.Active() then return cache.Decode(ch, download.Read(ch)) end
 	if not cacheDir then return end
