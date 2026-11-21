@@ -455,6 +455,112 @@ if CLIENT then
 	hook.Add("SetupWorldFog", "tod", SetupFog)
 	hook.Add("SetupSkyboxFog", "tod", SetupFog)
 
+	do
+		local ADAPT = 0.3
+		local SKY_TRACES = 8
+		local SKY_RANGE = 32768
+		local SKY_INTERVAL = 0.1
+		local OUTSIDE_RATE = 1.5
+		local FULL_LIGHT = (tod.MultToLightEnv(1) - 97) / 12
+		local LEARN_LIGHT = 0.9
+		local LEARN_OUTSIDE = 0.8
+		local LEARN_RATE = 0.1
+		local SAVE_INTERVAL = 10
+		local REF_DIR = "tod/exposure"
+		local refPath = REF_DIR .. "/" .. game.GetMap():lower() .. ".txt"
+		local reference = tonumber(file.Read(refPath, "DATA") or "")
+		local savedReference, nextSave = reference, 0
+
+		local skyDirs = {}
+		for i = 1, SKY_TRACES do
+			local yaw = (i - 1) / SKY_TRACES * math.pi * 2
+			local z = i % 2 == 0 and 0.95 or 0.4
+			local r = math.sqrt(1 - z * z)
+			skyDirs[i] = Vector(math.cos(yaw) * r, math.sin(yaw) * r, z) * SKY_RANGE
+		end
+
+		local skyHits, skyCount, nextDir, outside = {}, 0, 1, 1
+		local traceResult = {}
+		local trace = { mask = MASK_SOLID_BRUSHONLY, output = traceResult }
+
+		timer.Create("tod_exposure", SKY_INTERVAL, 0, function()
+			local eye = EyePos()
+			trace.start = eye
+			trace.endpos = eye + skyDirs[nextDir]
+			util.TraceLine(trace)
+			local hit = traceResult.HitSky and 1 or 0
+			skyCount = skyCount - (skyHits[nextDir] or 0) + hit
+			skyHits[nextDir] = hit
+			nextDir = nextDir % SKY_TRACES + 1
+			outside = outside + (skyCount / SKY_TRACES - outside) * math.min(1, SKY_INTERVAL * OUTSIDE_RATE)
+		end)
+
+		local function lightRatio()
+			local m = C.world_light_multiplier
+			if not isnumber(m) then return 1 end
+
+			return (tod.MultToLightEnv(m) - 97) / 12 / FULL_LIGHT
+		end
+
+		local function learn(value, ratio)
+			if ratio < LEARN_LIGHT or outside < LEARN_OUTSIDE then return end
+
+			reference = reference and reference + (value - reference) * math.min(1, RealFrameTime() * LEARN_RATE) or value
+			local now = RealTime()
+			if now >= nextSave and reference ~= savedReference then
+				nextSave = now + SAVE_INTERVAL
+				savedReference = reference
+				file.CreateDir(REF_DIR)
+				file.Write(refPath, tostring(reference))
+			end
+		end
+
+		function tod.ExposureCeiling()
+			if not reference then return end
+
+			return reference * lightRatio() ^ -ADAPT
+		end
+
+		function tod.ExposureReference()
+			return reference
+		end
+
+		local scale, engineScale = 1, 1
+		local setScale = Vector(1, 1, 1)
+
+		local function apply()
+			local s = render.GetToneMappingScaleLinear().x
+			if s == scale or not render.GetHDREnabled() then return end
+
+			engineScale = s
+			local ratio = lightRatio()
+			learn(s, ratio)
+			local ceiling = tod.ExposureCeiling()
+			if not ceiling or ratio >= LEARN_LIGHT or s <= ceiling then
+				scale = s
+
+				return
+			end
+
+			scale = s * (ceiling / s) ^ outside
+			setScale:SetUnpacked(scale, scale, scale)
+			render.SetToneMappingScaleLinear(setScale)
+			scale = render.GetToneMappingScaleLinear().x
+		end
+
+		function tod.ToneMapScale()
+			return scale
+		end
+
+		function tod.EngineToneMapScale()
+			return engineScale
+		end
+
+		hook.Add("PreDrawSkyBox", "tod_exposure", apply)
+		hook.Add("PostDraw2DSkyBox", "tod_exposure", apply)
+		hook.Add("PreDrawOpaqueRenderables", "tod_exposure", apply)
+	end
+
 	-- do
 	-- todo!
 	-- have an inside and outside config

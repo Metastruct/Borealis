@@ -278,6 +278,10 @@ function shaderpack.Overcast()
 	return procsky and procsky.GetOvercast and procsky.GetOvercast() or 0
 end
 
+function shaderpack.ToneMapScale()
+	return tod and tod.ToneMapScale and tod.ToneMapScale() or render.GetToneMappingScaleLinear().x
+end
+
 function shaderpack.ViewTan()
 	local vs = render.GetViewSetup()
 	local halfW = math.tan(math.rad(vs.fov) * 0.5)

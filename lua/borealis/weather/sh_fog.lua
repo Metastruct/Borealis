@@ -173,7 +173,7 @@ local function draw()
 	local eye = EyePos()
 	local fwd = EyeAngles():Forward()
 	local sun = shaderpack.SunDir()
-	local tonemap = render.GetToneMappingScaleLinear().x
+	local tonemap = shaderpack.ToneMapScale()
 	local fr, fg, fb = fogColor()
 
 	setConstant(MAT, "$c0", eye.x, eye.y, eye.z, density)

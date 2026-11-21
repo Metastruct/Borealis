@@ -26,7 +26,7 @@ function chunks.View()
 	local vs = render.GetViewSetup()
 	view.frame, view.eye, view.ang = FrameNumber(), eye, ang
 	view.fwd, view.right, view.up = EyeVector(), ang:Right(), ang:Up()
-	view.amb, view.tonemap = render.GetAmbientLightColor(), render.GetToneMappingScaleLinear().x
+	view.amb, view.tonemap = render.GetAmbientLightColor(), shaderpack.ToneMapScale()
 	view.tanH = math.tan(math.rad(vs.fov or 90) * 0.5)
 	view.tanV = view.tanH / (vs.aspect or (ScrW() / ScrH()))
 

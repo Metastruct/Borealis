@@ -554,7 +554,7 @@ local function waterSurfaceZ(pos)
 end
 
 local function skyColors()
-	local tonemap = render.GetToneMappingScaleLinear().x
+	local tonemap = shaderpack.ToneMapScale()
 	if procsky and procsky.GetSkyColors then
 		local h, z = procsky.GetSkyColors()
 		return h[1] * tonemap, h[2] * tonemap, h[3] * tonemap, z[1] * tonemap, z[2] * tonemap, z[3] * tonemap
@@ -573,7 +573,7 @@ local function bodySkyColors(g)
 	local open = g.openness
 	if open >= 1 then return hr, hg, hb, zr, zg, zb end
 
-	local tonemap = render.GetToneMappingScaleLinear().x
+	local tonemap = shaderpack.ToneMapScale()
 	local amb = bodyAmbient(g)
 	local ar, ag, ab = amb.x * tonemap, amb.y * tonemap, amb.z * tonemap
 
@@ -610,7 +610,7 @@ local function drawSurface(eyePos, eyeUnderwater, writeDepth)
 		SURF_MAT:SetTexture("$texture4", lut)
 		lutWeight = 1 - shaderpack.Overcast()
 	end
-	setConstant(SURF_MAT, "$c3", sun.x, sun.y, sun.z, lut and procsky.GetSkyScale() * render.GetToneMappingScaleLinear().x or 0)
+	setConstant(SURF_MAT, "$c3", sun.x, sun.y, sun.z, lut and procsky.GetSkyScale() * shaderpack.ToneMapScale() or 0)
 
 	local coverRT = cover.Texture()
 	local rain = coverRT and tod and tod.rain and tod.rain.amount or 0
@@ -624,7 +624,7 @@ local function drawSurface(eyePos, eyeUnderwater, writeDepth)
 	local lightScale = foliage and foliage.WorldLightScale() or 1
 	local amb = render.GetAmbientLightColor()
 	local fill = packColor(amb.x * ICE_FILL_K, amb.y * ICE_FILL_K, amb.z * ICE_FILL_K)
-	local tonemap = render.GetToneMappingScaleLinear().x
+	local tonemap = shaderpack.ToneMapScale()
 	local wallTex = shaderpack.skywall.Texture()
 	local invW, invH = shaderpack.skywall.InvSize()
 

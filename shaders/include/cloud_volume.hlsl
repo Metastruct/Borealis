@@ -1,6 +1,7 @@
 #define THICK 6000.0
+#define BASE_DENSITY 0.0025
 #ifndef DENSITY
-#define DENSITY 0.0025
+#define DENSITY BASE_DENSITY
 #endif
 
 #ifndef MAX_RANGE
@@ -29,13 +30,17 @@
 #define TALL_HI 0.85
 #define TOP_FALL 0.2
 #define TOP_SLOPE 0.25
+#ifndef OVERCAST_TOP
 #define OVERCAST_TOP 0.75
+#endif
 #define SHEAR float2(610.0, 225.0)
+
 
 #define HG_FWD 0.65
 #define HG_BACK -0.25
 #define HG_MIX 0.65
 #define POWDER 2.6
+#define POWDER_MIX 0.7
 #define AMBIENT_BASE 0.55
 #define AMBIENT_OCCLUSION 0.5
 #define ERODE 0.45
@@ -122,7 +127,13 @@ float shapeBlend(float3 q)
 {
 	float3 r = float3(dot(q.xy, float2(0.2588, 0.9659)), dot(q.xy, float2(-0.9659, 0.2588)), q.z) * float3(BIG_SCALE, BIG_SCALE, 1.0) + float3(0.71, 0.23, 0.0);
 
+#ifdef OVERCAST_MIX
+	float big = plainShape(r);
+
+	return lerp(max(smallShape(q), big * lerp(0.95, 1.1, bigMix)), big, OVERCAST_MIX);
+#else
 	return max(smallShape(q), plainShape(r) * lerp(0.95, 1.1, bigMix));
+#endif
 }
 #endif
 
@@ -269,11 +280,14 @@ float sunScatter(float transmittance, float3 phases)
 	return dot(float3(transmittance, b1, sqrt(b1)), phases);
 }
 
+static float powderMix = POWDER_MIX;
+static float ambientBase = AMBIENT_BASE;
+
 float3 cloudLight(float transmittance, float sigma, float sampleDensity, float h, float3 phases, float3 sunCol, float3 ambCol)
 {
 	float powder = 1.0 - exp(-sigma * POWDER * 400.0);
-	float3 sun = sunCol * sunScatter(transmittance, phases) * lerp(1.0, powder, 0.7);
-	float3 amb = ambCol * lerp(AMBIENT_BASE, 1.0, saturate(h / columnTop)) * lerp(1.0, AMBIENT_OCCLUSION, sampleDensity);
+	float3 sun = sunCol * sunScatter(transmittance, phases) * lerp(1.0, powder, powderMix);
+	float3 amb = ambCol * lerp(ambientBase, 1.0, saturate(h / columnTop)) * lerp(1.0, AMBIENT_OCCLUSION, sampleDensity);
 
 	return sun + amb;
 }

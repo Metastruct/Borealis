@@ -451,7 +451,7 @@ local function updateSnowLight(eye)
 end
 
 local function drawSnow(eye, amount)
-	local tonemap = render.GetToneMappingScaleLinear().x
+	local tonemap = shaderpack.ToneMapScale()
 	local light = updateSnowLight(eye)
 	local k = SNOW_ALBEDO * tonemap
 	local fr, fg, fb = render.GetFogColor()
@@ -500,7 +500,7 @@ local function drawWeather()
 	if not DROP_MAT then return end
 
 	local eye = EyePos()
-	local tonemap = render.GetToneMappingScaleLinear().x
+	local tonemap = shaderpack.ToneMapScale()
 
 	DROP_MAT:SetTexture("$basetexture", cover.Texture())
 	setConstant(DROP_MAT, "$c0", eye.x, eye.y, eye.z, CurTime() % WRAP)

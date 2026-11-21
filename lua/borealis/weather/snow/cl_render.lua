@@ -226,7 +226,7 @@ local function draw(depth, _, sky3d)
 	local wallTex = shaderpack.skywall.Texture()
 	local invW, invH = shaderpack.skywall.InvSize()
 
-	local tonemap = render.GetToneMappingScaleLinear().x
+	local tonemap = shaderpack.ToneMapScale()
 	local sun = bspdata.BakedSun()
 	setConstant(MAT, "$c0", eye.x, eye.y, eye.z, CurTime() % 1000)
 	setConstant(MAT, "$c1", trails.Window())

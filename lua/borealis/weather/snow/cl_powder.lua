@@ -47,7 +47,7 @@ function powder.Color(pos)
 	local amb = render.GetAmbientLightColor()
 	local foliage = shaderpack.foliage
 	local scale = foliage and foliage.WorldLightScale and foliage.WorldLightScale() or 1
-	local k = ALBEDO * render.GetToneMappingScaleLinear().x
+	local k = ALBEDO * shaderpack.ToneMapScale()
 
 	local function channel(light, fill)
 		return math.floor(math.Clamp((math.min(light, 2) * scale + fill * FILL) * k, 0, 1) ^ GAMMA * 255 + 0.5)

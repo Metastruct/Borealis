@@ -186,7 +186,7 @@ local function prepare()
 end
 
 local function skyColors()
-	local tonemap = render.GetToneMappingScaleLinear().x
+	local tonemap = shaderpack.ToneMapScale()
 	if procsky and procsky.GetSkyColors then
 		local h, z = procsky.GetSkyColors()
 
@@ -230,7 +230,7 @@ local function draw()
 	if lut then
 		MAT:SetTexture("$texture4", lut)
 		lutWeight = 1 - shaderpack.Overcast()
-		lutScale = procsky.GetSkyScale() * render.GetToneMappingScaleLinear().x
+		lutScale = procsky.GetSkyScale() * shaderpack.ToneMapScale()
 	end
 
 	local rain = tod and tod.rain and tod.rain.amount or 0

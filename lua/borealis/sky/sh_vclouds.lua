@@ -15,10 +15,13 @@ local procsky, cover, depthslices = shaderpack.procsky, shaderpack.cover, shader
 local ENABLED = CreateClientConVar("borealis_vclouds", "0", true, false, "draw volumetric clouds instead of the skybox deck")
 
 local BASE_OVER_FLOOR = 5000
+local BASE_OVER_FLOOR_OVERCAST = 3200
 local SKY_BASE = 3000
+local SKY_BASE_OVERCAST = 1200
 local COVERAGE_BASE = 0.38
 local COVERAGE_SWING = 0.1
 local COVERAGE_OVERCAST = 0.8
+local COVERAGE_STRATUS = 0.93
 local COVERAGE_PERIOD_A = 1200
 local COVERAGE_PERIOD_B = 1900
 local NIGHT_GAIN = 0.2
@@ -27,6 +30,13 @@ local LOG_RANGE = 12
 local EXPOSURE = 0.8
 local OVERCAST_LIGHT = 0.3
 local OVERCAST_AMB = 0.55
+local OVERCAST_DENSITY = 2.5
+local VOLUME_OVERCAST_LIGHT = 1.2
+local VOLUME_OVERCAST_GREY = 0.7
+local THICK = 6000
+local CIRRUS_ABOVE = 8000
+local CIRRUS_WIND_X, CIRRUS_WIND_Y = 140, 52
+local CIRRUS_MIN_OPACITY = 0.01
 
 local active = false
 
@@ -92,8 +102,7 @@ local function build()
 		["$additive"] = 0,
 		["$c0_x"] = 0, ["$c0_y"] = 0, ["$c0_z"] = MAP_EXTENT, ["$c0_w"] = 0,
 		["$c1_x"] = 0, ["$c1_y"] = 0, ["$c1_z"] = 1, ["$c1_w"] = 0,
-		["$c2_x"] = 0, ["$c2_y"] = MAP_SIZE, ["$c2_z"] = 0, ["$c2_w"] = 0,
-	})
+		["$c2_x"] = 0, ["$c2_y"] = MAP_SIZE, ["$c2_z"] = 0, ["$c2_w"] = 0,	})
 	sky3dMask = nil
 	mapReady = false
 
@@ -111,18 +120,26 @@ local function coverage()
 	return Lerp(overcast, base, COVERAGE_OVERCAST)
 end
 
+local function volumeCoverage()
+	return Lerp(shaderpack.Overcast(), coverage(), COVERAGE_STRATUS)
+end
+
+local function densityGain()
+	return Lerp(shaderpack.Overcast(), 1, OVERCAST_DENSITY)
+end
 local function baseZ()
 	local lvl = cover and cover.SkyLevel()
+	local overcast = shaderpack.Overcast()
 
-	if not lvl then return SKY_BASE end
+	if not lvl then return Lerp(overcast, SKY_BASE, SKY_BASE_OVERCAST) end
 
-	return lvl.floor + BASE_OVER_FLOOR
+	return lvl.floor + Lerp(overcast, BASE_OVER_FLOOR, BASE_OVER_FLOOR_OVERCAST)
 end
 
 function vclouds.GetLayer()
 	if not active then return end
 
-	return baseZ(), coverage()
+	return baseZ(), volumeCoverage()
 end
 
 local packColor, toLinear, setConstant = shaderpack.PackColor, shaderpack.ToLinear, shaderpack.SetConstant
@@ -140,21 +157,30 @@ end
 
 local FOG_START_STEP, FOG_RANGE_STEP = 64, 128
 local fogLinear = { 0, 0, 0 }
+local fogStart, fogRange, fogDensity = 0, 1, 0
 
-local function fogRamp(tonemap)
-	if render.GetFogMode() == MATERIAL_FOG_NONE then return 0, 0, 0 end
+local function readFog()
+	fogDensity = 0
+	if render.GetFogMode() == MATERIAL_FOG_NONE then return end
 	local params = tod and tod.CurrentParams
-	local maxDensity = math.Clamp(params and params.fog_max_density or 1, 0, 1)
-	if maxDensity <= 0 then return 0, 0, 0 end
+	fogDensity = math.Clamp(params and params.fog_max_density or 1, 0, 1)
+	if fogDensity <= 0 then return end
 
 	local r, g, b = render.GetFogColor()
 	fogLinear[1], fogLinear[2], fogLinear[3] = toLinear(r), toLinear(g), toLinear(b)
-	local hue, scale = splitColor(fogLinear, tonemap)
 	local first, last = render.GetFogDistances()
-	local start = math.Clamp(math.floor(first / FOG_START_STEP), 0, 255)
-	local range = math.Clamp(math.floor((last - first) / FOG_RANGE_STEP), 1, 255)
+	fogStart, fogRange = first, last - first
+end
 
-	return hue, start * 65536 + range * 256 + math.floor(maxDensity * 255), scale
+local function fogRamp(tonemap)
+	readFog()
+	if fogDensity <= 0 then return 0, 0, 0 end
+
+	local hue, scale = splitColor(fogLinear, tonemap)
+	local start = math.Clamp(math.floor(fogStart / FOG_START_STEP), 0, 255)
+	local range = math.Clamp(math.floor(fogRange / FOG_RANGE_STEP), 1, 255)
+
+	return hue, start * 65536 + range * 256 + math.floor(fogDensity * 255), scale
 end
 
 local WHITE = { 1, 1, 1 }
@@ -193,6 +219,52 @@ end
 
 vclouds.Fog = fogRamp
 
+local volLight, volAmb = { 0, 0, 0 }, { 0, 0, 0 }
+
+local function greyed(out, c, grey, gain)
+	local l = (c[1] * 0.2126 + c[2] * 0.7152 + c[3] * 0.0722) * grey
+	for i = 1, 3 do
+		out[i] = (c[i] * (1 - grey) + l) * gain
+	end
+
+	return out
+end
+
+local function volumeLayer(tonemap)
+	local sun, light, amb = lighting()
+	local overcast = shaderpack.Overcast()
+	local grey = overcast * VOLUME_OVERCAST_GREY
+	local lightHue, lightScale = splitColor(greyed(volLight, light, grey, Lerp(overcast, 1, VOLUME_OVERCAST_LIGHT)), tonemap)
+	local ambHue, ambScale = splitColor(greyed(volAmb, amb, grey, 1), tonemap)
+
+	return sun, lightHue, lightScale, ambHue, ambScale, baseZ()
+end
+
+local cirrusSun, cirrusAmb = { 0, 0, 0 }, { 0, 0, 0 }
+
+function vclouds.Cirrus(eye, tonemap, m)
+	local clouds = shaderpack.clouds
+	if not active and not (clouds and clouds.IsActive()) then return end
+
+	local overcast = shaderpack.Overcast()
+	local height = baseZ() + THICK + CIRRUS_ABOVE - eye.z
+	if 1 - overcast < CIRRUS_MIN_OPACITY or height <= 0 then return end
+
+	local _, light, amb = lighting()
+	local grey = overcast * VOLUME_OVERCAST_GREY
+	greyed(cirrusSun, light, grey, Lerp(overcast, 1, VOLUME_OVERCAST_LIGHT) * tonemap)
+	greyed(cirrusAmb, amb, grey, tonemap)
+	local time = CurTime() % 3600
+	m:SetUnpacked(
+		eye.x - CIRRUS_WIND_X * time, eye.y - CIRRUS_WIND_Y * time, height, 1 - overcast,
+		cirrusSun[1], cirrusSun[2], cirrusSun[3], fogStart,
+		cirrusAmb[1], cirrusAmb[2], cirrusAmb[3], math.max(fogRange, 1),
+		fogLinear[1] * tonemap, fogLinear[2] * tonemap, fogLinear[3] * tonemap, fogDensity
+	)
+
+	return true
+end
+
 local quadColor = Color(255, 255, 0, 255)
 local ORDER = 10
 local lastEye
@@ -209,8 +281,7 @@ local function bakeLight()
 
 	setConstant(LIGHT_MAT, "$c0", mapOrigin.x, mapOrigin.y, nil, CurTime() % 3600)
 	setConstant(LIGHT_MAT, "$c1", sun.x, sun.y, sun.z, baseZ())
-	setConstant(LIGHT_MAT, "$c2", coverage())
-
+	setConstant(LIGHT_MAT, "$c2", volumeCoverage(), nil, densityGain(), shaderpack.Overcast())
 	render.PushRenderTarget(lightMap)
 	render.OverrideAlphaWriteEnable(true, true)
 	render.SetMaterial(LIGHT_MAT)
@@ -280,6 +351,8 @@ local function draw()
 	if not MAT and not build() then return end
 
 	mapExtra:SetField(2, 1, sky3dFrame == FrameNumber() and 1 or 0)
+	mapExtra:SetField(2, 2, densityGain())
+	mapExtra:SetField(2, 3, shaderpack.Overcast())
 	MAT:SetMatrix("$viewprojmat", mapExtra)
 
 	local eye = EyePos()
@@ -287,8 +360,9 @@ local function draw()
 
 	lastEye = eye
 	local fwd = EyeAngles():Forward()
-	local tonemap = render.GetToneMappingScaleLinear().x
-	local sun, lightHue, lightScale, ambHue, ambScale, base, cov = vclouds.Layer(tonemap)
+	local tonemap = shaderpack.ToneMapScale()
+	local sun, lightHue, lightScale, ambHue, ambScale, base = volumeLayer(tonemap)
+	local cov = volumeCoverage()
 	local fogHue, fogPacked, fogScale = fogRamp(tonemap)
 
 	setConstant(MAT, "$c0", eye.x, eye.y, eye.z, lightHue)

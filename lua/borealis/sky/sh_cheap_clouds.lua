@@ -12,6 +12,14 @@ local procsky, cover, vclouds = shaderpack.procsky, shaderpack.cover, shaderpack
 local Tag = "borealis_cheap_clouds"
 local ENABLED = CreateClientConVar("borealis_clouds", "1", true, false, "Draw cheap clouds in the skybox", 0, 1)
 
+local clouds = shaderpack.clouds or {}
+shaderpack.clouds = clouds
+local drawing = false
+
+function clouds.IsActive()
+	return drawing
+end
+
 local function level()
 	if procsky and procsky.theme and procsky.theme.clouds == false then return end
 	if not ENABLED:GetBool() then return end
@@ -97,7 +105,7 @@ local function startShader()
 
 	local function cacheFog(depth, skybox)
 		if depth or skybox then return end
-		fogHue, fogPacked, fogScale = vclouds.Fog(render.GetToneMappingScaleLinear().x)
+		fogHue, fogPacked, fogScale = vclouds.Fog(shaderpack.ToneMapScale())
 	end
 
 	local function bakeBand()
@@ -105,7 +113,7 @@ local function startShader()
 		if band == 0 then
 			local o = lut.origin
 			o:Set(cloudCenter)
-			local sun, lightHue, lightScale, ambHue, ambScale, _, coverage = vclouds.Layer(render.GetToneMappingScaleLinear().x)
+			local sun, lightHue, lightScale, ambHue, ambScale, _, coverage = vclouds.Layer(shaderpack.ToneMapScale())
 			local overcast = shaderpack.Overcast()
 			local base = deckHeight(cloudCenterLevel, overcast)
 			coverage = coverage * Lerp(overcast, CLEAR_COVERAGE, 1)
@@ -159,7 +167,7 @@ local function startShader()
 
 	local function bake()
 		if vclouds.IsActive() or not wanted() then
-			ready, band = false, 0
+			ready, band, drawing = false, 0, false
 			return
 		end
 
@@ -167,8 +175,10 @@ local function startShader()
 			hook.Remove("PreDrawTranslucentRenderables", Tag)
 			hook.Remove("PreRender", Tag)
 			skyboxer.RemoveHook("e_buildclouds")
+			drawing = false
 			return
 		end
+		drawing = true
 
 		local lvl = level()
 		if not ready or lvl ~= cloudCenterLevel then
@@ -232,6 +242,7 @@ local function stop()
 	hook.Remove("PreDrawTranslucentRenderables", Tag)
 	hook.Remove("PreRender", Tag)
 	skyboxer.RemoveHook("e_buildclouds")
+	drawing = false
 end
 
 shaderpack.Toggle(Tag, nil, {}, start, stop)()

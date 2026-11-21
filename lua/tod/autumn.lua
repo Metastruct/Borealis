@@ -1,4 +1,4 @@
-local DIR = "tod_autumn"
+local DIR = "tod/autumn"
 local TINT = Vector(1.7, 1.35, 0.85)
 local KEEP = 0.25
 local SCALE = 0.5

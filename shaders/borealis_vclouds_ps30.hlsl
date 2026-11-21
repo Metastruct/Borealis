@@ -30,6 +30,11 @@ sampler Sky3DMask : register(s5);
 #define MAP_INV    Extra0.z
 #define MAP_ON     Extra0.w
 #define SKY3D_ON   Extra1.x
+#define DENSITY_GAIN Extra1.y
+#define DENSITY (BASE_DENSITY * DENSITY_GAIN)
+#define OVERCAST   Extra1.z
+#define OVERCAST_MIX OVERCAST
+#define OVERCAST_TOP 0.35
 
 #define SHAPE_BLEND
 #define SINGLE_SMALL_LATTICE
@@ -48,6 +53,14 @@ sampler Sky3DMask : register(s5);
 #define DETAIL2_GAIN 0.35
 
 #define LIGHT_LOD_T 0.3
+
+#define RIM_G 0.9
+#define RIM_GAIN 0.02
+#define AMBIENT_OVERCAST 0.45
+
+#define FAR_HEIGHT 0.2
+#define FAR_PATH 1500.0
+#define FAR_SUN_Z 0.15
 
 #define SKIP_ALPHA (254.5 / 255.0)
 
@@ -71,6 +84,9 @@ float4 main(PS_IN i) : COLOR
 	float2 uv = i.spos.xy / i.spos.w * float2(0.5, -0.5) + 0.5;
 
 	uv += float2(abs(ddx(uv).x), abs(ddy(uv).y)) * 0.5;
+
+	float3 ray = normalize(i.wpos - EYE);
+
 	float4 frame = tex2D(Frame, uv);
 	float3 scene = frame.rgb;
 	[branch] if (frame.a > SKIP_ALPHA)
@@ -81,7 +97,8 @@ float4 main(PS_IN i) : COLOR
 	float raw = tex2Dlod(Depth, float4(uv, 0.0, 0.0)).r;
 	float d = raw * DEPTH_SCALE;
 	float open = 1.0;
-	if (IsSkyDepth(raw))
+	bool sky = IsSkyDepth(raw);
+	if (sky)
 	{
 		d = MAX_RANGE * 4.0;
 		[branch] if (SKY3D_ON > 0.5 && EYE.z < BASE_Z)
@@ -96,7 +113,6 @@ float4 main(PS_IN i) : COLOR
 
 	d = SliceDepth(d, frame.a * 255.0, max(floor(i.color.b * 255.0 + 0.5), 1.0));
 
-	float3 ray = normalize(i.wpos - EYE);
 	float cosF = max(dot(ray, FWD), 0.05);
 	float tScene = d / cosF;
 
@@ -108,6 +124,12 @@ float4 main(PS_IN i) : COLOR
 
 		return float4(0.0, saturate(SLICE_NEAR * pow(SLICE_RATIO, ks + 0.5) / 6000.0), 0.0, 1.0);
 	}
+
+	float3 sunCol = unpackColor(LIGHT_P) * decodeScale(i.color.g);
+	float3 ambCol = unpackColor(AMB_P) * decodeScale(i.color.r);
+	float3 fogCol = unpackColor(FOG_HUE) * decodeScale(i.color.a);
+	float3 fog = unpackFog(FOG_RAMP);
+	float cosSun = dot(ray, SUN_DIR);
 
 	float top = BASE_Z + THICK;
 	float t0, t1;
@@ -126,6 +148,24 @@ float4 main(PS_IN i) : COLOR
 	}
 
 	t0 = max(t0, 0.0);
+	powderMix = POWDER_MIX * saturate(1.0 - cosSun) * (1.0 - OVERCAST);
+	ambientBase = lerp(AMBIENT_BASE, AMBIENT_OVERCAST, OVERCAST);
+
+	float farOn = smoothstep(0.45, 0.75, COVERAGE);
+	float tp = (BASE_Z + THICK * FAR_HEIGHT - EYE.z) / ray.z;
+	[branch] if (farOn > 0.0 && tp > FADE_RANGE && tp < tScene)
+	{
+		float3 p = EYE + ray * tp;
+		float cover = coverAt(p);
+		float base = baseDensity(shapeAt(p, FAR_HEIGHT), FAR_HEIGHT, cover);
+		float sigma = base * DENSITY;
+		float sunT = exp(-sigma * (columnTop - FAR_HEIGHT) * THICK / max(SUN_DIR.z, FAR_SUN_Z));
+		float3 farCol = cloudLight(sunT, sigma, base, FAR_HEIGHT, cloudPhases(cosSun), sunCol, ambCol);
+		farCol = lerp(farCol, fogCol, saturate((tp - fog.x) / fog.y) * fog.z);
+		float a = (1.0 - exp(-sigma * FAR_PATH)) * farOn * saturate((tp - FADE_RANGE) / (MAX_RANGE - FADE_RANGE)) * open;
+		scene = lerp(scene, farCol, a);
+	}
+
 	t1 = min(min(t1, tScene), MAX_RANGE);
 	if (t1 <= t0)
 	{
@@ -133,11 +173,8 @@ float4 main(PS_IN i) : COLOR
 	}
 
 	float erode = ERODE;
-	float3 sunCol = unpackColor(LIGHT_P) * decodeScale(i.color.g);
-	float3 ambCol = unpackColor(AMB_P) * decodeScale(i.color.r);
-	float3 fogCol = unpackColor(FOG_HUE) * decodeScale(i.color.a);
-	float3 fog = unpackFog(FOG_RAMP);
-	float3 phases = cloudPhases(dot(ray, SUN_DIR));
+	float3 phases = cloudPhases(cosSun);
+	phases.x += hgPhase(cosSun, RIM_G) * RIM_GAIN * (1.0 - OVERCAST);
 
 	float path = t1 - t0;
 	float jitter = frac(52.9829189 * frac(dot(uv * float2(1920.0, 1080.0), float2(0.06711056, 0.00583715))));

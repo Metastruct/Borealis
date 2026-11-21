@@ -1,7 +1,8 @@
 local SHADERS = { "borealis_sky_ps30", "borealis_skylut_ps30", "borealis_passthrough_vs30" }
+local CIRRUS = "shaderpack/procsky/cirrus"
 
 if SERVER then
-	shaderpack.AddResources(SHADERS)
+	shaderpack.AddResources(SHADERS, { CIRRUS })
 
 	return
 end
@@ -352,15 +353,24 @@ local function viewRays()
 	return ang:Forward(), ang:Right(), halfW, halfH
 end
 
+local cirrusExtra = Matrix()
+
 local function drawSky()
 	if not lut then return end
 	local fwd, right, halfW, halfH = viewRays()
 	local sun, disc = state.sun, state.disc
+	local tonemap = shaderpack.ToneMapScale()
 
-	setConstant(MAT, "$c0", fwd.x, fwd.y, fwd.z, INTENSITY * render.GetToneMappingScaleLinear().x * (1 - 0.3 * state.overcast))
+	setConstant(MAT, "$c0", fwd.x, fwd.y, fwd.z, INTENSITY * tonemap * (1 - 0.3 * state.overcast))
 	setConstant(MAT, "$c1", right.x * halfW, right.y * halfW, right.z * halfW, halfH)
 	setConstant(MAT, "$c2", sun.x, sun.y, sun.z)
 	setConstant(MAT, "$c3", disc[1], disc[2], disc[3])
+
+	local vclouds = shaderpack.vclouds
+	if not (vclouds and vclouds.Cirrus and vclouds.Cirrus(EyePos(), tonemap, cirrusExtra)) then
+		cirrusExtra:SetField(1, 4, 0)
+	end
+	MAT:SetMatrix("$viewprojmat", cirrusExtra)
 
 	render.SetMaterial(MAT)
 	render.DrawScreenQuad(true)
@@ -393,6 +403,8 @@ local function start()
 	MAT = MAT or CreateShaderMaterial("borealis_procsky_" .. os.time(), {
 		["$pixshader"] = "borealis_sky_ps30",
 		["$vertexshader"] = "borealis_passthrough_vs30",
+		["$texture1"] = CIRRUS,
+		["$linearread_texture1"] = 1,
 		["$additive"] = 0,
 		["$alpha_blend"] = 0,
 		["$c0_x"] = 1, ["$c0_y"] = 0, ["$c0_z"] = 0, ["$c0_w"] = 1,
@@ -422,7 +434,7 @@ local function start()
 	end
 end
 
-local apply = shaderpack.Toggle("borealis_procsky", SKY_ENABLED, SHADERS, start, stop)
+local apply = shaderpack.Toggle("borealis_procsky", SKY_ENABLED, SHADERS, start, stop, { CIRRUS })
 
 hook.Add("Think", "borealis_procsky", think)
 hook.Add("RenderScreenspaceEffects", "borealis_procsky_tint", function()

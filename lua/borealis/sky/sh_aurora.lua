@@ -165,7 +165,7 @@ local function start(PIXEL_SHADER, SKY_SHADER, MAP_SHADER)
 	local render_DrawScreenQuad = render.DrawScreenQuad
 	local render_SetMaterial = render.SetMaterial
 	local function viewRays()
-		local night = nightFactor() * render.GetToneMappingScaleLinear().x
+		local night = nightFactor() * shaderpack.ToneMapScale()
 		if night <= 0.001 then return end
 
 		local ang = EyeAngles()

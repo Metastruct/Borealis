@@ -14,6 +14,11 @@ sampler3D Detail : register(s3);
 #define BASE_Z     Constants1.w
 #define COVERAGE   Constants2.x
 #define MAP_SIZE   Constants2.y
+#define DENSITY_GAIN Constants2.z
+#define DENSITY (BASE_DENSITY * DENSITY_GAIN)
+#define OVERCAST   Constants2.w
+#define OVERCAST_MIX OVERCAST
+#define OVERCAST_TOP 0.35
 
 #define SHAPE_BLEND
 #define SINGLE_SMALL_LATTICE

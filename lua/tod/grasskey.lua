@@ -1,6 +1,6 @@
 require("bspdata")
 
-local DIR = "tod_grasskey"
+local DIR = "tod/grasskey"
 local MIN_NZ = 0.5
 local MIN_UP_AREA = 128 * 128
 local MIN_UP_SHARE = 0.25
