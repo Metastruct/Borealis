@@ -809,6 +809,11 @@ if CLIENT then
 		tod.mode = net.ReadInt(4)
 		tod.utc_offset = net.ReadInt(32)
 	end)
+
+	net.Receive("tod_forceweather", function()
+		local name = net.ReadString()
+		tod.force_weather = name ~= "" and name or nil
+	end)
 end
 
 if SERVER then
@@ -865,6 +870,24 @@ if SERVER then
 		net.WriteInt(offset, 32)
 		net.Send(filter or player.GetAll())
 	end
+
+	util.AddNetworkString("tod_forceweather")
+
+	function tod.ForceWeather(name, reason)
+		if name == "" then name = nil end
+		if name ~= nil and name ~= "clear" and not tod.weathers[name] then return false end
+
+		if name ~= tod.force_weather then
+			logChange("weather", tod.force_weather or "schedule", name or "schedule", reason)
+		end
+
+		tod.force_weather = name
+		net.Start("tod_forceweather")
+		net.WriteString(name or "")
+		net.Broadcast()
+
+		return true
+	end
 end
 
 tod.cvar = CreateConVar("sv_tod", "1", bit.bor(FCVAR_REPLICATED, FCVAR_NOTIFY), "0 = off\n1 = realtime\n2 = demo")
@@ -874,7 +897,7 @@ if SERVER then
 		return IsValid(ply) and ply:Nick() .. " (" .. ply:SteamID() .. ")" or "console"
 	end
 
-	local function cmd(val, reason)
+	function tod.SetTime(val, reason)
 		local time24 = tonumber(val)
 
 		if val == "demo" then
@@ -899,7 +922,7 @@ if SERVER then
 	if aowl then
 		aowl.AddCommand({"settod", "tod"}, "set time of day", function(ply, line, val)
 			if not ply:IsAdmin() and not ply.Unrestricted and ply.__lastTimeTOD and CurTime() - ply.__lastTimeTOD < 60 then return false, "do not abuse the TOD command" end
-			cmd(val, string.format("!tod %q by %s", val or "", who(ply)))
+			tod.SetTime(val, string.format("!tod %q by %s", val or "", who(ply)))
 			ply.__lastTimeTOD = CurTime()
 		end, "developers")
 
@@ -921,13 +944,19 @@ if SERVER then
 	else
 		concommand.Add("settod", function(ply, _, args)
 			if ply and ply:IsValid() and not ply:IsAdmin() then return end
-			cmd(args[1], string.format("settod %q by %s", args[1] or "", who(ply)))
+			tod.SetTime(args[1], string.format("settod %q by %s", args[1] or "", who(ply)))
 		end)
 	end
 
 	hook.Add("PlayerInitialSpawn", "tod_mode", function(ply)
 		if not ply or not ply:IsValid() then return end
 		tod.SetMode(tod.cvar:GetInt(), ply, "sync for joining " .. who(ply))
+
+		if tod.force_weather then
+			net.Start("tod_forceweather")
+			net.WriteString(tod.force_weather)
+			net.Send(ply)
+		end
 
 		-- manual mode: the joiner's cycle is otherwise nil (midnight) until the next .tod
 		if tod.current_cycle then
@@ -1163,6 +1192,7 @@ do
 	end
 
 	local season = tod.GetSeason()
+	tod.loaded_season = season
 	if season == "winter" then
 		include("tod/snow.lua")
 	else

@@ -125,13 +125,21 @@ Sky faces write no depth, so anything drawn after the world shows through them. 
 
 `borealis_shaderpack_bench` Needs `fps_max 0` and vsync off. Literally the benchmark of the shaderpack.
 
+### Menu
+
+`borealis_menu`, or the Borealis icon in the context menu. Tabs: status (time, weather forecast, season), effects (every `borealis_*` convar and the benchmark) and credits (`lua/borealis/menu/cl_credits.lua`, SteamID64 or `STEAM_` ids). Admins get time, weather and season overrides, sent to `sv_menu` and applied through `tod.SetTime`, `tod.ForceWeather` and `tod.ForceSeason`.
+- The window is a CRT monitor: Lua draws the casing, the tab keys and the LEDs, and the screen text types out on each tab change.
+- `borealis_menu_ps30` post-processes the screen only, after Derma paints it: tube curvature inside a square frame, phosphor glow (12 taps), aberration, scanlines, a glass sheen and the power on/off collapse. Curvature moves edge content by up to 6 px, so hit areas there are slightly off.
+- The vertical BOREALIS title stands outside the window, white with a black drop shadow, sized at font build to the window's height. Nine Circles is already at its heaviest: fake bold closes its counters.
+- Fonts in `resource/fonts`: Nine Circles (title), Audiowide (casing) and VT323 (screen), all SIL OFL, licence in `fonts-OFL.txt`. GMod loads new fonts only at startup.
+
 ## tod
 
 Time of day, weather and season, the `tod` global.
 `lua/autorun/tod.lua` is not tied to the borealis shaderpack and just works without borealis enabled or present.
 - `sv_tod`: 0 manual, 1 realtime on the server's clock (its UTC offset is sent to clients), 2 demo (a day every 20 seconds). `settod <hour|demo|realtime>`, or `!tod` and `!weather` with aowl.
 - Day cycle: hour-stamped keys in `lua/tod/default_cycle.lua` (`tod.SetConfigCycle`), sampled on a monotone cubic by `tod.SampleCycle`. `tod.AlignSunToLight` places the sun from the light level. Keys drive the skypaint, engine fog, shadows, the world light style (`tod.MultToLightEnv`, 98 to 127) and the `grade_*` values of `sh_grade`.
-- Weather: one weather per hour slot, picked from a hash of the slot so every machine agrees, ramped over 10 minutes. `tod.AddOverrideConfig(name, config, probability, curve)` for rain and snow, `tod.AddFogConfig` for fog. `tod.GetWeather(name)` gives 0 to 1, `tod.force_weather` overrides it. `tod.SetVolumetricFog` hands a weather's fog to `borealis_fog`.
+- Weather: one weather per hour slot, picked from a hash of the slot so every machine agrees, ramped over 10 minutes. `tod.AddOverrideConfig(name, config, probability, curve)` for rain and snow, `tod.AddFogConfig` for fog. `tod.GetWeather(name)` gives 0 to 1, `tod.force_weather` overrides it, `tod.ForceWeather(name)` sets it on the server and every client (nil goes back to the schedule). `tod.SetVolumetricFog` hands a weather's fog to `borealis_fog`.
 - Seasons: `tod.GetSeason()` is winter from December to February, autumn in October and November, summer otherwise. `sv_tod_season` forces one on the next map load.
   - Winter loads `snow.lua`: ground textures become snow, tinted by `tod.snow.SetTint`, and snow footsteps.
   - Other seasons load `rain.lua`: rumble outside, drips under cover, thunder with a flash. `cl_rain_volume`, `cl_rain_mute_losefocus`.

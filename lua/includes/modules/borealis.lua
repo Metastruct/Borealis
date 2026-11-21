@@ -36,6 +36,9 @@ local FILES = {
 	"lighting/sh_ssao",
 	"lighting/sh_grade",
 	"core/cl_bench",
+	"menu/cl_credits",
+	"menu/cl_menu",
+	"menu/sv_menu",
 }
 
 for _, name in ipairs(FILES) do
