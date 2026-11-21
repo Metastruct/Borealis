@@ -61,6 +61,8 @@ sampler Sky3DMask : register(s5);
 #define FAR_HEIGHT 0.2
 #define FAR_PATH 1500.0
 #define FAR_SUN_Z 0.15
+#define FAR_FADE_START 50000.0
+#define FAR_FADE_END 140000.0
 
 #define SKIP_ALPHA (254.5 / 255.0)
 
@@ -162,7 +164,7 @@ float4 main(PS_IN i) : COLOR
 		float sunT = exp(-sigma * (columnTop - FAR_HEIGHT) * THICK / max(SUN_DIR.z, FAR_SUN_Z));
 		float3 farCol = cloudLight(sunT, sigma, base, FAR_HEIGHT, cloudPhases(cosSun), sunCol, ambCol);
 		farCol = lerp(farCol, fogCol, saturate((tp - fog.x) / fog.y) * fog.z);
-		float a = (1.0 - exp(-sigma * FAR_PATH)) * farOn * saturate((tp - FADE_RANGE) / (MAX_RANGE - FADE_RANGE)) * open;
+		float a = (1.0 - exp(-sigma * FAR_PATH)) * farOn * saturate((tp - FADE_RANGE) / (MAX_RANGE - FADE_RANGE)) * (1.0 - smoothstep(FAR_FADE_START, FAR_FADE_END, tp)) * open;
 		scene = lerp(scene, farCol, a);
 	}
 
