@@ -867,7 +867,7 @@ local function buildStatus(tab, w, h)
 	chart:SetPos(0, chartTop)
 	chart:SetSize(lw, sunY - chartTop - px(20))
 	chart.Pickable = admin
-	if admin then chart.BorealisHelp = "Select a time, then press Set. Right click to cancel" end
+	if admin then chart.BorealisHelp = "Set time" end
 	local samples = chart.Samples
 
 	local big = px(5)
@@ -908,7 +908,7 @@ local function buildStatus(tab, w, h)
 
 		local specs = { { "Auto", function() control("weather", "") end, "Resume the hourly weather schedule", function() return tod.force_weather == nil end, COL.ink } }
 		for _, name in ipairs(weatherNames()) do
-			specs[#specs + 1] = { name, function() control("weather", name) end, "Lock the weather to " .. name .. " until Auto", function() return tod.force_weather == name end }
+			specs[#specs + 1] = { name, function() control("weather", name) end, "Lock the weather to " .. name, function() return tod.force_weather == name end }
 		end
 		overrideRow(tab, rx, wh - rowH, rw, rowH, specs, labels)
 
@@ -926,7 +926,7 @@ local function buildStatus(tab, w, h)
 		local cw = say(clock(cycle), FONT.huge, 0, clockY, COL.bright)
 		local ix = cw + px(20)
 		local capY = clockY + H.huge * 0.24 - H.small * 0.24
-		say(mode == 1 and "SERVER CLOCK" or mode == 2 and "DEMO CYCLE" or "HELD BY ADMIN", FONT.small, ix, capY, mode == 1 and COL.mid or COL.amber)
+		say(mode == 1 and "SERVER CLOCK" or mode == 2 and "DEMO CYCLE" or "FIXED TIME", FONT.small, ix, capY, mode == 1 and COL.mid or COL.amber)
 		say(utcLabel(), FONT.small, ix, capY + H.small, COL.dim)
 
 		local colW = math.floor((lw - px(28)) / 2)
@@ -1057,7 +1057,7 @@ local function buildEffects(tab, w, h)
 				RunConsoleCommand(name, convar:GetDefault())
 			end
 		end
-	end, "Restore factory settings. Press twice to confirm", COL.danger)
+	end, "Restore factory settings", COL.danger)
 	reset.IsActive = function() return RealTime() < confirmUntil end
 	reset:SetPos(w - benchW * 2 - gap, math.floor((masterH - px(28)) / 2))
 	reset:SetSize(benchW, px(28))
@@ -1066,7 +1066,7 @@ local function buildEffects(tab, w, h)
 	bench:Setup("Run benchmark", function()
 		menu.Close()
 		RunConsoleCommand("borealis_shaderpack_bench")
-	end, "Measure the cost of each effect. Copy results to clipboard")
+	end, "Measure each effect's cost and copy the results")
 	bench:SetPos(w - benchW, math.floor((masterH - px(28)) / 2))
 	bench:SetSize(benchW, px(28))
 
