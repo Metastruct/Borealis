@@ -25,7 +25,7 @@ local STATE_RESET = CreateMaterial("borealis_opacity_alphatestreset", "UnlitGene
 	["$alphatestreference"] = 0.001,
 })
 
-opacity.fixed = opacity.fixed or {}
+opacity.transAlphaSet = opacity.transAlphaSet or {}
 opacity.depth = opacity.depth or {}
 opacity.brushes = opacity.brushes or {}
 opacity.sents = opacity.sents or {}
@@ -34,7 +34,7 @@ opacity.forcedOpaque = opacity.forcedOpaque or {}
 opacity.world = opacity.world or {}
 opacity.cutouts = opacity.cutouts or {}
 opacity.models = opacity.models or {}
-local fixed, depth, brushes, screens = opacity.fixed, opacity.depth, opacity.brushes, opacity.screens
+local transAlphaSet, depth, brushes, screens = opacity.transAlphaSet, opacity.depth, opacity.brushes, opacity.screens
 
 local materialInfo = {}
 local modelMaterials = {}
@@ -110,22 +110,22 @@ local function inspect(ent)
 	local depthMats
 	for i = 1, #mats do
 		local sub = ent:GetSubMaterial(i - 1)
-		local info
+		local depthMat
 		if sub ~= "" then
-			info = classify(sub)
-			if info == SEE then return true end
+			depthMat = classify(sub)
+			if depthMat == SEE then return true end
 		elseif overrideName ~= "" then
-			info = override
+			depthMat = override
 		else
-			info = classify(mats[i])
-			if info == SEE then
-				info = false
+			depthMat = classify(mats[i])
+			if depthMat == SEE then
+				depthMat = false
 			end
 		end
 
-		if info then
+		if depthMat then
 			depthMats = depthMats or {}
-			depthMats[i - 1] = info
+			depthMats[i - 1] = depthMat
 		end
 	end
 
@@ -389,9 +389,9 @@ local function updateSent(ent)
 	setSent(ent, wanted)
 end
 
-opacity.drawn = opacity.drawn or {}
+opacity.drawWrapped = opacity.drawWrapped or {}
 opacity.drawWrappers = opacity.drawWrappers or setmetatable({}, { __mode = "k" })
-local drawn, drawWrappers = opacity.drawn, opacity.drawWrappers
+local drawWrapped, drawWrappers = opacity.drawWrapped, opacity.drawWrappers
 
 local DEPTH_SOLID = CreateMaterial("borealis_opacity_depth_solid", "DepthWrite", { ["$color_depth"] = 1 })
 local entityMeta = FindMetaTable("Entity")
@@ -399,8 +399,8 @@ local innerDrawModel = entityMeta.DrawModel
 local modelDepthMats = {}
 
 local function depthOf(name)
-	local info = classify(name)
-	return info == SEE and NO_DRAW or info or DEPTH_SOLID
+	local depthMat = classify(name)
+	return depthMat == SEE and NO_DRAW or depthMat or DEPTH_SOLID
 end
 
 local function buildDepthMats(ent, model, override)
@@ -428,7 +428,7 @@ local function fullDepthMats(ent)
 end
 
 local function depthMatsOf(ent)
-	local state = drawn[ent]
+	local state = drawWrapped[ent]
 	if state and state.depthMats then return state.depthMats end
 
 	local model = ent:GetModel()
@@ -530,7 +530,7 @@ local function depthDrawModel(ent, flags)
 end
 
 local function depthDraw(self, flags)
-	local state = drawn[self]
+	local state = drawWrapped[self]
 	local orig = state and state.orig
 	if not orig then return end
 
@@ -577,14 +577,14 @@ end
 
 drawWrappers[depthDraw] = true
 
-for ent, state in pairs(drawn) do
+for ent, state in pairs(drawWrapped) do
 	if IsValid(ent) and ent.Draw ~= depthDraw and drawWrappers[ent.Draw] then
 		ent.Draw = depthDraw
 	end
 end
 
-local function setDrawn(ent, wanted)
-	local state = drawn[ent]
+local function setDrawWrapped(ent, wanted)
+	local state = drawWrapped[ent]
 	local current = ent.Draw
 	if not wanted then
 		if state then
@@ -592,7 +592,7 @@ local function setDrawn(ent, wanted)
 				ent.Draw = state.orig
 			end
 
-			drawn[ent] = nil
+			drawWrapped[ent] = nil
 		end
 
 		return
@@ -601,7 +601,7 @@ local function setDrawn(ent, wanted)
 	if current ~= depthDraw then
 		if not (state and drawWrappers[current]) then
 			state = { orig = current }
-			drawn[ent] = state
+			drawWrapped[ent] = state
 		end
 
 		ent.Draw = depthDraw
@@ -829,7 +829,7 @@ end
 local function update(ent)
 	if not IsValid(ent) then return end
 
-	if drawWrappers[ent.Draw] and not drawn[ent] then
+	if drawWrappers[ent.Draw] and not drawWrapped[ent] then
 		local stored = scripted_ents.Get(ent:GetClass())
 		ent.Draw = stored and stored.Draw
 	end
@@ -850,19 +850,19 @@ local function update(ent)
 
 	local see, depthMats = inspect(ent)
 	local mode = ent:GetRenderMode()
-	if fixed[ent] then
+	if transAlphaSet[ent] then
 		if mode ~= RENDERMODE_TRANSALPHA then
-			fixed[ent] = nil
+			transAlphaSet[ent] = nil
 		elseif not see then
 			ent:SetRenderMode(RENDERMODE_NORMAL)
-			fixed[ent] = nil
+			transAlphaSet[ent] = nil
 			mode = RENDERMODE_NORMAL
 		end
 	end
 
-	if see and not fixed[ent] and mode == RENDERMODE_NORMAL and ent:GetRenderGroup() ~= RENDERGROUP_TRANSLUCENT then
+	if see and not transAlphaSet[ent] and mode == RENDERMODE_NORMAL and ent:GetRenderGroup() ~= RENDERGROUP_TRANSLUCENT then
 		ent:SetRenderMode(RENDERMODE_TRANSALPHA)
-		fixed[ent] = true
+		transAlphaSet[ent] = true
 	end
 
 	if see or not overridable(ent) then
@@ -877,7 +877,7 @@ local function update(ent)
 	if ent.Draw ~= nil then
 		setGroup(ent, not see and convertedOpaque(ent))
 		updateSent(ent)
-		setDrawn(ent, not see and ent:EntIndex() > 0 and not ent:IsPlayer() and not ent:IsWeapon())
+		setDrawWrapped(ent, not see and ent:EntIndex() > 0 and not ent:IsPlayer() and not ent:IsWeapon())
 		setScreen(ent, opaqueScreen(ent))
 	end
 end
@@ -1159,7 +1159,7 @@ end
 local removedSince = {}
 
 local function sweepRemoved()
-	local tables = { fixed, depth, brushes, opacity.sents, screens, opacity.forcedOpaque, drawn, pacOverrides }
+	local tables = { transAlphaSet, depth, brushes, opacity.sents, screens, opacity.forcedOpaque, drawWrapped, pacOverrides }
 	local now = RealTime()
 	for _, tracked in ipairs(tables) do
 		for ent in pairs(tracked) do
@@ -1228,12 +1228,12 @@ local function stop()
 		opacity.forcedOpaque[ent] = nil
 	end
 
-	for ent in pairs(fixed) do
+	for ent in pairs(transAlphaSet) do
 		if IsValid(ent) and ent:GetRenderMode() == RENDERMODE_TRANSALPHA then
 			ent:SetRenderMode(RENDERMODE_NORMAL)
 		end
 
-		fixed[ent] = nil
+		transAlphaSet[ent] = nil
 	end
 
 	for ent in pairs(depth) do
@@ -1262,12 +1262,12 @@ local function stop()
 		opacity.sents[ent] = nil
 	end
 
-	for ent in pairs(drawn) do
+	for ent in pairs(drawWrapped) do
 		if IsValid(ent) then
-			setDrawn(ent, false)
+			setDrawWrapped(ent, false)
 		end
 
-		drawn[ent] = nil
+		drawWrapped[ent] = nil
 	end
 
 	for ent in pairs(screens) do

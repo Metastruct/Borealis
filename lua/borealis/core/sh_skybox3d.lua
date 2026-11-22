@@ -10,17 +10,17 @@ local skybox3d = shaderpack.skybox3d or {}
 shaderpack.skybox3d = skybox3d
 
 local bspdata, depthslices = bspdata, shaderpack.depthslices
-local ENABLED = CreateClientConVar("borealis_skybox3d", "1", true, false, "give the 3D skybox depth so effects reach into it")
+local ENABLED = CreateClientConVar("borealis_skybox3d", "1", true, false, "give the 3D skybox depth so effects gridRadius into it")
 local SKY_3D = GetConVar("r_3dsky")
 local SKIP_FLAGS = bit.bor(SURF_SKY2D, SURF_SKY, SURF_WARP, SURF_TRANS, SURF_NODRAW, SURF_HINT, SURF_SKIP)
 local CUTOUT_FLAGS = 128 + 256 + 2097152
-local EDGE = 1
+local BEYOND_MARGIN = 1
 local MESH_TRIS = 10000
 local RT_FLAGS = 1 + 4 + 8
 local R32F = 27
 local IDENTITY = Matrix()
 
-local meshes, skyClusters, building, bounds
+local meshes, skyClusters, buildCo, bounds
 local cutouts = {}
 local depthView = { type = "3D", x = 0, y = 0 }
 local depthMat, compositeMat, skyRT, copyRT
@@ -57,7 +57,7 @@ local function writeMeshes(tris)
 		local ax, ay, az = toWorld(tris[i], tris[i + 1], tris[i + 2])
 		local bx, by, bz = toWorld(tris[i + 3], tris[i + 4], tris[i + 5])
 		local cx, cy, cz = toWorld(tris[i + 6], tris[i + 7], tris[i + 8])
-		if beyond(ax, ay, az, EDGE) or beyond(bx, by, bz, EDGE) or beyond(cx, cy, cz, EDGE)
+		if beyond(ax, ay, az, BEYOND_MARGIN) or beyond(bx, by, bz, BEYOND_MARGIN) or beyond(cx, cy, cz, BEYOND_MARGIN)
 			or solid((ax + bx + cx) / 3, (ay + by + cy) / 3, (az + bz + cz) / 3) or solid(ax, ay, az) or solid(bx, by, bz) or solid(cx, cy, cz) then
 			kept[n + 1], kept[n + 2], kept[n + 3] = ax, ay, az
 			kept[n + 4], kept[n + 5], kept[n + 6] = bx, by, bz
@@ -119,16 +119,16 @@ local function addCutoutProp(prop)
 	cutouts[#cutouts + 1] = { ent = ent, pos = ent:GetPos(), radius = ent:GetModelRadius() * scale }
 end
 
-local function addProps(out)
-	local cache = {}
+local function addStaticProps(out)
+	local meshesByModel = {}
 	local m, scale = Matrix(), Vector()
 	for _, prop in ipairs(bspdata.StaticProps()) do
 		local o = prop.origin
 		if prop.model and bspdata.InSkybox(o.x, o.y, o.z) then
-			local parts = cache[prop.model]
+			local parts = meshesByModel[prop.model]
 			if parts == nil then
 				parts = util.GetModelMeshes(prop.model, 0) or false
-				cache[prop.model] = parts
+				meshesByModel[prop.model] = parts
 			end
 
 			m:Identity()
@@ -164,20 +164,20 @@ local function buildRoutine()
 	if not skybox then return end
 
 	skyClusters = bspdata.SkyClusters(skybox)
-	writeMeshes(addProps(bspdata.SkyboxTriangles(SKIP_FLAGS)))
+	writeMeshes(addStaticProps(bspdata.SkyboxTriangles(SKIP_FLAGS)))
 	hook.Run("Skybox3DReady")
 end
 
 local function stepBuild()
-	if not building then return end
+	if not buildCo then return end
 
-	local ok, why = coroutine.resume(building)
+	local ok, why = coroutine.resume(buildCo)
 	if not ok then
-		building = nil
+		buildCo = nil
 		hook.Remove("Think", "borealis_skybox3d_build")
 		ErrorNoHalt("[skybox3d] " .. tostring(why) .. "\n")
-	elseif coroutine.status(building) == "dead" then
-		building = nil
+	elseif coroutine.status(buildCo) == "dead" then
+		buildCo = nil
 		hook.Remove("Think", "borealis_skybox3d_build")
 	end
 end
@@ -221,7 +221,7 @@ local function drawMeshes()
 	cam.PopModelMatrix()
 end
 
-local function targets()
+local function ensureTargets()
 	local w, h = ScrW(), ScrH()
 	if not shaderpack.UsableRT(skyRT, w, h) then
 		skyRT = GetRenderTargetEx("borealis_skybox3d_depth_" .. w .. "x" .. h, w, h, RT_SIZE_LITERAL, MATERIAL_RT_DEPTH_SEPARATE, RT_FLAGS, 0, IMAGE_FORMAT_RGBA16161616F)
@@ -244,7 +244,7 @@ end
 local function writeDepthTexture(eye)
 	if not depthslices.DepthPassFresh() then return end
 
-	local ok, w, h = targets()
+	local ok, w, h = ensureTargets()
 	if not ok then return end
 
 	local vs = render.GetViewSetup()
@@ -274,7 +274,7 @@ local function writeDepthTexture(eye)
 	render.PopRenderTarget()
 end
 
-local function reach()
+local function gridRadius()
 	local r = 0
 	for _, grid in pairs(shaderpack.chunks.grids) do
 		if grid.started then r = math.max(r, grid.radius) end
@@ -284,7 +284,7 @@ local function reach()
 end
 
 local function drawCutouts(eye)
-	local r = reach()
+	local r = gridRadius()
 	if r <= 0 or #cutouts == 0 then return end
 
 	render.SuppressEngineLighting(true)
@@ -321,7 +321,7 @@ end
 local function stop()
 	hook.Remove("PreDrawOpaqueRenderables", "borealis_skybox3d")
 	hook.Remove("Think", "borealis_skybox3d_build")
-	building = nil
+	buildCo = nil
 	destroy()
 	visibleCluster = -2
 end
@@ -351,7 +351,7 @@ local function start()
 	shaderpack.AfterWorld("borealis_skybox3d", function()
 		if not skybox3d.Camera() then return end
 
-		building = coroutine.create(buildRoutine)
+		buildCo = coroutine.create(buildRoutine)
 		hook.Add("Think", "borealis_skybox3d_build", stepBuild)
 		hook.Add("PreDrawOpaqueRenderables", "borealis_skybox3d", draw)
 	end)

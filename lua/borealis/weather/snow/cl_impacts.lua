@@ -11,7 +11,7 @@ local UP = Vector(0, 0, 1)
 
 local groundRes = {}
 local groundTrace = { mask = MASK_SOLID_BRUSHONLY, start = Vector(), endpos = Vector(), output = groundRes }
-local entry, burstDir = Vector(), Vector()
+local sprayPos, burstDir = Vector(), Vector()
 
 function impacts.Bullet(hit, dir)
 	if not snow.Running() or -dir.z < MIN_DESCENT or not snow.footsteps.OnSnow(hit) then return end
@@ -26,9 +26,9 @@ function impacts.Bullet(hit, dir)
 	end
 
 	if snow.powder.Active() then
-		entry:SetUnpacked(ex, ey, hit.z + DEPTH)
+		sprayPos:SetUnpacked(ex, ey, hit.z + DEPTH)
 		burstDir:SetUnpacked(-dir.x * 0.4, -dir.y * 0.4, 1)
-		snow.powder.Spray(entry, burstDir, math.random(4, 6), 45, 7, 0.9, 140)
+		snow.powder.Spray(sprayPos, burstDir, math.random(4, 6), 45, 7, 0.9, 140)
 	end
 end
 
@@ -50,8 +50,8 @@ function impacts.Blast(pos, radius)
 	snow.trails.Stamp(ground.x, ground.y, r, 1)
 
 	if snow.powder.Active() then
-		entry:SetUnpacked(ground.x, ground.y, ground.z + DEPTH)
-		snow.powder.Spray(entry, UP, math.Clamp(math.floor(r * 0.5), 12, 48), 220, r * 0.6, 2.2, 170)
+		sprayPos:SetUnpacked(ground.x, ground.y, ground.z + DEPTH)
+		snow.powder.Spray(sprayPos, UP, math.Clamp(math.floor(r * 0.5), 12, 48), 220, r * 0.6, 2.2, 170)
 	end
 end
 

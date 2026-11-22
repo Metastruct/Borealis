@@ -301,8 +301,8 @@ if CLIENT then
 
 	local last_byte
 
-	hook.Add("RenderScene", "todhack", function()
-		hook.Remove("RenderScene", "todhack")
+	hook.Add("RenderScene", "tod_lightmap_timer", function()
+		hook.Remove("RenderScene", "tod_lightmap_timer")
 
 		timer.Create("tod_update_lightmap", 0.5, 0, function()
 			local byte = tod.MultToLightEnv(C.world_light_multiplier)

@@ -234,9 +234,9 @@ local function tessellationCount(verts, cell)
 	return count
 end
 
-local function bakedLight(v, centre, cache)
+local function bakedLight(v, centre, lightCache)
 	local key = math.Round(v.x) .. "," .. math.Round(v.y)
-	local light = cache[key]
+	local light = lightCache[key]
 	if light then return light end
 
 	for _, f in ipairs(ICE_LIGHT_INWARD) do
@@ -250,7 +250,7 @@ local function bakedLight(v, centre, cache)
 		math.Clamp(math.floor((l.y - d.y) * 127.5), 0, 255),
 		math.Clamp(math.floor((l.z - d.z) * 127.5), 0, 255),
 	}
-	cache[key] = light
+	lightCache[key] = light
 
 	return light
 end
@@ -263,27 +263,27 @@ local function bakeIce(verts)
 		count = tessellationCount(verts, cell)
 	end
 
-	local out, lights, cache = {}, {}, {}
+	local out, lights, lightCache = {}, {}, {}
 	for i = 1, #verts, 3 do
 		local a, b, c = verts[i], verts[i + 1], verts[i + 2]
 		local n = math.max(1, math.ceil(math.max(a:Distance(b), b:Distance(c), c:Distance(a)) / cell))
 		local ab, ac = (b - a) / n, (c - a) / n
 		local centre = (a + b + c) / 3
-		local function add(u, w)
+		local function addVertex(u, w)
 			local v = a + ab * u + ac * w
 			out[#out + 1] = v
-			lights[#lights + 1] = bakedLight(v, centre, cache)
+			lights[#lights + 1] = bakedLight(v, centre, lightCache)
 		end
 
 		for u = 0, n - 1 do
 			for w = 0, n - 1 - u do
-				add(u, w)
-				add(u + 1, w)
-				add(u, w + 1)
+				addVertex(u, w)
+				addVertex(u + 1, w)
+				addVertex(u, w + 1)
 				if u + w < n - 1 then
-					add(u + 1, w)
-					add(u + 1, w + 1)
-					add(u, w + 1)
+					addVertex(u + 1, w)
+					addVertex(u + 1, w + 1)
+					addVertex(u, w + 1)
 				end
 			end
 		end
@@ -494,7 +494,7 @@ local function bodySunlit(g, sun)
 end
 
 local AMBIENT_REFLECTANCE = 0.25
-local ICE_FILL_K = 0.5
+local ICE_AMBIENT_FILL = 0.5
 
 local function bodyAmbient(g)
 	local now = RealTime()
@@ -623,7 +623,7 @@ local function drawSurface(eyePos, eyeUnderwater, writeDepth)
 	local foliage = shaderpack.foliage
 	local lightScale = foliage and foliage.WorldLightScale() or 1
 	local amb = render.GetAmbientLightColor()
-	local fill = packColor(amb.x * ICE_FILL_K, amb.y * ICE_FILL_K, amb.z * ICE_FILL_K)
+	local fill = packColor(amb.x * ICE_AMBIENT_FILL, amb.y * ICE_AMBIENT_FILL, amb.z * ICE_AMBIENT_FILL)
 	local tonemap = shaderpack.ToneMapScale()
 	local wallTex = shaderpack.skywall.Texture()
 	local invW, invH = shaderpack.skywall.InvSize()
@@ -846,10 +846,10 @@ local startRainSound, stopRainSound
 do
 	local COLUMN = cover.COLUMN
 	local COVERED = cover.Z_MIN + cover.Z_RANGE
-	local WATER_PROBE = 2
+	local BELOW_SURFACE = 2
 	local NEAR_WATER, NEAR_WATER_Z = 900, 600
 	local UPDATE_INTERVAL = 0.25
-	local SEED_PER_FRAME = 512
+	local SCAN_PER_FRAME = 512
 	local PRUNE_RANGE = 1200
 
 	local RAIN_SOUNDS = { "ambient/weather/rumble_rain_nowind.wav", "ambient/weather/crucial_rumble_rain_nowind.wav" }
@@ -863,7 +863,7 @@ do
 	local samplePos = Vector()
 
 	local water = {}
-	local seedList, seedAt
+	local scanList, scanAt
 	local near = false
 	local nextUpdate = 0
 	local rainEnt, rainPatches = nil, {}
@@ -886,14 +886,14 @@ do
 		return false
 	end
 
-	local function classify(cx, cy)
+	local function checkColumn(cx, cy)
 		local key = columnKey(cx, cy)
 		local x, y = (cx + 0.5) * COLUMN, (cy + 0.5) * COLUMN
 		local z = cover.HeightAt(x, y)
 		water[key] = nil
 		if not z or z >= COVERED then return end
 
-		samplePos:SetUnpacked(x, y, z - WATER_PROBE)
+		samplePos:SetUnpacked(x, y, z - BELOW_SURFACE)
 		local contents = util.PointContents(samplePos)
 		if bit.band(contents, CONTENTS_WATER) ~= 0 and bit.band(contents, CONTENTS_SLIME) == 0 then
 			water[key] = z
@@ -901,36 +901,36 @@ do
 	end
 
 	local function onColumn(cx, cy, coverChanged)
-		if coverChanged and near then classify(cx, cy) end
+		if coverChanged and near then checkColumn(cx, cy) end
 	end
 
 	local function reset()
 		water = {}
-		seedList, seedAt = nil, nil
+		scanList, scanAt = nil, nil
 	end
 
-	local function seedStep()
-		if not seedList then
+	local function scanStep()
+		if not scanList then
 			local winX, winY = cover.Window()
 			if not winX then return end
 
-			seedList, seedAt = {}, 1
+			scanList, scanAt = {}, 1
 			for cx = winX, winX + cover.COLUMNS - 1 do
 				for cy = winY, winY + cover.COLUMNS - 1 do
-					seedList[#seedList + 1] = columnKey(cx, cy)
+					scanList[#scanList + 1] = columnKey(cx, cy)
 				end
 			end
 		end
 
-		local last = math.min(seedAt + SEED_PER_FRAME - 1, #seedList)
-		for i = seedAt, last do
-			classify(columnFromKey(seedList[i]))
+		local last = math.min(scanAt + SCAN_PER_FRAME - 1, #scanList)
+		for i = scanAt, last do
+			checkColumn(columnFromKey(scanList[i]))
 		end
 
-		if last >= #seedList then
-			seedList, seedAt = false, nil
+		if last >= #scanList then
+			scanList, scanAt = false, nil
 		else
-			seedAt = last + 1
+			scanAt = last + 1
 		end
 	end
 
@@ -969,7 +969,7 @@ do
 		end
 	end
 
-	local function update(eye)
+	local function updateRainSound(eye)
 		local rain = tod and tod.rain and tod.rain.amount or 0
 		local rain2, prune2, reach2 = RAIN_RANGE * RAIN_RANGE, PRUNE_RANGE * PRUNE_RANGE, RAIN_REACH * RAIN_REACH
 		local sum, nearest, nx, ny, nz = 0, rain2, 0, 0, 0
@@ -1013,8 +1013,8 @@ do
 
 		if not near or not cover.Update(eye) then return end
 
-		if seedList ~= false then return seedStep() end
-		if due then update(eye) end
+		if scanList ~= false then return scanStep() end
+		if due then updateRainSound(eye) end
 	end
 
 	function stopRainSound()

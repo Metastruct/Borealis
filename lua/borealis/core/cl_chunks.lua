@@ -33,21 +33,21 @@ function chunks.View()
 	return view
 end
 
-local Sight = {}
-Sight.__index = Sight
+local PVSFilter = {}
+PVSFilter.__index = PVSFilter
 
-function chunks.Sight()
-	return setmetatable({}, Sight)
+function chunks.PVSFilter()
+	return setmetatable({}, PVSFilter)
 end
 
-function Sight:Begin(eye)
+function PVSFilter:SetEye(eye)
 	local bspdata, skybox3d = bspdata, shaderpack.skybox3d
 	self.cluster = bspdata.ClusterAt(eye.x, eye.y, eye.z)
 	self.pvs = bspdata.PVS(self.cluster)
 	self.sky = skybox3d ~= nil and skybox3d.Visible(eye)
 end
 
-function Sight:Shows(g)
+function PVSFilter:Passes(g)
 	local c = g.cluster
 	if c == SKY_CLUSTER then return self.sky end
 	if c == self.cluster then return true end

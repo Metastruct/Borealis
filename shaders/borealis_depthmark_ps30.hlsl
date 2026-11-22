@@ -28,9 +28,9 @@ struct PS_OUT
 	float depth  : DEPTH0;
 };
 
-float surfaceDepth(float raw, float2 uv)
+float surfaceDepth(float depthSample, float2 uv)
 {
-	float d = IsSkyDepth(raw) ? ZFAR : raw * DEPTH_SCALE;
+	float d = IsSkyDepth(depthSample) ? ZFAR : depthSample * DEPTH_SCALE;
 
 	float code = tex2D(Codes, uv).a * 255.0;
 	if (code > SLICE_EXACT - 0.5)
@@ -58,10 +58,10 @@ PS_OUT main(PS_IN i)
 	float2 uv = i.spos.xy / i.spos.w * float2(0.5, -0.5) + 0.5;
 	uv += float2(abs(ddx(uv).x), abs(ddy(uv).y)) * 0.5;
 
-	float raw = tex2D(Depth, uv).r;
-	float slope = (abs(ddx(raw)) + abs(ddy(raw))) / max(raw, 1e-4);
+	float depthSample = tex2D(Depth, uv).r;
+	float slope = (abs(ddx(depthSample)) + abs(ddy(depthSample))) / max(depthSample, 1e-4);
 	float bias = BIAS + (slope < EDGE_SLOPE ? SLOPE_K * slope : 0.0);
-	float d = surfaceDepth(raw, uv);
+	float d = surfaceDepth(depthSample, uv);
 
 	float3 change = abs(tex2D(Frame, uv).rgb - tex2D(Codes, uv).rgb);
 	clip(max(change.r, max(change.g, change.b)) - CHANGE_EPS);

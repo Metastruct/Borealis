@@ -14,12 +14,12 @@ local COLUMN = cover.COLUMN
 local COVERED = cover.Z_MIN + cover.Z_RANGE
 local EDGE_MIN = 48
 local ROOF_FLAT = 0.3
-local PROBE, PROBE_UP = 8, 40
+local ROOF_BELOW, ROOF_ABOVE = 8, 40
 local LIP_STEPS = 6
 local MAX_GAP = 2
 local LIP_OUT = 1.5
 local LIP_BACK = 3
-local LANES, LANE_STEP, LANE_JITTER = 3, 8, 5
+local DRIPS_PER_EDGE, DRIP_SPACING, DRIP_JITTER = 3, 8, 5
 local FALL_MIN = 24
 local LAND_EXTRA = 64
 local LIGHT_LIFT = 12
@@ -30,13 +30,13 @@ local GRAVITY = 600
 local PERIOD_MIN, PERIOD_LOG = 0.015, 5.7038
 local RELEASE_JITTER = 0.7
 local SEEDS = 4096
-local CORNER_PROBE = 12
+local CORNER_REACH = 12
 local SPILL_CELL = 96
 local SPILL_SLOPE = 0.15
 local SPILL_CHANCE = 0.7
 local SPILL_PERIOD_MIN, SPILL_PERIOD_MAX = 0.018, 0.03
-local STREAM_BYTE = 64
-local LAUNCH = 30
+local STREAM_RATE_BYTE = 64
+local STREAM_SPEED = 30
 local PERIOD_BASE, PERIOD_SPREAD = 0.35, 8
 local CLUSTER_SCALE = 1 / 96
 local ACTIVE_MIN, ACTIVE_RANGE = 0.25, 0.65
@@ -50,10 +50,10 @@ local DRAW_RANGE = 760
 local KEEP_RANGE = 1200
 local REBUILDS = 2
 local EVICT_INTERVAL = 1
-local MAX_TILE_LANES = 1500
+local MAX_TILE_DRIPS = 1500
 local ALPHA = 0.5
 local COLOR_BODY, COLOR_HEAD, COLOR_HEAD_FLOOR = 0.5, 1.5, 0.22
-local LIT = 0.6
+local LIGHT_GAIN = 0.6
 local ROWS = 8
 local SPLASH_CODE = 32
 local SOUND_RANGE, SOUND_RATE, SOUND_LEVEL, SOUND_VOLUME = 350, 6, 60, 1
@@ -66,7 +66,7 @@ local WATER_SOUNDS = { "ambient/water/drip1.wav", "ambient/water/drip2.wav", "am
 local packColor, setConstant, setVertexConstants = shaderpack.PackColor, shaderpack.SetConstant, shaderpack.SetVertexConstants
 local columnKey, columnFromKey = cover.ColumnKey, cover.ColumnFromKey
 local UP = Vector(0, 0, 1)
-local probe = { mask = MASK_SOLID_BRUSHONLY, start = Vector(), endpos = Vector(), output = {} }
+local roofTrace = { mask = MASK_SOLID_BRUSHONLY, start = Vector(), endpos = Vector(), output = {} }
 local landing = { mask = bit.bor(MASK_SOLID_BRUSHONLY, CONTENTS_WATER), start = Vector(), endpos = Vector(), output = {} }
 local samplePos = Vector()
 local vertexPos = Vector()
@@ -74,10 +74,10 @@ local rows = { {} }
 local MAT
 
 local edges, queue, queued = {}, {}, {}
-local tiles, spillCells, streamSlots = {}, {}, {}
+local tiles, spillCells, streamEmitters = {}, {}, {}
 local streamNear, streamDist, nextStreamPick = {}, {}, 0
-local drain, soundTokens = 0, 0
-local seeded = false
+local drain, soundBudget = 0, 0
+local windowQueued = false
 local lastTime, nextEvict = nil, 0
 local function soundVolume()
 	local precipitations = shaderpack.precipitations
@@ -120,10 +120,10 @@ local function tileKey(x, y)
 end
 
 local function roofAt(x, y, z)
-	probe.start:SetUnpacked(x, y, z + PROBE_UP)
-	probe.endpos:SetUnpacked(x, y, z - PROBE)
-	util.TraceLine(probe)
-	local r = probe.output
+	roofTrace.start:SetUnpacked(x, y, z + ROOF_ABOVE)
+	roofTrace.endpos:SetUnpacked(x, y, z - ROOF_BELOW)
+	util.TraceLine(roofTrace)
+	local r = roofTrace.output
 
 	return r.Hit and not r.StartSolid and r
 end
@@ -140,12 +140,12 @@ local function onRoof(plane, x, y)
 	return roofAt(x, y, planeZ(plane, x, y))
 end
 
-local function spills(lx, ly, ox, oy, plane)
+local function spillDirection(lx, ly, ox, oy, plane)
 	local bx, by = lx - ox * (LIP_OUT + LIP_BACK), ly - oy * (LIP_OUT + LIP_BACK)
 	for side = -1, 1, 2 do
 		local ax, ay = oy * side, ox * side
-		if not onRoof(plane, bx + ax * CORNER_PROBE, by + ay * CORNER_PROBE) then return ox + ax, oy + ay end
-		if onRoof(plane, lx + ax * CORNER_PROBE, ly + ay * CORNER_PROBE) then return ox, oy end
+		if not onRoof(plane, bx + ax * CORNER_REACH, by + ay * CORNER_REACH) then return ox + ax, oy + ay end
+		if onRoof(plane, lx + ax * CORNER_REACH, ly + ay * CORNER_REACH) then return ox, oy end
 	end
 end
 
@@ -184,7 +184,7 @@ local function landAt(x, y, top, zb)
 	return land.Hit and not land.StartSolid and land
 end
 
-local function buildLane(lx, ly, ox, oy, plane, zb, density, owner)
+local function buildDrip(lx, ly, ox, oy, plane, zb, density, owner)
 	local bx, by = lx - ox * (LIP_OUT + LIP_BACK), ly - oy * (LIP_OUT + LIP_BACK)
 	local back = onRoof(plane, bx, by)
 	if not back then return nil end
@@ -194,7 +194,7 @@ local function buildLane(lx, ly, ox, oy, plane, zb, density, owner)
 
 	local vx, vy
 	if plane[4] * ox + plane[5] * oy < -SPILL_SLOPE then
-		vx, vy = spills(lx, ly, ox, oy, plane)
+		vx, vy = spillDirection(lx, ly, ox, oy, plane)
 	end
 
 	local spill = vx ~= nil and claimSpill(lx, ly, owner)
@@ -202,13 +202,13 @@ local function buildLane(lx, ly, ox, oy, plane, zb, density, owner)
 
 	local dir = spill and direction(vx, vy) or direction(ox, oy)
 	local rateByte = math.Clamp(math.floor(math.log(period(density, lx, ly, spill) / PERIOD_MIN) / PERIOD_LOG * 255 + 0.5), 0, 255)
-	local stream = rateByte < STREAM_BYTE
+	local stream = rateByte < STREAM_RATE_BYTE
 	local land = landAt(lx, ly, top, zb)
 	if not land then return nil end
 
 	local sx, sy = lx, ly
 	if stream then
-		local a, off = dir * math.pi / 4, LAUNCH * math.sqrt(2 * (top - land.HitPos.z) / GRAVITY)
+		local a, off = dir * math.pi / 4, STREAM_SPEED * math.sqrt(2 * (top - land.HitPos.z) / GRAVITY)
 		sx, sy = lx + math.cos(a) * off, ly + math.sin(a) * off
 		land = landAt(sx, sy, top, zb)
 		if not land then return nil end
@@ -225,15 +225,15 @@ local function buildLane(lx, ly, ox, oy, plane, zb, density, owner)
 		x = lx, y = ly, top = top, bottom = bottom, sx = sx, sy = sy,
 		water = bit.band(land.Contents, CONTENTS_WATER) ~= 0,
 		r = lightByte(l.x - dl.x), g = lightByte(l.y - dl.y), b = lightByte(l.z - dl.z),
-		code = (rateByte * SEEDS + seed) * 8 + dir,
+		packed = (rateByte * SEEDS + seed) * 8 + dir,
 		seed = seed,
 		period = PERIOD_MIN * math.exp(rateByte / 255 * PERIOD_LOG),
 		stream = stream,
-		tauFall = math.sqrt(2 * (top - bottom) / GRAVITY),
+		fallTime = math.sqrt(2 * (top - bottom) / GRAVITY),
 	}
 end
 
-local function evaluate(key, cx, cy, axis)
+local function findEdge(key, cx, cy, axis)
 	local dx, dy = axis == 0 and 1 or 0, axis == 1 and 1 or 0
 	local ax, ay = (cx + 0.5) * COLUMN, (cy + 0.5) * COLUMN
 	local za = cover.HeightAt(ax, ay)
@@ -268,18 +268,18 @@ local function evaluate(key, cx, cy, axis)
 	local traces = 1 + LIP_STEPS
 	if hi >= span - 1 then return nil, traces end
 
-	local lanes = {}
-	for k = 1, LANES do
-		local s = (k - (LANES + 1) * 0.5) * LANE_STEP + (hash(key, k) - 0.5) * LANE_JITTER
+	local drips = {}
+	for k = 1, DRIPS_PER_EDGE do
+		local s = (k - (DRIPS_PER_EDGE + 1) * 0.5) * DRIP_SPACING + (hash(key, k) - 0.5) * DRIP_JITTER
 		local lx, ly = ax + dy * s + ox * (hi + LIP_OUT), ay + dx * s + oy * (hi + LIP_OUT)
 		local density = valueNoise(lx * CLUSTER_SCALE, ly * CLUSTER_SCALE)
-		lanes[#lanes + 1] = buildLane(lx, ly, ox, oy, plane, zb, density, key * LANES + k)
+		drips[#drips + 1] = buildDrip(lx, ly, ox, oy, plane, zb, density, key * DRIPS_PER_EDGE + k)
 		traces = traces + 7
 	end
 
-	if #lanes == 0 then return nil, traces end
+	if #drips == 0 then return nil, traces end
 
-	return { tile = tileKey(ax, ay), lanes = lanes }, traces
+	return { tile = tileKey(ax, ay), drips = drips }, traces
 end
 
 local function tileAt(key)
@@ -339,10 +339,10 @@ local function reset()
 
 	edges, queue, queued, tiles, spillCells = {}, {}, {}, {}, {}
 	streamNear, streamDist, nextStreamPick = {}, {}, 0
-	seeded = false
+	windowQueued = false
 end
 
-local function seed()
+local function queueWindow()
 	local winX, winY = cover.Window()
 	if not winX then return end
 
@@ -353,27 +353,27 @@ local function seed()
 		end
 	end
 
-	seeded = true
+	windowQueued = true
 end
 
-local function processQueue()
+local function scanEdges()
 	local budget = TRACES_PER_FRAME
 	while budget > 0 and #queue > 0 do
 		local key = table.remove(queue)
 		queued[key] = nil
 		local axis = key % 2
 		local cx, cy = columnFromKey((key - axis) / 2)
-		local edge, used = evaluate(key, cx, cy, axis)
+		local edge, used = findEdge(key, cx, cy, axis)
 		setEdge(key, edge)
 		budget = budget - math.max(used, 0.05)
 	end
 end
 
-local function vertex(lane, v)
-	vertexPos:SetUnpacked(lane.x, lane.y, lane.top)
+local function vertex(drip, v)
+	vertexPos:SetUnpacked(drip.x, drip.y, drip.top)
 	mesh.Position(vertexPos)
-	mesh.TexCoord(0, lane.bottom, lane.code)
-	mesh.Color(lane.r, lane.g, lane.b, v)
+	mesh.TexCoord(0, drip.bottom, drip.packed)
+	mesh.Color(drip.r, drip.g, drip.b, v)
 	mesh.AdvanceVertex()
 end
 
@@ -383,29 +383,29 @@ local function buildTile(t)
 
 	local list, streams = {}, {}
 	for _, edge in pairs(t.edges) do
-		for _, lane in ipairs(edge.lanes) do
-			if #list < MAX_TILE_LANES then
-				list[#list + 1] = lane
-				if lane.stream then streams[#streams + 1] = lane end
+		for _, drip in ipairs(edge.drips) do
+			if #list < MAX_TILE_DRIPS then
+				list[#list + 1] = drip
+				if drip.stream then streams[#streams + 1] = drip end
 			end
 		end
 	end
 
-	t.lanes, t.streams = list, streams
+	t.drips, t.streams = list, streams
 	if #list == 0 then return end
 
 	local m = Mesh()
 	mesh.Begin(m, MATERIAL_QUADS, #list * (ROWS + 1))
-	for _, lane in ipairs(list) do
+	for _, drip in ipairs(list) do
 		for row = 0, ROWS - 1 do
-			vertex(lane, row * 2)
-			vertex(lane, row * 2 + 1)
-			vertex(lane, row * 2 + 3)
-			vertex(lane, row * 2 + 2)
+			vertex(drip, row * 2)
+			vertex(drip, row * 2 + 1)
+			vertex(drip, row * 2 + 3)
+			vertex(drip, row * 2 + 2)
 		end
 
 		for corner = 0, 3 do
-			vertex(lane, SPLASH_CODE + corner)
+			vertex(drip, SPLASH_CODE + corner)
 		end
 	end
 
@@ -446,28 +446,28 @@ local function updateTiles(eye, now)
 	end
 end
 
-local function playLanding(lane)
+local function playLanding(drip)
 	local volume = soundVolume()
-	if volume <= 0 or soundTokens < 1 then return end
+	if volume <= 0 or soundBudget < 1 then return end
 
-	soundTokens = soundTokens - 1
-	local list = lane.water and WATER_SOUNDS or GROUND_SOUNDS
-	samplePos:SetUnpacked(lane.sx, lane.sy, lane.bottom)
+	soundBudget = soundBudget - 1
+	local list = drip.water and WATER_SOUNDS or GROUND_SOUNDS
+	samplePos:SetUnpacked(drip.sx, drip.sy, drip.bottom)
 	sound.Play(list[math.random(#list)], samplePos, SOUND_LEVEL, math.random(90, 110), SOUND_VOLUME * volume * drain)
 end
 
-local function laneSounds(lane, from, to)
-	if lane.stream then return end
+local function dripSounds(drip, from, to)
+	if drip.stream then return end
 
-	local p, tau = lane.period, lane.tauFall
-	for slot = math.floor((from - tau) / p), math.floor((to - tau) / p) do
-		local first = slot * p + tau
+	local p, tau = drip.period, drip.fallTime
+	for drop = math.floor((from - tau) / p), math.floor((to - tau) / p) do
+		local first = drop * p + tau
 		if first <= to and first + RELEASE_JITTER * p > from then
-			local active, jitter = hash3(slot, lane.seed)
+			local active, jitter = hash3(drop, drip.seed)
 			if active < drain then
 				local landed = first + RELEASE_JITTER * jitter * p
 				if landed > from and landed <= to then
-					playLanding(lane)
+					playLanding(drip)
 				end
 			end
 		end
@@ -479,11 +479,11 @@ local function sounds(eye, from, to)
 
 	local range2 = SOUND_RANGE * SOUND_RANGE
 	for key, t in pairs(tiles) do
-		if t.lanes and tileDistance(key, eye) < SOUND_RANGE then
-			for _, lane in ipairs(t.lanes) do
-				local dx, dy, dz = lane.sx - eye.x, lane.sy - eye.y, lane.bottom - eye.z
+		if t.drips and tileDistance(key, eye) < SOUND_RANGE then
+			for _, drip in ipairs(t.drips) do
+				local dx, dy, dz = drip.sx - eye.x, drip.sy - eye.y, drip.bottom - eye.z
 				if dx * dx + dy * dy + dz * dz < range2 then
-					laneSounds(lane, from, to)
+					dripSounds(drip, from, to)
 				end
 			end
 		end
@@ -499,8 +499,8 @@ local function nearestStreams(eye)
 	local range2 = STREAM_RANGE * STREAM_RANGE
 	for key, t in pairs(tiles) do
 		if t.streams and tileDistance(key, eye) < STREAM_RANGE then
-			for _, lane in ipairs(t.streams) do
-				local dx, dy, dz = lane.sx - eye.x, lane.sy - eye.y, lane.bottom - eye.z
+			for _, drip in ipairs(t.streams) do
+				local dx, dy, dz = drip.sx - eye.x, drip.sy - eye.y, drip.bottom - eye.z
 				local d2 = dx * dx + dy * dy + dz * dz
 				if d2 < range2 then
 					local i = #near + 1
@@ -509,7 +509,7 @@ local function nearestStreams(eye)
 						i = i - 1
 					end
 
-					near[i], dist[i] = lane, d2
+					near[i], dist[i] = drip, d2
 					near[STREAM_SOUNDS + 1], dist[STREAM_SOUNDS + 1] = nil, nil
 				end
 			end
@@ -520,19 +520,19 @@ local function nearestStreams(eye)
 end
 
 local function silenceStreams()
-	for _, slot in ipairs(streamSlots) do
-		if slot.patch then slot.patch:Stop() end
-		slot.lane = nil
+	for _, emitter in ipairs(streamEmitters) do
+		if emitter.patch then emitter.patch:Stop() end
+		emitter.drip = nil
 	end
 end
 
 local function removeStreams()
 	silenceStreams()
-	for _, slot in ipairs(streamSlots) do
-		if IsValid(slot.ent) then slot.ent:Remove() end
+	for _, emitter in ipairs(streamEmitters) do
+		if IsValid(emitter.ent) then emitter.ent:Remove() end
 	end
 
-	streamSlots = {}
+	streamEmitters = {}
 end
 
 local function streamSounds(eye, now)
@@ -544,38 +544,38 @@ local function streamSounds(eye, now)
 
 	local near = streamNear
 	for i = 1, STREAM_SOUNDS do
-		local slot, lane = streamSlots[i], near[i]
-		if lane then
-			if not slot then
-				slot = {}
-				streamSlots[i] = slot
+		local emitter, drip = streamEmitters[i], near[i]
+		if drip then
+			if not emitter then
+				emitter = {}
+				streamEmitters[i] = emitter
 			end
 
-			if not IsValid(slot.ent) then
-				slot.ent = ClientsideModel(STREAM_MODEL)
-				slot.ent:SetNoDraw(true)
-				slot.patch, slot.lane = nil, nil
+			if not IsValid(emitter.ent) then
+				emitter.ent = ClientsideModel(STREAM_MODEL)
+				emitter.ent:SetNoDraw(true)
+				emitter.patch, emitter.drip = nil, nil
 			end
 
-			if slot.lane ~= lane then
-				slot.lane = lane
-				samplePos:SetUnpacked(lane.sx, lane.sy, lane.bottom + STREAM_LIFT)
-				slot.ent:SetPos(samplePos)
+			if emitter.drip ~= drip then
+				emitter.drip = drip
+				samplePos:SetUnpacked(drip.sx, drip.sy, drip.bottom + STREAM_LIFT)
+				emitter.ent:SetPos(samplePos)
 			end
 
-			if not slot.patch then
-				slot.patch = CreateSound(slot.ent, STREAM_SOUND)
-				slot.patch:SetSoundLevel(STREAM_LEVEL)
+			if not emitter.patch then
+				emitter.patch = CreateSound(emitter.ent, STREAM_SOUND)
+				emitter.patch:SetSoundLevel(STREAM_LEVEL)
 			end
 
-			if slot.patch:IsPlaying() then
-				slot.patch:ChangeVolume(volume)
+			if emitter.patch:IsPlaying() then
+				emitter.patch:ChangeVolume(volume)
 			else
-				slot.patch:PlayEx(volume, STREAM_PITCH + lane.seed % STREAM_PITCH_SPREAD)
+				emitter.patch:PlayEx(volume, STREAM_PITCH + drip.seed % STREAM_PITCH_SPREAD)
 			end
-		elseif slot and slot.patch then
-			slot.patch:Stop()
-			slot.lane = nil
+		elseif emitter and emitter.patch then
+			emitter.patch:Stop()
+			emitter.drip = nil
 		end
 	end
 end
@@ -589,7 +589,7 @@ end
 local function think()
 	local rain = tod and tod.rain and tod.rain.amount or 0
 	drain = ease(drain, rain, RealFrameTime())
-	soundTokens = math.min(soundTokens + SOUND_RATE * FrameTime(), SOUND_RATE)
+	soundBudget = math.min(soundBudget + SOUND_RATE * FrameTime(), SOUND_RATE)
 
 	local time = CurTime() % WRAP
 	local from = lastTime or time
@@ -599,8 +599,8 @@ local function think()
 	local eye = EyePos()
 	if not cover.Update(eye) then return end
 
-	if not seeded then seed() end
-	processQueue()
+	if not windowQueued then queueWindow() end
+	scanEdges()
 	local now = RealTime()
 	updateTiles(eye, now)
 	sounds(eye, from, time)
@@ -619,7 +619,7 @@ local function draw(bDepth, _, b3DSky)
 	MAT:SetTexture("$basetexture", dynamiclights.Texture() or "vgui/black")
 	MAT:SetTexture("$texture1", dynamiclights.ProjectedTexture() or "vgui/black")
 	setConstant(MAT, "$c0", eye.x, eye.y, eye.z, CurTime() % WRAP)
-	setConstant(MAT, "$c1", ALPHA * tonemap, drain, locallights.Scale() * tonemap * LIT, tonemap * LIT)
+	setConstant(MAT, "$c1", ALPHA * tonemap, drain, locallights.Scale() * tonemap * LIGHT_GAIN, tonemap * LIGHT_GAIN)
 	setConstant(MAT, "$c2", packColor(fr * COLOR_BODY, fg * COLOR_BODY, fb * COLOR_BODY),
 		packColor(math.max(fr * COLOR_HEAD, COLOR_HEAD_FLOOR), math.max(fg * COLOR_HEAD, COLOR_HEAD_FLOOR), math.max(fb * COLOR_HEAD, COLOR_HEAD_FLOOR)))
 

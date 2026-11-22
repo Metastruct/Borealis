@@ -175,7 +175,7 @@ local function toSRGB(v)
 	return v <= 0.0031308 and v * 12.92 or 1.055 * v ^ (1 / 2.4) - 0.055
 end
 
-local state = {
+local sky = {
 	sun = Vector(0, 0, 1), moon = Vector(0, 0, -1), elevation = 90,
 	fog = { 255, 255, 255 }, overcast = 0,
 	horizon = { 0.5, 0.6, 0.7 }, zenith = { 0.2, 0.35, 0.7 },
@@ -205,9 +205,9 @@ local function updateState()
 	moonGain = theme.moonVisible == false and 0 or 1
 
 	local sun, moon, elevation = todLights()
-	state.sun, state.moon, state.elevation = sun, moon, elevation
+	sky.sun, sky.moon, sky.elevation = sun, moon, elevation
 	local o = overcastLevel()
-	state.overcast = o
+	sky.overcast = o
 
 	local fr, fg, fb = 0, 0, 0
 	local ce, se = math.cos(HORIZON_ELEVATION), math.sin(HORIZON_ELEVATION)
@@ -220,15 +220,15 @@ local function updateState()
 	fr, fg, fb = fr / 8, fg / 8, fb / 8
 	local lum = 0.2126 * fr + 0.7152 * fg + 0.0722 * fb
 	fr, fg, fb = fr + (lum - fr) * o, fg + (lum - fg) * o, fb + (lum - fb) * o
-	state.fog[1] = toSRGB(fr * fogK * mul[1]) * 255
-	state.fog[2] = toSRGB(fg * fogK * mul[2]) * 255
-	state.fog[3] = toSRGB(fb * fogK * mul[3]) * 255
+	sky.fog[1] = toSRGB(fr * fogK * mul[1]) * 255
+	sky.fog[2] = toSRGB(fg * fogK * mul[2]) * 255
+	sky.fog[3] = toSRGB(fb * fogK * mul[3]) * 255
 
 	local s1, s2, s3 = transmittance(CLOUD_H, sun)
 	local m1, m2, m3 = transmittance(CLOUD_H, moon)
 	local sunUp = max(0, min(1, (elevation + 2) / 6))
 	local moonUp = max(0, min(1, (moon.z + 0.02) / 0.1)) * moonGain
-	local light = state.light
+	local light = sky.light
 	light[1] = (SUN_COL[1] * s1 * sunUp + MOON_COL[1] * m1 * moonUp * 0.25) * mul[1]
 	light[2] = (SUN_COL[2] * s2 * sunUp + MOON_COL[2] * m2 * moonUp * 0.25) * mul[2]
 	light[3] = (SUN_COL[3] * s3 * sunUp + MOON_COL[3] * m3 * moonUp * 0.25) * mul[3]
@@ -238,21 +238,21 @@ local function updateState()
 	if al < 0.01 then ax, ay, al = 1, 0, 1 end
 	local ar, ag, ab = radiance(ax / al * 0.7, ay / al * 0.7, 0.714, sun, moon)
 	local zr, zg, zb = radiance(0, 0, 1, sun, moon)
-	state.amb[1], state.amb[2], state.amb[3] = (ar + zr) * 0.5 * mul[1], (ag + zg) * 0.5 * mul[2], (ab + zb) * 0.5 * mul[3]
+	sky.amb[1], sky.amb[2], sky.amb[3] = (ar + zr) * 0.5 * mul[1], (ag + zg) * 0.5 * mul[2], (ab + zb) * 0.5 * mul[3]
 
 	local skyK = INTENSITY * (1 - 0.3 * o)
 	local zl = 0.2126 * zr + 0.7152 * zg + 0.0722 * zb
-	local hz, zn = state.horizon, state.zenith
+	local hz, zn = sky.horizon, sky.zenith
 	hz[1], hz[2], hz[3] = fr * skyK, fg * skyK, fb * skyK
 	zn[1] = (zr + (zl - zr) * o) * skyK
 	zn[2] = (zg + (zl - zg) * o) * skyK
 	zn[3] = (zb + (zl - zb) * o) * skyK
 
-	state.lightDir = sunUp > 0.05 and sun or (moonUp > 0 and moon or Vector(0, 0, 1))
+	sky.lightDir = sunUp > 0.05 and sun or (moonUp > 0 and moon or Vector(0, 0, 1))
 
 	local d1, d2, d3 = discTransmittance(sun)
 	local dk = 20 * SUN_DISC
-	state.disc[1], state.disc[2], state.disc[3] = SUN_COL[1] * dk * d1, SUN_COL[2] * dk * d2, SUN_COL[3] * dk * d3
+	sky.disc[1], sky.disc[2], sky.disc[3] = SUN_COL[1] * dk * d1, SUN_COL[2] * dk * d2, SUN_COL[3] * dk * d3
 	lutDirty = true
 end
 
@@ -261,23 +261,23 @@ function procsky.IsActive()
 end
 
 function procsky.GetLights()
-	return state.sun, state.moon, state.elevation
+	return sky.sun, sky.moon, sky.elevation
 end
 
 function procsky.GetCloudLighting()
-	return state.lightDir, state.light, state.amb
+	return sky.lightDir, sky.light, sky.amb
 end
 
 function procsky.GetSkyColors()
-	return state.horizon, state.zenith
+	return sky.horizon, sky.zenith
 end
 
 function procsky.GetOvercast()
-	return state.overcast
+	return sky.overcast
 end
 
 function procsky.GetSkyScale()
-	return INTENSITY * (1 - 0.3 * state.overcast)
+	return INTENSITY * (1 - 0.3 * sky.overcast)
 end
 
 local moonHook
@@ -313,7 +313,7 @@ local function setupFog(scale)
 	render.FogMode(1)
 	render.FogStart((C.fog_start or 0) * scale)
 	render.FogEnd((C.fog_end or 32000) * scale)
-	render.FogColor(state.fog[1], state.fog[2], state.fog[3])
+	render.FogColor(sky.fog[1], sky.fog[2], sky.fog[3])
 	render.FogMaxDensity(C.fog_max_density or 1)
 
 	return true
@@ -332,7 +332,7 @@ local function renderLut()
 	end
 
 	lutDirty = false
-	local sun, moon = state.sun, state.moon
+	local sun, moon = sky.sun, sky.moon
 	setConstant(LUT_MAT, "$c0", sun.x, sun.y, sun.z)
 	setConstant(LUT_MAT, "$c1", moon.x, moon.y, moon.z, MOON_INTENSITY * moonGain)
 
@@ -353,24 +353,24 @@ local function viewRays()
 	return ang:Forward(), ang:Right(), halfW, halfH
 end
 
-local cirrusExtra = Matrix()
+local cirrusConstants = Matrix()
 
 local function drawSky()
 	if not lut then return end
 	local fwd, right, halfW, halfH = viewRays()
-	local sun, disc = state.sun, state.disc
+	local sun, disc = sky.sun, sky.disc
 	local tonemap = shaderpack.ToneMapScale()
 
-	setConstant(MAT, "$c0", fwd.x, fwd.y, fwd.z, INTENSITY * tonemap * (1 - 0.3 * state.overcast))
+	setConstant(MAT, "$c0", fwd.x, fwd.y, fwd.z, INTENSITY * tonemap * (1 - 0.3 * sky.overcast))
 	setConstant(MAT, "$c1", right.x * halfW, right.y * halfW, right.z * halfW, halfH)
 	setConstant(MAT, "$c2", sun.x, sun.y, sun.z)
 	setConstant(MAT, "$c3", disc[1], disc[2], disc[3])
 
 	local vclouds = shaderpack.vclouds
-	if not (vclouds and vclouds.Cirrus and vclouds.Cirrus(EyePos(), tonemap, cirrusExtra)) then
-		cirrusExtra:SetField(1, 4, 0)
+	if not (vclouds and vclouds.Cirrus and vclouds.Cirrus(EyePos(), tonemap, cirrusConstants)) then
+		cirrusConstants:SetField(1, 4, 0)
 	end
-	MAT:SetMatrix("$viewprojmat", cirrusExtra)
+	MAT:SetMatrix("$viewprojmat", cirrusConstants)
 
 	render.SetMaterial(MAT)
 	render.DrawScreenQuad(true)

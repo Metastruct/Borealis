@@ -11,7 +11,7 @@ function footsteps.SetGrid(g)
 	footsteps.grid = g
 end
 
-function footsteps.Mark(steps, verts, o)
+function footsteps.MarkCells(snowCells, verts, o)
 	local a, b, c = o, o + STRIDE, o + STRIDE * 2
 	local x0, x1 = math.min(verts[a + 1], verts[b + 1], verts[c + 1]), math.max(verts[a + 1], verts[b + 1], verts[c + 1])
 	local y0, y1 = math.min(verts[a + 2], verts[b + 2], verts[c + 2]), math.max(verts[a + 2], verts[b + 2], verts[c + 2])
@@ -20,7 +20,7 @@ function footsteps.Mark(steps, verts, o)
 	for x = ix, math.max(ix, math.ceil(x1 / CELL) - 1) do
 		for y = iy, math.max(iy, math.ceil(y1 / CELL) - 1) do
 			for z = math.floor(z0 / CELL), math.floor(z1 / CELL) do
-				steps[cellKey(x * CELL, y * CELL, z * CELL, CELL)] = true
+				snowCells[cellKey(x * CELL, y * CELL, z * CELL, CELL)] = true
 			end
 		end
 	end
@@ -29,9 +29,9 @@ end
 function footsteps.OnSnow(pos)
 	local grid = footsteps.grid
 	local ch = grid and grid.chunks and grid.chunks[snow.ChunkKey(snow.ChunkAt(pos.x, pos.y))]
-	local steps = ch and ch.steps
+	local snowCells = ch and ch.snowCells
 
-	return steps ~= nil and (steps[cellKey(pos.x, pos.y, pos.z, CELL)] or steps[cellKey(pos.x, pos.y, pos.z + DEPTH, CELL)]) == true
+	return snowCells ~= nil and (snowCells[cellKey(pos.x, pos.y, pos.z, CELL)] or snowCells[cellKey(pos.x, pos.y, pos.z + DEPTH, CELL)]) == true
 end
 
 local function snowTextured(sound)

@@ -30,7 +30,7 @@ struct VS_OUTPUT
 {
 	float4 projPos : POSITION;
 	float4 wpos    : TEXCOORD0;
-	float4 lane    : TEXCOORD1;
+	float4 drip    : TEXCOORD1;
 	float3 light   : TEXCOORD2;
 };
 
@@ -42,9 +42,9 @@ VS_OUTPUT main(VS_INPUT i)
 	float v = floor(i.color.a * 255.0 + 0.5);
 	float top = i.pos.z;
 	float bottom = i.uv.x;
-	float code = i.uv.y;
-	float dir = code - floor(code / 8.0) * 8.0;
-	float rateByte = floor(code / 32768.0);
+	float packed = i.uv.y;
+	float dir = packed - floor(packed / 8.0) * 8.0;
+	float rateByte = floor(packed / 32768.0);
 	float fall = top - bottom;
 
 	float a = dir * PI * 0.25;
@@ -75,7 +75,7 @@ VS_OUTPUT main(VS_INPUT i)
 
 	o.projPos = mul(float4(world, 1.0), cViewProj);
 	o.wpos = float4(world, lat);
-	o.lane = float4(top, bottom, code, splash ? 1.0 : 0.0);
+	o.drip = float4(top, bottom, packed, splash ? 1.0 : 0.0);
 	o.light = i.color.rgb;
 
 	return o;

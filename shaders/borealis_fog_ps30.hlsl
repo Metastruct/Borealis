@@ -113,9 +113,9 @@ float4 main(PS_IN i) : COLOR
 		return float4(scene, 1.0);
 	}
 
-	float raw = tex2Dlod(Depth, float4(uv, 0.0, 0.0)).r;
-	float d = raw * DEPTH_SCALE;
-	if (IsSkyDepth(raw))
+	float depthSample = tex2Dlod(Depth, float4(uv, 0.0, 0.0)).r;
+	float d = depthSample * DEPTH_SCALE;
+	if (IsSkyDepth(depthSample))
 	{
 		d = MAX_RANGE * 2.0;
 	}

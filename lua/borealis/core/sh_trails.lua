@@ -17,9 +17,9 @@ local REFILL_INTERVAL = 1
 local CAPTURE_PAD = 4
 local STAMP_BLUR = 2
 local CAPTURE_HEIGHT = 4096
-local GATHER_INTERVAL = 0.25
+local CANDIDATE_INTERVAL = 0.25
 local RESTAMP_INTERVAL = 1
-local SINK = 10
+local GROUND_PAD = 10
 local CHANNELS = 2
 
 local toLinear = shaderpack.ToLinear
@@ -80,7 +80,7 @@ local function recentre(eye)
 	end
 end
 
-local function decrementByte(dec)
+local function linearByte(dec)
 	local c, err = 0, math.huge
 	for v = 0, 255 do
 		local e = math.abs(toLinear(v) - dec)
@@ -100,7 +100,7 @@ local function refill()
 
 	local dec = { 0, 0, 0 }
 	for _, u in pairs(users) do
-		if not u.live then dec[u.channel] = decrementByte(u.recover() * REFILL_INTERVAL) end
+		if not u.live then dec[u.channel] = linearByte(u.recover() * REFILL_INTERVAL) end
 	end
 
 	render.PushRenderTarget(trailRT)
@@ -116,9 +116,9 @@ local function refill()
 	render.PopRenderTarget()
 end
 
-local candidates, nextGather = {}, 0
+local candidates, nextCandidates = {}, 0
 
-local function printable(e)
+local function leavesTrail(e)
 	if not IsValid(e) or e:IsDormant() or e:GetNoDraw() then return false end
 	if e:IsPlayer() then return e:Alive() and not e:InVehicle() end
 
@@ -129,20 +129,20 @@ local function printable(e)
 	if class == "viewmodel" or class == "predicted_viewmodel" then return false end
 
 	local parent = e:GetParent()
-	if IsValid(parent) then return printable(parent) end
+	if IsValid(parent) then return leavesTrail(parent) end
 
 	return true
 end
 
-local function gather(eye)
+local function findCandidates(eye)
 	local now = RealTime()
-	if now < nextGather then return end
-	nextGather = now + GATHER_INTERVAL
+	if now < nextCandidates then return end
+	nextCandidates = now + CANDIDATE_INTERVAL
 
 	local half = TRAIL_SPAN / 2
 	candidates = {}
 	for _, e in ipairs(ents.FindInBox(eye - Vector(half, half, half), eye + Vector(half, half, half))) do
-		if printable(e) then candidates[#candidates + 1] = e end
+		if leavesTrail(e) then candidates[#candidates + 1] = e end
 	end
 end
 
@@ -162,7 +162,7 @@ local function groundPlane(mins, maxs, mx, my)
 	local centre
 	for _, o in ipairs(SAMPLES) do
 		local dx, dy = o[1] * hx, o[2] * hy
-		groundTrace.start:SetUnpacked(mx + dx, my + dy, maxs.z + SINK)
+		groundTrace.start:SetUnpacked(mx + dx, my + dy, maxs.z + GROUND_PAD)
 		groundTrace.endpos:SetUnpacked(mx + dx, my + dy, mins.z - reach)
 		util.TraceLine(groundTrace)
 		if groundRes.Hit and not groundRes.StartSolid then
@@ -234,7 +234,7 @@ local function overlaps(a, b)
 	return a.X0 < b.X0 + b.w and b.X0 < a.X0 + a.w and a.Y0 < b.Y0 + b.h and b.Y0 < a.Y0 + a.h
 end
 
-local function update()
+local function collectStamps()
 	local now = RealTime()
 	local n, nd = 0, 0
 	local seen, queued = {}, {}
@@ -246,40 +246,40 @@ local function update()
 	end
 
 	for _, e in ipairs(candidates) do
-		if printable(e) then
+		if leavesTrail(e) then
 			seen[e] = true
-			local tr = tracked[e]
+			local track = tracked[e]
 			local pos, ang = e:GetPos(), e:GetAngles()
-			if not tr or tr.pos ~= pos or tr.ang ~= ang then
-				if tr and tr.info and tr.info.live then
+			if not track or track.pos ~= pos or track.ang ~= ang then
+				if track and track.stamp and track.stamp.live then
 					nd = nd + 1
-					dirty[nd] = tr.info
+					dirty[nd] = track.stamp
 				end
 
-				local ok, info = pcall(measure, e)
-				info = ok and info or nil
-				tracked[e] = { pos = pos, ang = ang, info = info, t = now }
-				if info then queue(info) end
-			elseif tr.info and tr.info.persistent and now - tr.t >= RESTAMP_INTERVAL then
-				tr.t = now
-				queue(tr.info)
+				local ok, stamp = pcall(measure, e)
+				stamp = ok and stamp or nil
+				tracked[e] = { pos = pos, ang = ang, stamp = stamp, t = now }
+				if stamp then queue(stamp) end
+			elseif track.stamp and track.stamp.persistent and now - track.t >= RESTAMP_INTERVAL then
+				track.t = now
+				queue(track.stamp)
 			end
 		end
 	end
 
-	for e, tr in pairs(tracked) do
+	for e, track in pairs(tracked) do
 		if not seen[e] then
-			if tr.info and tr.info.live then
+			if track.stamp and track.stamp.live then
 				nd = nd + 1
-				dirty[nd] = tr.info
+				dirty[nd] = track.stamp
 			end
 			tracked[e] = nil
 		end
 	end
 
 	if nd > 0 then
-		for _, tr in pairs(tracked) do
-			local s = tr.info
+		for _, track in pairs(tracked) do
+			local s = track.stamp
 			if s and s.live and not queued[s] then
 				for i = 1, nd do
 					if overlaps(s, dirty[i]) then
@@ -308,18 +308,18 @@ local function drawStamp(s)
 	for _, pass in ipairs(passes) do
 		if pass.height > s.height then break end
 
-		local lit = false
+		local anyChannel = false
 		for c = 1, 3 do
 			color[c] = 0
 		end
 		for id, value in pairs(pass.values) do
 			if s.accepted[id] then
 				color[users[id].channel] = value
-				lit = true
+				anyChannel = true
 			end
 		end
 
-		if lit then
+		if anyChannel then
 			render.SetColorModulation(color[1], color[2], color[3])
 			render.PushCustomClipPlane(s.clipNormal, s.clipBase - pass.height)
 			eachRTRect(s.X0, s.Y0, s.w, s.h, function(px, py, w, h, ox, oy)
@@ -366,7 +366,7 @@ local function clearLive(nd)
 end
 
 local function capture()
-	local n, nd = update()
+	local n, nd = collectStamps()
 	if nd > 0 then clearLive(nd) end
 	if n == 0 then return end
 
@@ -421,7 +421,7 @@ local function levelByte(v)
 	local key = math.floor(v * LEVEL_STEPS + 0.5)
 	local b = levelBytes[key]
 	if not b then
-		b = decrementByte(key / LEVEL_STEPS)
+		b = linearByte(key / LEVEL_STEPS)
 		levelBytes[key] = b
 	end
 
@@ -486,11 +486,11 @@ function trails.Stamp(id, x, y, radius, depth)
 	discs[#discs + 1] = { x = x, y = y, r = radius, v = math.Clamp(depth, 0, 1), channel = u.channel }
 end
 
-local function prepare()
+local function updateTrails()
 	local eye = EyePos()
 	recentre(eye)
 	refill()
-	gather(eye)
+	findCandidates(eye)
 	capture()
 	drawDiscs()
 end
@@ -499,7 +499,7 @@ local function rebuildPasses()
 	local heights, seen = {}, {}
 	reach = 0
 	for _, u in pairs(users) do
-		reach = math.max(reach, u.height + SINK)
+		reach = math.max(reach, u.height + GROUND_PAD)
 		for _, h in ipairs(u.slices) do
 			if not seen[h] then
 				seen[h] = true
@@ -564,12 +564,12 @@ local function start()
 	end
 
 	winX, winY = nil, nil
-	hook.Add("PreRender", "borealis_trails", prepare)
+	hook.Add("PreRender", "borealis_trails", updateTrails)
 	hook.Add("ShouldDrawLocalPlayer", "borealis_trails", function()
 		if capturing then return true end
 	end)
 	hook.Add("OnEntityCreated", "borealis_trails", function()
-		nextGather = 0
+		nextCandidates = 0
 	end)
 
 	return true

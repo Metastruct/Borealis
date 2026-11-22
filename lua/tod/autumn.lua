@@ -133,14 +133,14 @@ end
 
 local function baked(name, ext, params, bake, arg)
 	local path = DIR .. "/" .. name:gsub("[^%w_]", "_") .. "." .. ext
-	local fresh = not file.Exists(path, "DATA")
-	if fresh then
+	local missing = not file.Exists(path, "DATA")
+	if missing then
 		file.CreateDir(DIR)
 		bake(arg, path)
 	end
 
 	local tex = Material("../data/" .. path, params):GetTexture("$basetexture")
-	if fresh then
+	if missing then
 		tex:Download()
 	end
 

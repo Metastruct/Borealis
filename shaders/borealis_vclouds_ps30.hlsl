@@ -5,8 +5,8 @@ const float4 Constants0 : register(c0);
 const float4 Constants1 : register(c1);
 const float4 Constants2 : register(c2);
 const float4 Constants3 : register(c3);
-const float4 Extra0 : register(c11);
-const float4 Extra1 : register(c12);
+const float4 Constants11 : register(c11);
+const float4 Constants12 : register(c12);
 
 sampler Frame : register(s0);
 sampler Depth : register(s1);
@@ -26,13 +26,13 @@ sampler Sky3DMask : register(s5);
 #define COVERAGE Constants3.z
 #define FOG_RAMP Constants3.w
 
-#define MAP_ORIGIN Extra0.xy
-#define MAP_INV    Extra0.z
-#define MAP_ON     Extra0.w
-#define SKY3D_ON   Extra1.x
-#define DENSITY_GAIN Extra1.y
+#define MAP_ORIGIN Constants11.xy
+#define MAP_INV    Constants11.z
+#define MAP_ON     Constants11.w
+#define SKY3D_ON   Constants12.x
+#define DENSITY_GAIN Constants12.y
 #define DENSITY (BASE_DENSITY * DENSITY_GAIN)
-#define OVERCAST   Extra1.z
+#define OVERCAST   Constants12.z
 #define OVERCAST_MIX OVERCAST
 #define OVERCAST_TOP 0.35
 
@@ -96,10 +96,10 @@ float4 main(PS_IN i) : COLOR
 		return float4(scene, 1.0);
 	}
 
-	float raw = tex2Dlod(Depth, float4(uv, 0.0, 0.0)).r;
-	float d = raw * DEPTH_SCALE;
+	float depthSample = tex2Dlod(Depth, float4(uv, 0.0, 0.0)).r;
+	float d = depthSample * DEPTH_SCALE;
 	float open = 1.0;
-	bool sky = IsSkyDepth(raw);
+	bool sky = IsSkyDepth(depthSample);
 	if (sky)
 	{
 		d = MAX_RANGE * 4.0;

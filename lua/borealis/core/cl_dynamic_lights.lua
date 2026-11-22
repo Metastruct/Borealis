@@ -111,9 +111,9 @@ function dynamiclights.Update(eye)
 	render.PopRenderTarget()
 end
 
-local projectedRT, projectedMat, proxy, proxyX, proxyY, proxyBand, projectedFrame, projectedLit
+local projectedRT, projectedMat, groundMesh, groundMeshX, groundMeshY, groundMeshBand, projectedFrame, projectedLit
 local anyProjected = false
-local proxyPos = Vector()
+local vertexPos = Vector()
 local projectedView = { type = "3D", origin = Vector(), angles = Angle(90, 90, 0), x = 0, y = 0, w = PROJECTED_TEXELS, h = PROJECTED_TEXELS, znear = 1, zfar = PROJECTED_VIEW_HEIGHT * 2, ortho = {} }
 
 function dynamiclights.ProjectedTexture()
@@ -140,21 +140,21 @@ function dynamiclights.ProjectedTexture()
 	return projectedRT
 end
 
-local function buildProxy(x0, y0, z)
-	if proxy then proxy:Destroy() end
+local function buildGroundMesh(x0, y0, z)
+	if groundMesh then groundMesh:Destroy() end
 
 	local function vertex(cx, cy)
 		local x, y = (cx + 0.5) * CELL, (cy + 0.5) * CELL
-		proxyPos:SetUnpacked(x, y, groundHeight(cx, cy, x, y, z) + SAMPLE_HEIGHT)
-		mesh.Position(proxyPos)
+		vertexPos:SetUnpacked(x, y, groundHeight(cx, cy, x, y, z) + SAMPLE_HEIGHT)
+		mesh.Position(vertexPos)
 		mesh.Normal(UP)
 		mesh.TexCoord(0, 0, 0)
 		mesh.Color(255, 255, 255, 255)
 		mesh.AdvanceVertex()
 	end
 
-	proxy = Mesh()
-	mesh.Begin(proxy, MATERIAL_QUADS, (CELLS - 1) * (CELLS - 1))
+	groundMesh = Mesh()
+	mesh.Begin(groundMesh, MATERIAL_QUADS, (CELLS - 1) * (CELLS - 1))
 	for iy = 0, CELLS - 2 do
 		for ix = 0, CELLS - 2 do
 			local cx, cy = x0 + ix, y0 + iy
@@ -165,16 +165,16 @@ local function buildProxy(x0, y0, z)
 		end
 	end
 	mesh.End()
-	proxyX, proxyY, proxyBand = x0, y0, heightBand(z)
+	groundMeshX, groundMeshY, groundMeshBand = x0, y0, heightBand(z)
 end
 
 local function markProjected()
 	anyProjected = true
 end
 
-local function drawProxy()
+local function drawGroundMesh()
 	render.SetMaterial(projectedMat)
-	proxy:Draw()
+	groundMesh:Draw()
 end
 
 function dynamiclights.UpdateProjected(eye)
@@ -191,8 +191,8 @@ function dynamiclights.UpdateProjected(eye)
 	render.Clear(0, 0, 0, 255)
 	if anyProjected then
 		local x0, y0 = math.floor(eye.x / CELL + 0.5) - CELLS / 2, math.floor(eye.y / CELL + 0.5) - CELLS / 2
-		if not proxy or x0 ~= proxyX or y0 ~= proxyY or heightBand(eye.z) ~= proxyBand then
-			buildProxy(x0, y0, eye.z)
+		if not groundMesh or x0 ~= groundMeshX or y0 ~= groundMeshY or heightBand(eye.z) ~= groundMeshBand then
+			buildGroundMesh(x0, y0, eye.z)
 		end
 
 		local half = CELLS * CELL * 0.5
@@ -201,7 +201,7 @@ function dynamiclights.UpdateProjected(eye)
 		projectedView.origin:SetUnpacked((x0 + CELLS / 2) * CELL, (y0 + CELLS / 2) * CELL, eye.z + PROJECTED_VIEW_HEIGHT)
 		cam.Start(projectedView)
 		cam.IgnoreZ(true)
-		render.RenderFlashlights(drawProxy)
+		render.RenderFlashlights(drawGroundMesh)
 		cam.IgnoreZ(false)
 		cam.End()
 	end

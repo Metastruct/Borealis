@@ -39,7 +39,7 @@ struct PS_IN
 {
 	float2 uv     : TEXCOORD0;
 	float3 centre : TEXCOORD1;
-	float2 info   : TEXCOORD2;
+	float2 dimming   : TEXCOORD2;
 };
 
 float4 main(PS_IN i) : COLOR
@@ -63,7 +63,7 @@ float4 main(PS_IN i) : COLOR
 	float3 lit = FILL + LocalLight(WorldTex, DynamicTex, ProjectedTex, i.centre, coverZ, EYE.xy, WORLD_K, DYN_K);
 	float3 color = lerp(lit, FOG_COLOR, max(fog, depth * HAZE));
 
-	float a = i.centre.z >= coverZ - 1.0 ? disc * fade * i.info.x * i.info.y * INTENSITY : 0.0;
+	float a = i.centre.z >= coverZ - 1.0 ? disc * fade * i.dimming.x * i.dimming.y * INTENSITY : 0.0;
 
 	return float4(color, a);
 }

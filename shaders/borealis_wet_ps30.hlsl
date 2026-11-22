@@ -233,8 +233,8 @@ float3 viewRay(float2 uv)
 
 float3 neighbour(float2 uv)
 {
-	float raw = tex2Dlod(Depth, float4(uv, 0.0, 0.0)).r;
-	float d = IsSkyDepth(raw) ? FADE_END * 4.0 : raw * DEPTH_SCALE;
+	float depthSample = tex2Dlod(Depth, float4(uv, 0.0, 0.0)).r;
+	float d = IsSkyDepth(depthSample) ? FADE_END * 4.0 : depthSample * DEPTH_SCALE;
 
 	return viewRay(uv) * d;
 }
@@ -282,9 +282,9 @@ float4 puddleReflection(float3 p, float3 dir, float3 fallback, float2 halfTexel,
 			break;
 		}
 
-		float raw = tex2Dlod(Depth, float4(q.xy + halfTexel, 0.0, 0.0)).r;
-		float sceneZ = raw * DEPTH_SCALE;
-		if (!IsSkyDepth(raw) && sceneZ < q.z && q.z - sceneZ < max(t - tPrev, max(SSR_MIN_THICKNESS, sceneZ * SSR_THICKNESS_RATIO)))
+		float depthSample = tex2Dlod(Depth, float4(q.xy + halfTexel, 0.0, 0.0)).r;
+		float sceneZ = depthSample * DEPTH_SCALE;
+		if (!IsSkyDepth(depthSample) && sceneZ < q.z && q.z - sceneZ < max(t - tPrev, max(SSR_MIN_THICKNESS, sceneZ * SSR_THICKNESS_RATIO)))
 		{
 			float tNear = tPrev;
 			float tFar = t;
@@ -338,11 +338,11 @@ PS_OUT main(PS_IN i)
 	uv += halfTexel;
 
 	float4 frame = tex2D(Frame, uv);
-	float raw = tex2D(Depth, uv).r;
-	float d = IsSkyDepth(raw) ? FADE_END * 4.0 : raw * DEPTH_SCALE;
-	float slope = (abs(ddx(raw)) + abs(ddy(raw))) / max(raw, 1e-4);
+	float depthSample = tex2D(Depth, uv).r;
+	float d = IsSkyDepth(depthSample) ? FADE_END * 4.0 : depthSample * DEPTH_SCALE;
+	float slope = (abs(ddx(depthSample)) + abs(ddy(depthSample))) / max(depthSample, 1e-4);
 	float bias = DEPTH_BIAS + (slope < EDGE_SLOPE ? slope : 0.0);
-	float depth = IsSkyDepth(raw) ? 1.0 : saturate(ZFAR / (ZFAR - ZNEAR) * (1.0 - ZNEAR / (d * (1.0 - bias))));
+	float depth = IsSkyDepth(depthSample) ? 1.0 : saturate(ZFAR / (ZFAR - ZNEAR) * (1.0 - ZNEAR / (d * (1.0 - bias))));
 	float samples = max(floor(i.color.b * 255.0 + 0.5), 1.0);
 	d = SliceDepth(d, frame.a * 255.0, samples);
 

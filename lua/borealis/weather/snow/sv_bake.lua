@@ -12,7 +12,7 @@ local MAX_SENDS, REQUEST_COOLDOWN = 4, 600
 util.AddNetworkString(NET)
 
 local BAKE_ON_LISTEN = CreateConVar("borealis_snow_bake_listen", "0", FCVAR_ARCHIVE, "server: bake snow chunks on listen servers too, where the bake shares a process with the game")
-local key, cacheDir, blob, bakeCo, hibernateValue, fatId
+local key, cacheDir, bakeData, bakeCo, hibernateValue, fatId
 local waiting, sends, served, announced = {}, {}, {}, {}
 local sendQueue, sendCount = {}, 0
 local fatOwner = {}
@@ -23,12 +23,12 @@ local function announce(ply)
 	net.Start(NET)
 	net.WriteUInt(MSG_KEY, 2)
 	net.WriteString(key)
-	net.WriteUInt(#blob, 32)
+	net.WriteUInt(#bakeData, 32)
 	net.Send(ply)
 end
 
-local function ready(data)
-	blob = data
+local function publishBake(data)
+	bakeData = data
 	if fatdl and downloadUrl:GetString() ~= "" then
 		fatId = fatdl.Write(NET, data, nil, { fatOwner })
 	end
@@ -67,7 +67,7 @@ end
 local function bake()
 	file.CreateDir(cacheDir)
 	cache.Prune(key)
-	cache.PruneBlobs(key)
+	cache.PruneBakes(key)
 
 	local vis, why = bspdata.WaitVis()
 	if not vis then return nil, why end
@@ -87,8 +87,8 @@ local function bake()
 		snow.Yield()
 	end
 
-	local data = cache.AssembleBlob(cacheDir, list)
-	file.Write(cache.BlobPath(key), data)
+	local data = cache.AssembleBake(cacheDir, list)
+	file.Write(cache.BakePath(key), data)
 	for _, ch in ipairs(list) do
 		file.Delete(cache.ChunkPath(cacheDir, ch))
 		snow.Yield()
@@ -112,7 +112,7 @@ local function think()
 			bakeCo = nil
 			RunConsoleCommand("sv_hibernate_think", hibernateValue)
 			if ok and data then
-				ready(data)
+				publishBake(data)
 			else
 				ErrorNoHalt("[snow] bake failed: " .. tostring(ok and why or data) .. "\n")
 			end
@@ -133,7 +133,7 @@ local function think()
 			sends[ply] = nil
 			sendCount = sendCount - 1
 		elseif now >= send.at then
-			local data = string.sub(blob, send.offset + 1, send.offset + SEND_BYTES)
+			local data = string.sub(bakeData, send.offset + 1, send.offset + SEND_BYTES)
 			net.Start(NET)
 			net.WriteUInt(MSG_CHUNK, 2)
 			net.WriteUInt(#data, 16)
@@ -141,7 +141,7 @@ local function think()
 			net.Send(ply)
 			send.offset = send.offset + #data
 			send.at = now + #data / SEND_RATE
-			if send.offset >= #blob then
+			if send.offset >= #bakeData then
 				sends[ply] = nil
 				sendCount = sendCount - 1
 			end
@@ -150,7 +150,7 @@ local function think()
 end
 
 net.Receive(NET, function(_, ply)
-	if not blob or not announced[ply] or not ply:IsFullyAuthenticated() then return end
+	if not bakeData or not announced[ply] or not ply:IsFullyAuthenticated() then return end
 
 	announced[ply] = nil
 	local id, now = ply:SteamID64(), RealTime()
@@ -176,7 +176,7 @@ hook.Add("PlayerDisconnected", NET, function(ply)
 end)
 
 local function connected(ply)
-	if blob then
+	if bakeData then
 		announce(ply)
 	elseif key then
 		waiting[ply] = true
@@ -191,9 +191,9 @@ local function start()
 
 	cacheDir = cache.DIR .. "/" .. key
 	hook.Add("Think", NET, think)
-	local data = file.Read(cache.BlobPath(key), "DATA")
+	local data = file.Read(cache.BakePath(key), "DATA")
 	if data then
-		ready(data)
+		publishBake(data)
 	elseif game.IsDedicated() or BAKE_ON_LISTEN:GetBool() then
 		hibernateValue = GetConVar("sv_hibernate_think"):GetString()
 		RunConsoleCommand("sv_hibernate_think", "1")

@@ -4,7 +4,7 @@ local DIR = "tod/grasskey"
 local MIN_NZ = 0.5
 local MIN_UP_AREA = 128 * 128
 local MIN_UP_SHARE = 0.25
-local PROBE = 64
+local SAMPLE_SIZE = 64
 local HUE_IN0, HUE_IN1 = 42, 52
 local HUE_OUT0, HUE_OUT1 = 110, 140
 local SAT0, SAT1 = 0.18, 0.28
@@ -77,7 +77,7 @@ local function capture(tex, w, h, alpha)
 end
 
 function grasskey.MeanColor(tex)
-	local px = capture(tex, PROBE, PROBE)
+	local px = capture(tex, SAMPLE_SIZE, SAMPLE_SIZE)
 	local r, g, b, n = 0, 0, 0, #px / 3
 	for i = 1, #px, 3 do
 		r, g, b = r + px[i], g + px[i + 1], b + px[i + 2]
@@ -111,7 +111,7 @@ local function grassWeight(r, g, b)
 end
 
 local function grassShare(tex, alpha)
-	local px = capture(tex, PROBE, PROBE, alpha)
+	local px = capture(tex, SAMPLE_SIZE, SAMPLE_SIZE, alpha)
 	local stride = alpha and 4 or 3
 	local sum, total = 0, 0
 	for i = 1, #px, stride do
@@ -387,14 +387,14 @@ function grasskey.Run(id, opts)
 		for _, job in ipairs(state.found) do
 			local fileName = job.name:gsub("[^%w_]", "_") .. "_" .. id .. "_" .. util.CRC(opts.version .. KEY_VERSION)
 			local path = DIR .. "/" .. fileName .. ".vtf"
-			local fresh = not file.Exists(path, "DATA")
-			if fresh then
+			local missing = not file.Exists(path, "DATA")
+			if missing then
 				bake(job, path, opts)
 				coroutine.yield()
 			end
 
 			local tex = CreateMaterial("tod_grasskey_" .. fileName, "UnlitGeneric", { ["$basetexture"] = "../data/" .. DIR .. "/" .. fileName }):GetTexture("$basetexture")
-			if fresh then tex:Download() end
+			if missing then tex:Download() end
 
 			for _, layer in ipairs(job.layers) do
 				opts.apply(layer, tex)

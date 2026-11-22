@@ -147,8 +147,8 @@ VS_OUTPUT main(VS_INPUT i)
 	float uc = 0.5 + (frac(h.x * 21.7 + h.z * 9.3) - 0.5) * JITTER;
 	float wmax = WIDTH * wj * size * (0.7 + 0.6 * h.z);
 
-	float st = PERIOD * (C - n);
-	float zc = st - PERIOD * 0.5;
+	float cellTop = PERIOD * (C - n);
+	float zc = cellTop - PERIOD * 0.5;
 	float3 P = float3(base + (2.0 * uc - 1.0) * dxy + w * (zc - fz) / HALF_H, zc);
 	float3 rv = P - EYE;
 	if (length(rv) > FADE_END + PERIOD)
@@ -170,8 +170,8 @@ VS_OUTPUT main(VS_INPUT i)
 	float lo = offC * max(1.0 - L, 0.0) - 0.02;
 	float hi = min(lo + 0.02 + L, 1.0) + 0.02;
 
-	float z0 = max(st - PERIOD * hi, zBot);
-	float z1 = min(st - PERIOD * lo, zTop);
+	float z0 = max(cellTop - PERIOD * hi, zBot);
+	float z1 = min(cellTop - PERIOD * lo, zTop);
 	if (z0 >= z1)
 	{
 		return o;

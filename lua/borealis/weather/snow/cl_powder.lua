@@ -10,7 +10,7 @@ local CLUMP_MATERIAL = "particle/snow"
 local CLUMP_GRAVITY, CLUMP_DRAG = 600, 20
 local DEPTH = snow.DEPTH
 local ALBEDO = 0.25
-local FILL = 0.5
+local AMBIENT_FILL = 0.5
 local GAMMA = 1 / 2.2
 local VEHICLE_MIN_SPEED, VEHICLE_FULL_SPEED = 150, 900
 local VEHICLE_INTERVAL = 0.08
@@ -50,7 +50,7 @@ function powder.Color(pos)
 	local k = ALBEDO * shaderpack.ToneMapScale()
 
 	local function channel(light, fill)
-		return math.floor(math.Clamp((math.min(light, 2) * scale + fill * FILL) * k, 0, 1) ^ GAMMA * 255 + 0.5)
+		return math.floor(math.Clamp((math.min(light, 2) * scale + fill * AMBIENT_FILL) * k, 0, 1) ^ GAMMA * 255 + 0.5)
 	end
 
 	return channel(l.x, amb.x), channel(l.y, amb.y), channel(l.z, amb.z)
@@ -162,7 +162,7 @@ local function extentAlong(axisA, extentA, axisB, extentB, x, y)
 	return math.abs(axisA.x * x + axisA.y * y) * extentA + math.abs(axisB.x * x + axisB.y * y) * extentB
 end
 
-local function ground(x, y, top, bottom)
+local function groundAt(x, y, top, bottom)
 	groundTrace.start:SetUnpacked(x, y, top)
 	groundTrace.endpos:SetUnpacked(x, y, bottom)
 	util.TraceLine(groundTrace)
@@ -234,7 +234,7 @@ local function vehicleSpray(e, eye)
 		local dx, dy = x - center.x, y - center.y
 		local front = dx * bx + dy * by > 0
 		local across = (bx * dy - by * dx) > 0 and 1 or -1
-		local contact = ground(x, y, point[3], point[4])
+		local contact = groundAt(x, y, point[3], point[4])
 		if contact and snow.footsteps.OnSnow(contact) then
 			local r, g, b = powder.Color(contact)
 			local carry = front and VEHICLE_CARRY_FRONT or VEHICLE_CARRY_REAR

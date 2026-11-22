@@ -16,9 +16,9 @@ struct PS_IN
 float4 main(PS_IN i) : COLOR
 {
 	float2 uv = (i.vpos + 0.5) * TEXEL;
-	float raw = tex2D(Depth, uv).r;
+	float depthSample = tex2D(Depth, uv).r;
 	float sky = tex2D(Sky, uv).r;
-	clip((IsSkyDepth(raw) && sky > 0.0) ? 1.0 : -1.0);
+	clip((IsSkyDepth(depthSample) && sky > 0.0) ? 1.0 : -1.0);
 
 	return float4(sky, sky, sky, 1.0);
 }

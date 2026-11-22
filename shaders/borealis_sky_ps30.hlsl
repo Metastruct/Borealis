@@ -2,10 +2,10 @@ const float4 Constants0 : register(c0);
 const float4 Constants1 : register(c1);
 const float4 Constants2 : register(c2);
 const float4 Constants3 : register(c3);
-const float4 Extra0 : register(c11);
-const float4 Extra1 : register(c12);
-const float4 Extra2 : register(c13);
-const float4 Extra3 : register(c14);
+const float4 Constants11 : register(c11);
+const float4 Constants12 : register(c12);
+const float4 Constants13 : register(c13);
+const float4 Constants14 : register(c14);
 
 sampler SkyLut : register(s0);
 sampler Cirrus : register(s1);
@@ -17,15 +17,15 @@ sampler Cirrus : register(s1);
 #define SUN_DIR    Constants2.xyz
 #define DISC_COL   Constants3.xyz
 
-#define CIRRUS_ORIGIN Extra0.xy
-#define CIRRUS_HEIGHT Extra0.z
-#define CIRRUS_ON     Extra0.w
-#define CIRRUS_SUN_COL Extra1.xyz
-#define FOG_START     Extra1.w
-#define CIRRUS_AMB_COL Extra2.xyz
-#define FOG_RANGE     Extra2.w
-#define FOG_COL       Extra3.xyz
-#define FOG_DENSITY   Extra3.w
+#define CIRRUS_ORIGIN Constants11.xy
+#define CIRRUS_HEIGHT Constants11.z
+#define CIRRUS_ON     Constants11.w
+#define CIRRUS_SUN_COL Constants12.xyz
+#define FOG_START     Constants12.w
+#define CIRRUS_AMB_COL Constants13.xyz
+#define FOG_RANGE     Constants13.w
+#define FOG_COL       Constants14.xyz
+#define FOG_DENSITY   Constants14.w
 
 #define R_EARTH 6371.0
 #define EYE_H   0.2

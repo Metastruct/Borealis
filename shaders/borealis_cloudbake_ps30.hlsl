@@ -4,9 +4,9 @@ const float4 Constants0 : register(c0);
 const float4 Constants1 : register(c1);
 const float4 Constants2 : register(c2);
 const float4 Constants3 : register(c3);
-const float4 Extra0 : register(c11);
-const float4 Extra1 : register(c12);
-const float4 Extra2 : register(c13);
+const float4 Constants11 : register(c11);
+const float4 Constants12 : register(c12);
+const float4 Constants13 : register(c13);
 
 sampler History : register(s0);
 sampler3D Shape : register(s2);
@@ -24,13 +24,13 @@ sampler3D Detail : register(s3);
 #define COVERAGE Constants3.z
 #define FOG_RAMP Constants3.w
 
-#define AMB_S    Extra0.x
-#define LIGHT_S  Extra0.y
-#define FOG_S    Extra0.z
-#define SIDE     Extra0.w
-#define HIST_REL Extra1.xyz
-#define HIST_MID Extra1.w
-#define HIST_W   Extra2.x
+#define AMB_S    Constants11.x
+#define LIGHT_S  Constants11.y
+#define FOG_S    Constants11.z
+#define SIDE     Constants11.w
+#define HIST_REL Constants12.xyz
+#define HIST_MID Constants12.w
+#define HIST_W   Constants13.x
 
 #define MAX_RANGE 150000.0
 #define FADE_RANGE 90000.0

@@ -266,14 +266,14 @@ end
 local variants = {}
 
 local function buildVariant()
-	local raw, spikes, wobble = {}, {}, {}
+	local unsmoothed, spikes, wobble = {}, {}, {}
 	for s = 1, CROWN_SEGMENTS do
-		raw[s] = math.Rand(0.5, 1.7)
+		unsmoothed[s] = math.Rand(0.5, 1.7)
 	end
 
 	for s = 1, CROWN_SEGMENTS do
-		local prev, next = raw[(s - 2) % CROWN_SEGMENTS + 1], raw[s % CROWN_SEGMENTS + 1]
-		spikes[s] = (prev + 4 * raw[s] + next) / 6
+		local prev, next = unsmoothed[(s - 2) % CROWN_SEGMENTS + 1], unsmoothed[s % CROWN_SEGMENTS + 1]
+		spikes[s] = (prev + 4 * unsmoothed[s] + next) / 6
 		wobble[s] = math.Rand(0.85, 1.15)
 	end
 

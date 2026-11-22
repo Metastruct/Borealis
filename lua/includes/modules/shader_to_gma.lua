@@ -298,9 +298,9 @@ if SERVER then
 		local pre = table.concat(chunks)
 		local finalCrc = crc32_num(pre)
 		chunks[#chunks + 1] = u32le(finalCrc)
-		local blob = table.concat(chunks)
+		local gma = table.concat(chunks)
 
-		return true, blob
+		return true, gma
 	end
 
 	util.AddNetworkString("shader_to_gma")

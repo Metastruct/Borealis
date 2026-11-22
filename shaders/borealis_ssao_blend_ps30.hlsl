@@ -33,18 +33,18 @@ struct PS_OUT
 	float depth  : DEPTH0;
 };
 
-float2 blurTap(float2 uv, float weight, float raw)
+float2 blurTap(float2 uv, float weight, float depthSample)
 {
 	float2 o = tex2Dlod(Occlusion, float4(uv, 0.0, 0.0)).rg;
-	float w = weight * saturate(1.0 - abs(o.g - raw) / (raw * BLUR_TOLERANCE));
+	float w = weight * saturate(1.0 - abs(o.g - depthSample) / (depthSample * BLUR_TOLERANCE));
 
 	return float2(o.r * w, w);
 }
 
-float2 nearestTap(float2 best, float2 uv, float raw)
+float2 nearestTap(float2 best, float2 uv, float depthSample)
 {
 	float2 o = tex2Dlod(Occlusion, float4(uv, 0.0, 0.0)).rg;
-	float diff = abs(o.g - raw);
+	float diff = abs(o.g - depthSample);
 
 	return diff < best.y ? float2(o.r, diff) : best;
 }
@@ -55,15 +55,15 @@ PS_OUT main(PS_IN i)
 	uv += float2(abs(ddx(uv).x), abs(ddy(uv).y)) * 0.5;
 
 	float4 frame = tex2D(Frame, uv);
-	float raw = tex2D(Depth, uv).r;
-	float slope = (abs(ddx(raw)) + abs(ddy(raw))) / max(raw, 1e-4);
+	float depthSample = tex2D(Depth, uv).r;
+	float slope = (abs(ddx(depthSample)) + abs(ddy(depthSample))) / max(depthSample, 1e-4);
 	float bias = DEPTH_BIAS + (slope < EDGE_SLOPE ? slope : 0.0);
-	float d = raw * DEPTH_SCALE;
+	float d = depthSample * DEPTH_SCALE;
 
 	PS_OUT o;
-	o.depth = IsSkyDepth(raw) ? 1.0 : saturate(ZFAR / (ZFAR - ZNEAR) * (1.0 - ZNEAR / (d * (1.0 - bias))));
+	o.depth = IsSkyDepth(depthSample) ? 1.0 : saturate(ZFAR / (ZFAR - ZNEAR) * (1.0 - ZNEAR / (d * (1.0 - bias))));
 	o.color = float4(frame.rgb, 1.0);
-	[branch] if (IsSkyDepth(raw))
+	[branch] if (IsSkyDepth(depthSample))
 	{
 		clip(DEBUG - 0.5);
 		return o;
@@ -84,7 +84,7 @@ PS_OUT main(PS_IN i)
 		[unroll]
 		for (int x = 0; x < 3; x++)
 		{
-			acc += blurTap(float2(tx[x], ty[y]), wx[x] * wy[y], raw);
+			acc += blurTap(float2(tx[x], ty[y]), wx[x] * wy[y], depthSample);
 		}
 	}
 	float ao = acc.x / max(acc.y, 1e-4);
@@ -93,10 +93,10 @@ PS_OUT main(PS_IN i)
 	{
 		float2 near = (floor(t - 0.5) + 0.5) * TEXEL;
 		float2 best = float2(1.0, 1e30);
-		best = nearestTap(best, near, raw);
-		best = nearestTap(best, near + float2(TEXEL.x, 0.0), raw);
-		best = nearestTap(best, near + float2(0.0, TEXEL.y), raw);
-		best = nearestTap(best, near + TEXEL, raw);
+		best = nearestTap(best, near, depthSample);
+		best = nearestTap(best, near + float2(TEXEL.x, 0.0), depthSample);
+		best = nearestTap(best, near + float2(0.0, TEXEL.y), depthSample);
+		best = nearestTap(best, near + TEXEL, depthSample);
 		ao = lerp(best.x, ao, acc.y / FALLBACK);
 	}
 

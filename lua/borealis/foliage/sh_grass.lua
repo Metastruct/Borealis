@@ -56,7 +56,7 @@ end
 
 local PUSH_SLOTS = 5
 local PUSH_RANGE = 1536
-local PUSH_GATHER = 0.25
+local PUSH_GATHER_INTERVAL = 0.25
 local PUSH_STEP = 32
 local PUSH_LIFE = 2.5
 local PUSH_MIN_SPEED = 20
@@ -68,8 +68,8 @@ local PUSH_ATTACK = 0.3
 local PUSH_EVICT = 0.4
 
 local pushCandidates, nextPushGather = {}, 0
-local pushState = {}
-local pushItems = {}
+local pushTracks = {}
+local pushPoints = {}
 local pushSlots = {}
 local pushFrame, pushTime = -1, 0
 
@@ -83,22 +83,22 @@ end
 local function gatherPushers(eye)
 	local now = RealTime()
 	if now < nextPushGather then return end
-	nextPushGather = now + PUSH_GATHER
+	nextPushGather = now + PUSH_GATHER_INTERVAL
 
 	pushCandidates = {}
 	local keep = {}
 	for _, e in ipairs(ents.FindInSphere(eye, PUSH_RANGE)) do
 		if pushable(e) then
 			pushCandidates[#pushCandidates + 1] = e
-			keep[e] = pushState[e]
+			keep[e] = pushTracks[e]
 		end
 	end
-	pushState = keep
+	pushTracks = keep
 end
 
-local function placeItem(item, mins, maxs)
-	item.x, item.y, item.z = (mins.x + maxs.x) * 0.5, (mins.y + maxs.y) * 0.5, mins.z
-	item.r = math.min(math.max(maxs.x - mins.x, maxs.y - mins.y) * 0.5 + PUSH_PAD, PUSH_MAX_RADIUS)
+local function placePoint(point, mins, maxs)
+	point.x, point.y, point.z = (mins.x + maxs.x) * 0.5, (mins.y + maxs.y) * 0.5, mins.z
+	point.r = math.min(math.max(maxs.x - mins.x, maxs.y - mins.y) * 0.5 + PUSH_PAD, PUSH_MAX_RADIUS)
 end
 
 local function approach(v, target, step)
@@ -107,70 +107,70 @@ local function approach(v, target, step)
 	return math.max(v - step, target)
 end
 
-local function updateItems(now, dt)
-	for _, item in ipairs(pushItems) do
-		item.active = false
+local function updatePoints(now, dt)
+	for _, point in ipairs(pushPoints) do
+		point.active = false
 	end
 
 	for _, e in ipairs(pushCandidates) do
 		if pushable(e) then
 			local pos = e:GetPos()
-			local st = pushState[e]
-			if not st then
-				st = { pos = pos, trail = pos, speed = 0 }
-				pushState[e] = st
+			local track = pushTracks[e]
+			if not track then
+				track = { pos = pos, trail = pos, speed = 0 }
+				pushTracks[e] = track
 			end
 
-			local speed = dt > 0 and pos:Distance(st.pos) / dt or 0
-			st.speed = st.speed + (speed - st.speed) * 0.3
-			st.pos = pos
+			local speed = dt > 0 and pos:Distance(track.pos) / dt or 0
+			track.speed = track.speed + (speed - track.speed) * 0.3
+			track.pos = pos
 
-			if e:IsPlayer() or e:IsNPC() or e:IsNextBot() or st.speed > PUSH_MIN_SPEED then
+			if e:IsPlayer() or e:IsNPC() or e:IsNextBot() or track.speed > PUSH_MIN_SPEED then
 				local mins, maxs = e:WorldSpaceAABB()
-				local head = st.head
+				local head = track.head
 				if not head or head.dead then
-					head = { head = true, s = 0 }
-					st.head = head
-					pushItems[#pushItems + 1] = head
+					head = { head = true, strength = 0 }
+					track.head = head
+					pushPoints[#pushPoints + 1] = head
 				end
-				placeItem(head, mins, maxs)
+				placePoint(head, mins, maxs)
 				head.active = true
 
-				local dx, dy = pos.x - st.trail.x, pos.y - st.trail.y
+				local dx, dy = pos.x - track.trail.x, pos.y - track.trail.y
 				if dx * dx + dy * dy > PUSH_STEP * PUSH_STEP then
-					st.trail = pos
-					if #pushItems < PUSH_MAX_POINTS then
-						local point = { born = now, s = 1 }
-						placeItem(point, mins, maxs)
-						pushItems[#pushItems + 1] = point
+					track.trail = pos
+					if #pushPoints < PUSH_MAX_POINTS then
+						local trailPoint = { born = now, strength = 1 }
+						placePoint(trailPoint, mins, maxs)
+						pushPoints[#pushPoints + 1] = trailPoint
 					end
 				end
 			end
 		end
 	end
 
-	for i = #pushItems, 1, -1 do
-		local item = pushItems[i]
-		if item.head then
-			item.s = approach(item.s, item.active and 1 or 0, dt / PUSH_HEAD_FADE)
-			item.dead = not item.active and item.s <= 0
+	for i = #pushPoints, 1, -1 do
+		local point = pushPoints[i]
+		if point.head then
+			point.strength = approach(point.strength, point.active and 1 or 0, dt / PUSH_HEAD_FADE)
+			point.dead = not point.active and point.strength <= 0
 		else
-			local age = math.min((now - item.born) / PUSH_LIFE, 1)
-			item.s = 1 - age * age * (3 - 2 * age)
-			item.dead = age >= 1
+			local age = math.min((now - point.born) / PUSH_LIFE, 1)
+			point.strength = 1 - age * age * (3 - 2 * age)
+			point.dead = age >= 1
 		end
 
-		if item.dead then table.remove(pushItems, i) end
+		if point.dead then table.remove(pushPoints, i) end
 	end
 end
 
-local function rankItems(eye)
+local function rankPoints(eye)
 	local ranked = {}
-	for _, item in ipairs(pushItems) do
-		if item.s > 0 then
-			local dx, dy, dz = item.x - eye.x, item.y - eye.y, item.z - eye.z
-			item.score = item.s * (item.head and 2 or 1) / (1 + math.sqrt(dx * dx + dy * dy + dz * dz) / 256)
-			ranked[#ranked + 1] = item
+	for _, point in ipairs(pushPoints) do
+		if point.strength > 0 then
+			local dx, dy, dz = point.x - eye.x, point.y - eye.y, point.z - eye.z
+			point.score = point.strength * (point.head and 2 or 1) / (1 + math.sqrt(dx * dx + dy * dy + dz * dz) / 256)
+			ranked[#ranked + 1] = point
 		end
 	end
 	table.sort(ranked, function(a, b) return a.score > b.score end)
@@ -192,36 +192,36 @@ local function updatePushers(eye)
 	local dt = math.min(now - pushTime, 0.1)
 	pushTime = now
 	gatherPushers(eye)
-	updateItems(now, dt)
+	updatePoints(now, dt)
 
-	local ranked, wanted = rankItems(eye)
-	local held = {}
+	local ranked, wanted = rankPoints(eye)
+	local assigned = {}
 	for i = 1, PUSH_SLOTS do
 		local slot = pushSlots[i]
 		if slot then
-			local item = slot.item
-			if wanted[item] and not item.dead then
-				slot.shown = math.min(slot.shown + dt / PUSH_ATTACK, item.s)
-				held[item] = true
+			local point = slot.point
+			if wanted[point] and not point.dead then
+				slot.shown = math.min(slot.shown + dt / PUSH_ATTACK, point.strength)
+				assigned[point] = true
 			else
-				slot.shown = math.max(math.min(slot.shown - dt / PUSH_EVICT, item.s), 0)
+				slot.shown = math.max(math.min(slot.shown - dt / PUSH_EVICT, point.strength), 0)
 				if slot.shown <= 0 then pushSlots[i] = nil end
 			end
 		end
 	end
 
-	local nextItem = 1
+	local nextPoint = 1
 	for i = 1, PUSH_SLOTS do
 		if not pushSlots[i] then
-			while ranked[nextItem] and (held[ranked[nextItem]] or not wanted[ranked[nextItem]]) do
-				nextItem = nextItem + 1
+			while ranked[nextPoint] and (assigned[ranked[nextPoint]] or not wanted[ranked[nextPoint]]) do
+				nextPoint = nextPoint + 1
 			end
 
-			local item = ranked[nextItem]
-			if not item then break end
+			local point = ranked[nextPoint]
+			if not point then break end
 
-			held[item] = true
-			pushSlots[i] = { item = item, shown = 0 }
+			assigned[point] = true
+			pushSlots[i] = { point = point, shown = 0 }
 		end
 	end
 end
@@ -243,7 +243,7 @@ local function frame(mat, depthMat, time)
 		local slot = pushSlots[i]
 		if slot and slot.shown > 0.002 then
 			used = used + 1
-			local p, row = slot.item, r[used + 1]
+			local p, row = slot.point, r[used + 1]
 			row[1], row[2], row[3] = p.x, math.floor(p.y) + p.r / 128, math.floor(p.z) + slot.shown * 0.99
 		end
 	end

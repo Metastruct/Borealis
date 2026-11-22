@@ -33,12 +33,12 @@ local function lightDiff(a, b)
 	return math.max(math.abs(math.floor(a / 65536) - math.floor(b / 65536)), math.abs(math.floor(a / 256) % 256 - math.floor(b / 256) % 256), math.abs(a % 256 - b % 256))
 end
 
-function lighting.Resolve(ch, verts, tris)
+function lighting.Bake(ch, verts, tris)
 	local yieldIfOverBudget = chunks.YieldIfOverBudget
-	local samples, lights, cellOf, reps, far, farDist, refine = ch.samples, {}, {}, {}, {}, {}, {}
+	local samples, lights, cellOf, cellSample, farthest, farthestDist, refine = ch.samples, {}, {}, {}, {}, {}, {}
 	local count, computed = #samples / 3, 0
 
-	local function compute(i)
+	local function sampleLight(i)
 		local at = i * 3
 		local x, y, z = samples[at - 2], samples[at - 1], samples[at]
 		if bspdata.BeyondWorld(x, y, z) then x, y, z = bspdata.WorldToSky(x, y, z) end
@@ -56,30 +56,30 @@ function lighting.Resolve(ch, verts, tris)
 		local x, y, z = samples[at - 2], samples[at - 1], samples[at]
 		local key = cellKey(x, y, z, REFINE_CELL)
 		cellOf[i] = key
-		local rep = reps[key]
+		local rep = cellSample[key]
 		if not rep then
-			reps[key] = i
-			compute(i)
+			cellSample[key] = i
+			sampleLight(i)
 		else
 			local ra = rep * 3
 			local dx, dy, dz = x - samples[ra - 2], y - samples[ra - 1], z - samples[ra]
 			local dist = dx * dx + dy * dy + dz * dz
-			if not far[key] or dist > farDist[key] then
-				far[key], farDist[key] = i, dist
+			if not farthest[key] or dist > farthestDist[key] then
+				farthest[key], farthestDist[key] = i, dist
 			end
 		end
 	end
 
-	for key, i in pairs(reps) do
-		local light, other = lights[i], far[key]
+	for key, i in pairs(cellSample) do
+		local light, other = lights[i], farthest[key]
 		if other then
-			compute(other)
+			sampleLight(other)
 			refine[key] = lightDiff(light, lights[other]) > REFINE_DIFF
 		end
 
 		if not refine[key] then
 			for _, offset in ipairs(NEIGHBOURS) do
-				local nb = reps[key + offset]
+				local nb = cellSample[key + offset]
 				if nb and lightDiff(light, lights[nb]) > REFINE_DIFF then
 					refine[key] = true
 					break
@@ -92,9 +92,9 @@ function lighting.Resolve(ch, verts, tris)
 		if not lights[i] then
 			local key = cellOf[i]
 			if refine[key] then
-				compute(i)
+				sampleLight(i)
 			else
-				lights[i] = lights[reps[key]]
+				lights[i] = lights[cellSample[key]]
 			end
 		end
 	end

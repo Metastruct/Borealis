@@ -307,7 +307,7 @@ local function heatFalloff(cover, height, minTop, ox, oy, texel, budget)
 end
 
 local function boxBlur(src, r)
-	local tmp, dst = {}, {}
+	local horizontal, dst = {}, {}
 	local norm = 1 / (2 * r + 1)
 	for y = 0, RES - 1 do
 		local row = y * RES + 1
@@ -317,7 +317,7 @@ local function boxBlur(src, r)
 		end
 
 		for x = 0, RES - 1 do
-			tmp[row + x] = sum * norm
+			horizontal[row + x] = sum * norm
 			local add, sub = x + r + 1, x - r
 			sum = sum + (add < RES and src[row + add] or 0) - (sub >= 0 and src[row + sub] or 0)
 		end
@@ -327,13 +327,13 @@ local function boxBlur(src, r)
 		local col = x + 1
 		local sum = 0
 		for y = 0, r do
-			sum = sum + (y < RES and tmp[y * RES + col] or 0)
+			sum = sum + (y < RES and horizontal[y * RES + col] or 0)
 		end
 
 		for y = 0, RES - 1 do
 			dst[y * RES + col] = sum * norm
 			local add, sub = y + r + 1, y - r
-			sum = sum + (add < RES and tmp[add * RES + col] or 0) - (sub >= 0 and tmp[sub * RES + col] or 0)
+			sum = sum + (add < RES and horizontal[add * RES + col] or 0) - (sub >= 0 and horizontal[sub * RES + col] or 0)
 		end
 	end
 
@@ -587,7 +587,7 @@ local function think()
 end
 
 local quadColor = Color(0, 0, 0, 255)
-local extra = Matrix()
+local lavaConstants = Matrix()
 
 local function draw()
 	if fade <= 0.001 then return end
@@ -606,13 +606,13 @@ local function draw()
 	local mins, maxs = area()
 	local haze = mins and CAVE_HAZE or 0
 	mins, maxs = mins or NO_AREA_MINS, maxs or NO_AREA_MAXS
-	extra:SetUnpacked(
+	lavaConstants:SetUnpacked(
 		STRENGTH * fade, SHIMMER * fade, PULSE * fade, Lerp(fade, 1, GLOW),
 		mins.x, mins.y, mins.z, FUME * fade,
 		maxs.x, maxs.y, maxs.z, haze,
 		0, 0, 0, 0
 	)
-	MAT:SetMatrix("$viewprojmat", extra)
+	MAT:SetMatrix("$viewprojmat", lavaConstants)
 	quadColor.b = depthslices.Samples()
 
 	return depthslices.Composite(MAT, quadColor)

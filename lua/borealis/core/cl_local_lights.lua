@@ -16,10 +16,10 @@ local samplePos = Vector()
 local rt
 local texelKey, texelDone = {}, {}
 local dirty, dirtyCount = {}, 0
-local sweep, lastX, lastY = 1, nil, nil
+local nextColumn, lastX, lastY = 1, nil, nil
 local clearPending = true
 
-local sweepX, sweepY = {}, {}
+local orderX, orderY = {}, {}
 do
 	local half = COLUMNS / 2
 	local cells = {}
@@ -32,11 +32,11 @@ do
 
 	table.sort(cells, function(a, b) return a[3] < b[3] end)
 	for i, cell in ipairs(cells) do
-		sweepX[i], sweepY[i] = cell[1], cell[2]
+		orderX[i], orderY[i] = cell[1], cell[2]
 	end
 end
 
-local function encode(v)
+local function lightByte(v)
 	return math.floor(math.sqrt(math.Clamp(v / LIGHT_MAX, 0, 1)) * 255 + 0.5)
 end
 
@@ -45,7 +45,7 @@ local function lightAt(x, y, z)
 	samplePos:SetUnpacked(x, y, z)
 	local l, d = render.ComputeLighting(samplePos, UP), render.ComputeDynamicLighting(samplePos, UP)
 
-	return encode(l.x - d.x), encode(l.y - d.y), encode(l.z - d.z)
+	return lightByte(l.x - d.x), lightByte(l.y - d.y), lightByte(l.z - d.z)
 end
 
 local function writeColumn(cx, cy)
@@ -61,7 +61,7 @@ local function writeColumn(cx, cy)
 	return true
 end
 
-local function target()
+local function ensureRT()
 	if rt then return rt end
 
 	rt = GetRenderTargetEx("borealis_local_lights_" .. COLUMNS, COLUMNS, COLUMNS, RT_SIZE_LITERAL, MATERIAL_RT_DEPTH_NONE, 0, 0, IMAGE_FORMAT_RGBA8888)
@@ -87,7 +87,7 @@ end
 local function reset()
 	texelKey, texelDone = {}, {}
 	dirty, dirtyCount = {}, 0
-	sweep = 1
+	nextColumn = 1
 	clearPending = true
 end
 
@@ -102,7 +102,7 @@ local function onColumn(cx, cy, coverChanged)
 end
 
 function locallights.Update(eye)
-	if not target() then return end
+	if not ensureRT() then return end
 
 	local winX, winY = cover.Window()
 	if not winX then return end
@@ -110,10 +110,10 @@ function locallights.Update(eye)
 	if clearPending then clearToEye(eye) end
 	if winX ~= lastX or winY ~= lastY then
 		lastX, lastY = winX, winY
-		sweep = 1
+		nextColumn = 1
 	end
 
-	if sweep > #sweepX and dirtyCount == 0 then return end
+	if nextColumn > #orderX and dirtyCount == 0 then return end
 
 	local deadline = SysTime() + TIME_BUDGET
 	render.PushRenderTarget(rt)
@@ -129,9 +129,9 @@ function locallights.Update(eye)
 	end
 
 	for _ = 1, CHECKS_PER_FRAME do
-		if sweep > #sweepX or SysTime() >= deadline then break end
+		if nextColumn > #orderX or SysTime() >= deadline then break end
 
-		local cx, cy = winX + sweepX[sweep], winY + sweepY[sweep]
+		local cx, cy = winX + orderX[nextColumn], winY + orderY[nextColumn]
 		local key = columnKey(cx, cy)
 		local texel = cx % COLUMNS * COLUMNS + cy % COLUMNS
 		if texelKey[texel] ~= key then
@@ -146,7 +146,7 @@ function locallights.Update(eye)
 			texelDone[texel] = true
 		end
 
-		sweep = sweep + 1
+		nextColumn = nextColumn + 1
 	end
 
 	render.SetViewPort(0, 0, COLUMNS, COLUMNS)

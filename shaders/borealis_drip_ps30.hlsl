@@ -35,7 +35,7 @@ sampler ProjectedTex : register(s1);
 struct PS_IN
 {
 	float4 wpos  : TEXCOORD0;
-	float4 lane  : TEXCOORD1;
+	float4 drip  : TEXCOORD1;
 	float3 light : TEXCOORD2;
 };
 
@@ -47,10 +47,10 @@ float3 hash3(float2 p)
 	return frac((q.xxy + q.yzz) * q.zyx);
 }
 
-float2 streak(float d, float lat, float px, float pv, float slot, float seed, float period, float fall)
+float2 streak(float d, float lat, float px, float pv, float drop, float seed, float period, float fall)
 {
-	float3 h = hash3(float2(slot, seed));
-	float age = TIME - (slot + RELEASE_JITTER * h.y) * period;
+	float3 h = hash3(float2(drop, seed));
+	float age = TIME - (drop + RELEASE_JITTER * h.y) * period;
 	float head = 0.5 * GRAVITY * age * age;
 	float2 r = float2(0.0, 0.0);
 
@@ -74,17 +74,17 @@ float2 streak(float d, float lat, float px, float pv, float slot, float seed, fl
 	return r;
 }
 
-float splashBits(float h, float lat, float px, float slot, float seed, float period, float landed)
+float splashBits(float h, float lat, float px, float drop, float seed, float period, float landed)
 {
-	float3 hs = hash3(float2(slot, seed));
-	float age = landed - (slot + RELEASE_JITTER * hs.y) * period;
+	float3 hs = hash3(float2(drop, seed));
+	float age = landed - (drop + RELEASE_JITTER * hs.y) * period;
 	float c = 0.0;
 
 	[branch] if (hs.x < DRAIN && age >= 0.0 && age < SPLASH_LIFE)
 	{
 		[unroll] for (int m = 0; m < 4; m++)
 		{
-			float3 hm = hash3(float2(slot * 4.0 + m, seed + 0.5));
+			float3 hm = hash3(float2(drop * 4.0 + m, seed + 0.5));
 			float x = (hm.x * 2.0 - 1.0) * SPLASH_SPEED * age;
 			float y = (0.35 + 0.65 * hm.y) * SPLASH_UP * age - 0.5 * GRAVITY * age * age;
 			float rad = SPLASH_R * (0.6 + 0.8 * hm.z);
@@ -103,12 +103,12 @@ float4 main(PS_IN i) : COLOR
 {
 	float3 p = i.wpos.xyz;
 	float lat = i.wpos.w;
-	float top = i.lane.x;
-	float bottom = i.lane.y;
-	float code = i.lane.z;
+	float top = i.drip.x;
+	float bottom = i.drip.y;
+	float packed = i.drip.z;
 	float fall = top - bottom;
 
-	float seedRate = floor(code / 8.0);
+	float seedRate = floor(packed / 8.0);
 	float rateByte = floor(seedRate / 4096.0);
 	float seed = seedRate - rateByte * 4096.0;
 	float period = PERIOD_MIN * exp(rateByte / 255.0 * PERIOD_LOG);
@@ -118,7 +118,7 @@ float4 main(PS_IN i) : COLOR
 	float pv = fwidth(d);
 	float2 a = float2(0.0, 0.0);
 
-	[branch] if (i.lane.w > 0.5)
+	[branch] if (i.drip.w > 0.5)
 	{
 		float landed = TIME - sqrt(2.0 * fall / GRAVITY);
 		float n = floor(landed / period);

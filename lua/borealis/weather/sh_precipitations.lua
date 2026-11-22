@@ -49,7 +49,7 @@ local ALPHA = 0.24
 local COLOR_BODY = 0.5
 local COLOR_HEAD = 1.5
 local COLOR_HEAD_FLOOR = 0.22
-local LIT = 0.6
+local LIGHT_GAIN = 0.6
 local WRAP = 20
 
 local COLUMN, COLUMNS, Z_MIN = cover.COLUMN, cover.COLUMNS, cover.Z_MIN
@@ -64,8 +64,8 @@ local SNOW_DRIFT = 0.25
 local SNOW_SLANT_SPAN = 1000
 local SNOW_ALPHA = 0.9
 local SNOW_ALBEDO = 0.25
-local SNOW_LIT = 0.6
-local SNOW_FILL = 0.5
+local SNOW_LIGHT_GAIN = 0.6
+local SNOW_AMBIENT_FILL = 0.5
 
 local SPLASH_STEP = 2
 local SPLASH_QUAD = 3
@@ -442,7 +442,7 @@ local snowRows = { {}, {}, {}, {} }
 local function drawSnow(eye, amount)
 	local tonemap = shaderpack.ToneMapScale()
 	local k = SNOW_ALBEDO * tonemap
-	local fill = render.GetAmbientLightColor() * (SNOW_FILL * k)
+	local fill = render.GetAmbientLightColor() * (SNOW_AMBIENT_FILL * k)
 	local fr, fg, fb = render.GetFogColor()
 	local fogStart, fogEnd = render.GetFogDistances()
 	local fogMax = render.GetFogMode() == MATERIAL_FOG_NONE and 0 or render.GetFogMaxDensity()
@@ -451,7 +451,7 @@ local function drawSnow(eye, amount)
 	SNOW_MAT:SetTexture("$texture2", dynamiclights.Texture() or "vgui/black")
 	SNOW_MAT:SetTexture("$texture3", dynamiclights.ProjectedTexture() or "vgui/black")
 	setConstant(SNOW_MAT, "$c0", eye.x, eye.y, eye.z, fogMax)
-	setConstant(SNOW_MAT, "$c1", SNOW_ALPHA, locallights.Scale() * k, tonemap * SNOW_LIT, fogStart)
+	setConstant(SNOW_MAT, "$c1", SNOW_ALPHA, locallights.Scale() * k, tonemap * SNOW_LIGHT_GAIN, fogStart)
 	setConstant(SNOW_MAT, "$c2", fill.x, fill.y, fill.z, fogEnd)
 	setConstant(SNOW_MAT, "$c3", toLinear(fr) * tonemap, toLinear(fg) * tonemap, toLinear(fb) * tonemap)
 
@@ -501,7 +501,7 @@ local function drawWeather()
 	setConstant(DROP_MAT, "$c0", eye.x, eye.y, eye.z, CurTime() % WRAP)
 	local body, head = streakColor()
 	setConstant(DROP_MAT, "$c1", ALPHA * k * tonemap, nil, nil, packColor(body[1], body[2], body[3]))
-	setConstant(DROP_MAT, "$c2", packColor(head[1], head[2], head[3]), locallights.Scale() * tonemap * LIT, nil, tonemap * LIT)
+	setConstant(DROP_MAT, "$c2", packColor(head[1], head[2], head[3]), locallights.Scale() * tonemap * LIGHT_GAIN, nil, tonemap * LIGHT_GAIN)
 	drawDrops(eye, CurTime() % WRAP, densityLevel(k))
 
 	if splashMesh then
@@ -601,9 +601,9 @@ do
 	local RUMBLE = file.Exists("sound/" .. RAIN_LOOP, "GAME") and RAIN_LOOP or "ambient/weather/rumble_rain.wav"
 	local COVER_VOLUME = 0.3
 	local SKY_RANGE = 8192
-	local WAY_OUT, WAY_NEAR = 1400, 300
-	local WAY_STEPS = { 0.45, 0.95 }
-	local WAY_FAN, WAY_SPIN, WAY_WINDOW = 8, math.rad(17), 12
+	local OPEN_SEARCH, OPEN_NEAR = 1400, 300
+	local OPEN_STEPS = { 0.45, 0.95 }
+	local OPEN_RAYS, OPEN_SPIN, OPEN_HISTORY = 8, math.rad(17), 12
 	local COVER_INTERVAL = 0.25
 	local DRIP_INTERVAL = { 0.6, 1.8 }
 	local THUNDER_AMOUNT = 0.8
@@ -617,10 +617,10 @@ do
 	local covered = false
 	local exposure = 0
 	local nextCover, nextDrip, nextThunder = 0, 0, 0
-	local wayPhase = 0
-	local wayLog, wayAt = {}, 1
-	for i = 1, WAY_WINDOW do
-		wayLog[i] = 0
+	local openPhase = 0
+	local openHistory, openAt = {}, 1
+	for i = 1, OPEN_HISTORY do
+		openHistory[i] = 0
 	end
 
 	if precipitations.rumble then
@@ -628,7 +628,7 @@ do
 		precipitations.rumble = nil
 	end
 
-	local function skyReach()
+	local function rainExposure()
 		local eye = EyePos()
 		coverTrace.start = eye
 		coverTrace.endpos = eye + UP * SKY_RANGE
@@ -636,30 +636,30 @@ do
 		local up = util.TraceLine(coverTrace)
 		if not up.Hit or up.HitSky then return 1, true end
 
-		local near = WAY_OUT
-		wayPhase = wayPhase + WAY_SPIN
-		for i = 0, WAY_FAN - 1 do
-			local a = wayPhase + i * math.pi * 2 / WAY_FAN
+		local nearestOpen = OPEN_SEARCH
+		openPhase = openPhase + OPEN_SPIN
+		for i = 0, OPEN_RAYS - 1 do
+			local a = openPhase + i * math.pi * 2 / OPEN_RAYS
 			local dir = Vector(math.cos(a), math.sin(a), 0)
 			coverTrace.start = eye
-			coverTrace.endpos = eye + dir * WAY_OUT
+			coverTrace.endpos = eye + dir * OPEN_SEARCH
 			local out = util.TraceLine(coverTrace)
-			local clear = out.Fraction * WAY_OUT - 8
-			for _, k in ipairs(WAY_STEPS) do
+			local clear = out.Fraction * OPEN_SEARCH - 8
+			for _, k in ipairs(OPEN_STEPS) do
 				local d = clear * k
-				if d <= 0 or d >= near then break end
+				if d <= 0 or d >= nearestOpen then break end
 
 				coverTrace.start = eye + dir * d
 				coverTrace.endpos = coverTrace.start + UP * SKY_RANGE
 				local u = util.TraceLine(coverTrace)
 				if not u.Hit or u.HitSky then
-					near = d
+					nearestOpen = d
 					break
 				end
 			end
 		end
 
-		return 1 - math.Clamp((near - WAY_NEAR) / (WAY_OUT - WAY_NEAR), 0, 1), false
+		return 1 - math.Clamp((nearestOpen - OPEN_NEAR) / (OPEN_SEARCH - OPEN_NEAR), 0, 1), false
 	end
 
 	local function stopRumble(fade)
@@ -724,14 +724,14 @@ do
 
 		if now >= nextCover then
 			nextCover = now + COVER_INTERVAL
-			local target, sky = skyReach()
+			local target, sky = rainExposure()
 			covered = not sky
 			rain.covered = covered
-			wayLog[wayAt] = target
-			wayAt = wayAt % WAY_WINDOW + 1
+			openHistory[openAt] = target
+			openAt = openAt % OPEN_HISTORY + 1
 			exposure = 0
-			for i = 1, WAY_WINDOW do
-				exposure = math.max(exposure, wayLog[i])
+			for i = 1, OPEN_HISTORY do
+				exposure = math.max(exposure, openHistory[i])
 			end
 		end
 

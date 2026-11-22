@@ -12,7 +12,7 @@ local TRACES_PER_FRAME = 60
 local IDLE_TRACES_PER_FRAME = 24
 local PENDING_TIME = 0.002
 local SPLASH_SLOPE = 0.8
-local SEED_GLOSS = 0.7
+local SPAN_GLOSS = 0.7
 local SOLID = MASK_SOLID
 local WATER = MASK_WATER
 local IN_WATER = CONTENTS_WATER
@@ -362,7 +362,7 @@ if SERVER then
 	shaderpack.AddResources(cover.EXPOSURE_SHADERS)
 	shaderpack.AddResources(cover.PACK_SHADERS)
 
-	local key, blob
+	local key, compressedSpans
 	local waiting, sends = {}, {}
 	local bakeCo
 	local downloadUrl = GetConVar("sv_downloadurl")
@@ -371,17 +371,17 @@ if SERVER then
 		net.Start(SPAN_NET)
 		net.WriteUInt(MSG_KEY, 2)
 		net.WriteString(key)
-		net.WriteUInt(#blob, 32)
+		net.WriteUInt(#compressedSpans, 32)
 		net.Send(ply)
 		if fatdl and downloadUrl:GetString() ~= "" then
-			fatdl.Send(SPAN_NET, ply, blob)
+			fatdl.Send(SPAN_NET, ply, compressedSpans)
 		else
 			sends[ply] = { offset = 0, at = 0 }
 		end
 	end
 
 	local function ready(compressed)
-		blob = compressed
+		compressedSpans = compressed
 		for ply in pairs(waiting) do
 			if IsValid(ply) then announce(ply) end
 		end
@@ -410,7 +410,7 @@ if SERVER then
 			if not IsValid(ply) then
 				sends[ply] = nil
 			elseif now >= send.at then
-				local data = string.sub(blob, send.offset + 1, send.offset + SPAN_CHUNK)
+				local data = string.sub(compressedSpans, send.offset + 1, send.offset + SPAN_CHUNK)
 				net.Start(SPAN_NET)
 				net.WriteUInt(MSG_CHUNK, 2)
 				net.WriteUInt(#data, 16)
@@ -418,7 +418,7 @@ if SERVER then
 				net.Send(ply)
 				send.offset = send.offset + #data
 				send.at = now + #data / SPAN_RATE
-				if send.offset >= #blob then
+				if send.offset >= #compressedSpans then
 					sends[ply] = nil
 				end
 			end
@@ -426,7 +426,7 @@ if SERVER then
 	end
 
 	local function connected(ply)
-		if blob then
+		if compressedSpans then
 			announce(ply)
 		else
 			waiting[ply] = true
@@ -465,9 +465,9 @@ local TOGL = not system.IsWindows()
 local SPAN_PACK = SPAN_NET .. "_pack"
 
 local function packSpans(key)
-	local bytes = key .. "_rgba8"
-	if not file.Exists(spanPath(bytes, "vtf"), "DATA") then
-		file.Write(spanPath(bytes, "vtf"), shaderpack.VTFHeader(SPAN_COLUMNS * 4, SPAN_COLUMNS, PACK_BYTES_FORMAT, PACK_BYTES_FLAGS) .. string.sub(spanData, 81))
+	local packedKey = key .. "_rgba8"
+	if not file.Exists(spanPath(packedKey, "vtf"), "DATA") then
+		file.Write(spanPath(packedKey, "vtf"), shaderpack.VTFHeader(SPAN_COLUMNS * 4, SPAN_COLUMNS, PACK_BYTES_FORMAT, PACK_BYTES_FLAGS) .. string.sub(spanData, 81))
 	end
 
 	shaderpack.WhenMounted(SPAN_PACK, cover.PACK_SHADERS, function()
@@ -478,10 +478,10 @@ local function packSpans(key)
 			local rt = GetRenderTargetEx("borealis_cover_spans_packed", SPAN_COLUMNS * 2, SPAN_COLUMNS, RT_SIZE_LITERAL, MATERIAL_RT_DEPTH_NONE, PACK_RT_FLAGS, 0, IMAGE_FORMAT_RGBA16161616)
 			if not shaderpack.UsableRT(rt, SPAN_COLUMNS * 2, SPAN_COLUMNS) then return end
 
-			local mat = CreateShaderMaterial("borealis_cover_spanpack_" .. bytes, {
+			local mat = CreateShaderMaterial("borealis_cover_spanpack_" .. packedKey, {
 				["$pixshader"] = PACK_PS,
 				["$vertexshader"] = EXPOSURE_VS,
-				["$texture1"] = "../data/" .. SPAN_DIR .. "/" .. bytes,
+				["$texture1"] = "../data/" .. SPAN_DIR .. "/" .. packedKey,
 				["$linearread_texture1"] = 1,
 				["$alpha_blend"] = 0,
 				["$additive"] = 0,
@@ -697,7 +697,7 @@ end)
 local coverRT
 local texelColumn, ground, coverZs, pending, queued = {}, {}, {}, {}, {}
 local traceZ, winX, winY
-local sweep, fastSweep = 1, true
+local sweepIndex, firstSweep = 1, true
 local updatedFrame = -1
 local upTrace = { mask = SOLID, start = Vector(), endpos = Vector(), output = {} }
 local downTrace = { mask = SOLID, start = Vector(), endpos = Vector(), output = {} }
@@ -792,7 +792,7 @@ local function traceOpenColumn(cx, cy, top, bottom)
 		return down.HitPos.z, false, GLOSS[down.MatType] or 1, false, down.HitNormal.z
 	end
 
-	return spanData and spanCoverZ(x, y, top) or Z_MIN, false, SEED_GLOSS, false
+	return spanData and spanCoverZ(x, y, top) or Z_MIN, false, SPAN_GLOSS, false
 end
 
 local function spanCeiling(x, y, top, bottom)
@@ -860,7 +860,7 @@ local function assignTexel(cx, cy, key)
 	texelColumn[texel] = key
 end
 
-local function seedColumns(keys)
+local function fillFromSpans(keys)
 	if #keys == 0 or not spanData then return end
 
 	local top = traceZ + TRACE_HALF
@@ -869,17 +869,17 @@ local function seedColumns(keys)
 		local key = keys[i]
 		local cx, cy = columnFromKey(key)
 		assignTexel(cx, cy, key)
-		writeTexel(cx, cy, spanCoverZ((cx + 0.5) * COLUMN, (cy + 0.5) * COLUMN, top), SEED_GLOSS)
+		writeTexel(cx, cy, spanCoverZ((cx + 0.5) * COLUMN, (cy + 0.5) * COLUMN, top), SPAN_GLOSS)
 	end
 
 	render.SetViewPort(0, 0, COLUMNS, COLUMNS)
 	render.PopRenderTarget()
 end
 
-local function enter(cx, cy, fresh, queue)
+local function enter(cx, cy, entered, queue)
 	local key = columnKey(cx, cy)
 	if texelColumn[cx % COLUMNS * COLUMNS + cy % COLUMNS] ~= key then
-		fresh[#fresh + 1] = key
+		entered[#entered + 1] = key
 	elseif coverZs[key] then
 		return
 	end
@@ -890,28 +890,28 @@ local function enter(cx, cy, fresh, queue)
 	end
 end
 
-local function enterRange(cy, x0, x1, fresh)
+local function enterRange(cy, x0, x1, entered)
 	for cx = x0, x1 do
-		enter(cx, cy, fresh, true)
+		enter(cx, cy, entered, true)
 	end
 end
 
-local function enterStrips(oldX, oldY, fresh)
+local function enterStrips(oldX, oldY, entered)
 	local x1 = winX + COLUMNS - 1
 	for cy = winY, winY + COLUMNS - 1 do
 		if cy < oldY or cy >= oldY + COLUMNS then
-			enterRange(cy, winX, x1, fresh)
+			enterRange(cy, winX, x1, entered)
 		else
-			enterRange(cy, winX, math.min(x1, oldX - 1), fresh)
-			enterRange(cy, math.max(winX, oldX + COLUMNS), x1, fresh)
+			enterRange(cy, winX, math.min(x1, oldX - 1), entered)
+			enterRange(cy, math.max(winX, oldX + COLUMNS), x1, entered)
 		end
 	end
 end
 
-local function enterWindow(fresh)
+local function enterWindow(entered)
 	for cy = winY, winY + COLUMNS - 1 do
 		for cx = winX, winX + COLUMNS - 1 do
-			enter(cx, cy, fresh, false)
+			enter(cx, cy, entered, false)
 		end
 	end
 end
@@ -946,23 +946,23 @@ local function moveWindow(eye)
 	local cx0, cy0 = math.floor(eye.x / COLUMN) - half, math.floor(eye.y / COLUMN) - half
 	if not traceZ or math.abs(eye.z - traceZ) > TRACE_SLOT then
 		traceZ = eye.z
-		sweep, fastSweep = 1, true
+		sweepIndex, firstSweep = 1, true
 	end
 
 	if cx0 == winX and cy0 == winY then return end
 
 	local oldX, oldY = winX, winY
 	winX, winY = cx0, cy0
-	local fresh = {}
+	local entered = {}
 	if oldX and math.abs(cx0 - oldX) < COLUMNS and math.abs(cy0 - oldY) < COLUMNS then
-		enterStrips(oldX, oldY, fresh)
+		enterStrips(oldX, oldY, entered)
 	else
 		pending, queued = {}, {}
-		enterWindow(fresh)
-		sweep, fastSweep = 1, true
+		enterWindow(entered)
+		sweepIndex, firstSweep = 1, true
 	end
 
-	seedColumns(fresh)
+	fillFromSpans(entered)
 end
 
 local function updateColumns(eye)
@@ -973,7 +973,7 @@ local function updateColumns(eye)
 		players, playerCount = player.GetAll(), player.GetCount()
 		upTrace.filter, downTrace.filter = players, players
 	end
-	local budget = (fastSweep or #pending > 0) and TRACES_PER_FRAME or IDLE_TRACES_PER_FRAME
+	local budget = (firstSweep or #pending > 0) and TRACES_PER_FRAME or IDLE_TRACES_PER_FRAME
 	local deadline = SysTime() + PENDING_TIME
 	render.PushRenderTarget(coverRT)
 	while #pending > 0 and (budget > 0 or SysTime() < deadline) do
@@ -987,10 +987,10 @@ local function updateColumns(eye)
 	end
 
 	for _ = 1, budget do
-		traceOne(winX + sweepX[sweep], winY + sweepY[sweep], top, bottom)
-		sweep = sweep % #sweepX + 1
-		if sweep == 1 then
-			fastSweep = false
+		traceOne(winX + sweepX[sweepIndex], winY + sweepY[sweepIndex], top, bottom)
+		sweepIndex = sweepIndex % #sweepX + 1
+		if sweepIndex == 1 then
+			firstSweep = false
 		end
 	end
 
@@ -1011,7 +1011,7 @@ local function build()
 	render.PopRenderTarget()
 	texelColumn, ground, coverZs, pending, queued = {}, {}, {}, {}, {}
 	traceZ, winX, winY = nil, nil, nil
-	sweep, fastSweep = 1, true
+	sweepIndex, firstSweep = 1, true
 	for _, l in pairs(cover.listeners) do
 		if l.reset then
 			l.reset()

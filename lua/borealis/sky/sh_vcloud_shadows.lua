@@ -22,7 +22,7 @@ local MAP_BAKE_PHASE = 2
 
 local MAT, MAP_MAT, shadowMap
 local materialSerial = 0
-local mapExtra = Matrix()
+local shadowConstants = Matrix()
 local mapX, mapY = 0, 0
 local mapReady = false
 
@@ -162,13 +162,13 @@ local function draw()
 	MAT:SetTexture("$texture3", spans or shadowMap)
 	local exposure, ex, ey, einv, ez = cover.Exposure()
 	MAT:SetTexture("$texture4", exposure or shadowMap)
-	mapExtra:SetUnpacked(
+	shadowConstants:SetUnpacked(
 		mapX, mapY, 1 / MAP_EXTENT, spans and 1 or 0,
 		ex or 0, ey or 0, einv or 0, ez or 0,
 		0, 0, 0, 0,
 		0, 0, 0, 0
 	)
-	MAT:SetMatrix("$viewprojmat", mapExtra)
+	MAT:SetMatrix("$viewprojmat", shadowConstants)
 	quadColor.b = depthslices.Samples()
 	depthslices.Composite(MAT, quadColor)
 end

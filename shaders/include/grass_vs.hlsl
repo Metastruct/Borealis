@@ -12,16 +12,16 @@ const float3 cAmbientCube[6] : register(c21);
 #define PUSH_ABOVE 40.0
 #define PUSH_BELOW 32.0
 
-float2 Push(float3 slot, float3 root)
+float2 Push(float3 pusher, float3 root)
 {
-	float2 centre = float2(slot.x, floor(slot.y));
-	float radius = max(frac(slot.y) * 128.0, 1.0);
-	float strength = frac(slot.z) / 0.99;
+	float2 centre = float2(pusher.x, floor(pusher.y));
+	float radius = max(frac(pusher.y) * 128.0, 1.0);
+	float strength = frac(pusher.z) / 0.99;
 	float2 d = root.xy - centre;
 	float dist = length(d);
 	float k = saturate(1.0 - dist / radius);
 	k = k * k * (3.0 - 2.0 * k);
-	float dz = floor(slot.z) - root.z;
+	float dz = floor(pusher.z) - root.z;
 	float vertical = saturate(1.0 - max(dz, 0.0) / PUSH_ABOVE) * saturate(1.0 + min(dz, 0.0) / PUSH_BELOW);
 
 	return d / max(dist, 1e-3) * (k * strength * vertical * PUSH_LEAN);

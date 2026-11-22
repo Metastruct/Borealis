@@ -11,9 +11,9 @@ float ExactDepthAlpha(float viewDepth)
 	return (SLICE_EXACT + log(max(viewDepth, SLICE_NEAR) / SLICE_NEAR) / log(SLICE_RATIO)) / 255.0;
 }
 
-bool IsSkyDepth(float raw)
+bool IsSkyDepth(float depthSample)
 {
-	return raw <= 0.0 || abs(raw - 1.0) < SKY_EPS;
+	return depthSample <= 0.0 || abs(depthSample - 1.0) < SKY_EPS;
 }
 
 float SliceDepth(float d, float code, float samples)

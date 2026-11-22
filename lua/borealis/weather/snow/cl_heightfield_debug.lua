@@ -47,11 +47,11 @@ local function spanColor(s)
 	return f, f, f
 end
 
-local function buildMesh(data)
+local function buildMesh(field)
 	local quads = {}
 	local half = CELL * 0.45
-	for _, s in ipairs(data.spans) do
-		if s.i >= MARGIN and s.i < data.n - MARGIN and s.j >= MARGIN and s.j < data.n - MARGIN then
+	for _, s in ipairs(field.spans) do
+		if s.i >= MARGIN and s.i < field.n - MARGIN and s.j >= MARGIN and s.j < field.n - MARGIN then
 			quads[#quads + 1] = s
 		end
 	end
@@ -76,17 +76,17 @@ local function buildMesh(data)
 	return m
 end
 
-function heightfield.Show(data)
-	local key = data.cx .. ":" .. data.cy
+function heightfield.Show(field)
+	local key = field.cx .. ":" .. field.cy
 	if overlays[key] and overlays[key].mesh then overlays[key].mesh:Destroy() end
-	overlays[key] = { data = data, mesh = buildMesh(data) }
+	overlays[key] = { field = field, mesh = buildMesh(field) }
 end
 
 function heightfield.SetMode(m)
 	mode = m
 	for _, o in pairs(overlays) do
 		if o.mesh then o.mesh:Destroy() end
-		o.mesh = buildMesh(o.data)
+		o.mesh = buildMesh(o.field)
 	end
 end
 

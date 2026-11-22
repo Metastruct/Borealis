@@ -5,44 +5,44 @@ snow.download = download
 
 local NET, MSG_KEY, MSG_CHUNK = cache.NET, cache.MSG_KEY, cache.MSG_CHUNK
 
-local blobFile, blobIndex
-local blobPending
+local bakeFile, bakeIndex
+local pendingBake
 local onLoaded
 
 function download.OnLoaded(fn)
 	onLoaded = fn
 end
 
-local function useBlob(key, size)
-	local f, index, list = cache.OpenBlob(key, size)
+local function openBake(key, size)
+	local f, index, list = cache.OpenBake(key, size)
 	if not f then return false end
 
-	if blobFile then blobFile:Close() end
-	blobFile, blobIndex = f, index
+	if bakeFile then bakeFile:Close() end
+	bakeFile, bakeIndex = f, index
 	if onLoaded then onLoaded(list) end
 
 	return true
 end
 
-local function blobReceived(data)
-	local key, size = blobPending.key, blobPending.size
-	blobPending = nil
+local function saveBake(data)
+	local key, size = pendingBake.key, pendingBake.size
+	pendingBake = nil
 	if #data ~= size then return end
 
-	if blobFile then
-		blobFile:Close()
-		blobFile, blobIndex = nil, nil
+	if bakeFile then
+		bakeFile:Close()
+		bakeFile, bakeIndex = nil, nil
 	end
 
 	file.CreateDir(cache.DIR)
-	cache.PruneBlobs(key)
-	file.Write(cache.BlobPath(key), data)
-	useBlob(key, #data)
+	cache.PruneBakes(key)
+	file.Write(cache.BakePath(key), data)
+	openBake(key, #data)
 end
 
 local function receiveFatdl()
 	fatdl.Receive(NET, function(data)
-		if blobPending then blobReceived(data) end
+		if pendingBake then saveBake(data) end
 	end)
 end
 
@@ -58,31 +58,31 @@ net.Receive(NET, function()
 	local kind = net.ReadUInt(2)
 	if kind == MSG_KEY then
 		local key, size = net.ReadString(), net.ReadUInt(32)
-		if not key:find("^[%w_%-]+$") or size <= 0 or size > cache.MAX_BLOB_BYTES then return end
-		if useBlob(key, size) or shaderpack.Season() ~= "winter" then return end
+		if not key:find("^[%w_%-]+$") or size <= 0 or size > cache.MAX_BAKE_BYTES then return end
+		if openBake(key, size) or shaderpack.Season() ~= "winter" then return end
 
-		blobPending = { key = key, size = size, parts = {}, got = 0 }
+		pendingBake = { key = key, size = size, parts = {}, got = 0 }
 		net.Start(NET)
 		net.SendToServer()
-	elseif kind == MSG_CHUNK and blobPending then
+	elseif kind == MSG_CHUNK and pendingBake then
 		local data = net.ReadData(net.ReadUInt(16))
-		blobPending.parts[#blobPending.parts + 1] = data
-		blobPending.got = blobPending.got + #data
-		if blobPending.got >= blobPending.size then
-			blobReceived(table.concat(blobPending.parts))
+		pendingBake.parts[#pendingBake.parts + 1] = data
+		pendingBake.got = pendingBake.got + #data
+		if pendingBake.got >= pendingBake.size then
+			saveBake(table.concat(pendingBake.parts))
 		end
 	end
 end)
 
 function download.Active()
-	return blobIndex ~= nil
+	return bakeIndex ~= nil
 end
 
 function download.Read(ch)
-	local entry = blobIndex[snow.ChunkKey(ch.cx, ch.cy)]
-	if not entry then return cache.EMPTY end
+	local range = bakeIndex[snow.ChunkKey(ch.cx, ch.cy)]
+	if not range then return cache.EMPTY end
 
-	blobFile:Seek(entry[1])
+	bakeFile:Seek(range[1])
 
-	return blobFile:Read(entry[2])
+	return bakeFile:Read(range[2])
 end

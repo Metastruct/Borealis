@@ -5,7 +5,7 @@ local bspdata = bspdata
 local VS, PS = "borealis_water_vs30", "borealis_waterdepth_ps30"
 local MESH_TRIS = 10000
 local RT_FLAGS = 1 + 4 + 8
-local NONE = "vgui/black"
+local NO_TEXTURE = "vgui/black"
 local IDENTITY = Matrix()
 
 local meshes, mat, rt, renderedFrame
@@ -52,7 +52,7 @@ local function build()
 	end
 end
 
-local function target()
+local function ensureRT()
 	local w, h = ScrW(), ScrH()
 	if not shaderpack.UsableRT(rt, w, h) then
 		rt = GetRenderTargetEx("borealis_skywall_" .. w .. "x" .. h, w, h, RT_SIZE_LITERAL, MATERIAL_RT_DEPTH_SEPARATE, RT_FLAGS, 0, IMAGE_FORMAT_RGBA16161616F)
@@ -65,9 +65,9 @@ local function target()
 end
 
 function skywall.Texture()
-	if not meshes or #meshes == 0 then return NONE end
+	if not meshes or #meshes == 0 then return NO_TEXTURE end
 	if renderedFrame == FrameNumber() then return rt end
-	if render.GetRenderTarget() ~= nil or not target() then return NONE end
+	if render.GetRenderTarget() ~= nil or not ensureRT() then return NO_TEXTURE end
 
 	render.PushRenderTarget(rt)
 	render.Clear(0, 0, 0, 0, true, true)

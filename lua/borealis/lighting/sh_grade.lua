@@ -81,20 +81,20 @@ end
 
 local running = false
 
-local function wrapper(gm, ...)
+local function gradedEffects(gm, ...)
 	if grade.original then grade.original(gm, ...) end
 	if running then draw() end
 end
 
-local function wrap()
+local function hookGamemode()
 	local gm = GAMEMODE
 	if not gm or grade.gm == gm then return end
-	grade.gm, grade.original, grade.wrapper = gm, gm.RenderScreenspaceEffects, wrapper
-	gm.RenderScreenspaceEffects = wrapper
+	grade.gm, grade.original, grade.gradedEffects = gm, gm.RenderScreenspaceEffects, gradedEffects
+	gm.RenderScreenspaceEffects = gradedEffects
 end
 
 local function fallback()
-	wrap()
+	hookGamemode()
 	if not graded then draw() end
 	graded = false
 end
@@ -103,9 +103,9 @@ local function stop()
 	running = false
 	hook.Remove("PostDrawEffects", "borealis_grade")
 	local gm = grade.gm
-	if gm and gm.RenderScreenspaceEffects == grade.wrapper then
+	if gm and gm.RenderScreenspaceEffects == grade.gradedEffects then
 		gm.RenderScreenspaceEffects = grade.original
-		grade.gm, grade.original, grade.wrapper = nil, nil, nil
+		grade.gm, grade.original, grade.gradedEffects = nil, nil, nil
 	end
 end
 
@@ -113,7 +113,7 @@ local function start()
 	stop()
 	build()
 	running = true
-	wrap()
+	hookGamemode()
 	hook.Add("PostDrawEffects", "borealis_grade", fallback)
 end
 

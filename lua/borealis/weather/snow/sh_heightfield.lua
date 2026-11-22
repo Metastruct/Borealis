@@ -42,8 +42,8 @@ local trace = { mask = MASK_SOLID_BRUSHONLY, start = Vector(), endpos = Vector()
 
 local function noYield() end
 
-local function gatherFloors(triGrid, data, yield)
-	local n, gx0, gy0, columns = data.n, data.gx0, data.gy0, data.columns
+local function gatherFloors(triGrid, field, yield)
+	local n, gx0, gy0, columns = field.n, field.gx0, field.gy0, field.columns
 	local x0, y0 = gx0 * CELL, gy0 * CELL
 	local x1, y1 = x0 + n * CELL, y0 + n * CELL
 	for _, t in ipairs(bspdata.Candidates(triGrid, x0, y0, x1, y1)) do
@@ -69,8 +69,8 @@ local function gatherFloors(triGrid, data, yield)
 	end
 end
 
-local function buildSpans(data, yield)
-	local n, gx0, gy0, columns, spans = data.n, data.gx0, data.gy0, data.columns, data.spans
+local function buildSpans(field, yield)
+	local n, gx0, gy0, columns, spans = field.n, field.gx0, field.gy0, field.columns, field.spans
 	for j = 0, n - 1 do
 		local y = (gy0 + j + 0.5) * CELL
 		for i = 0, n - 1 do
@@ -163,10 +163,10 @@ local function dropTarget(s, b)
 	return best
 end
 
-local function linkSpans(data, yield)
-	local n, columns = data.n, data.columns
+local function linkSpans(field, yield)
+	local n, columns = field.n, field.columns
 	local fadeSeeds, wallSeeds, riseSeeds = {}, { {}, {}, {}, {} }, {}
-	for _, s in ipairs(data.spans) do
+	for _, s in ipairs(field.spans) do
 		local links = s.links
 		for k, dir in ipairs(DIRS) do
 			local i, j = s.i + dir[1], s.j + dir[2]
@@ -239,13 +239,13 @@ local function belowRise(span, edge)
 	return edge.top - span.floor > MIN_RISE
 end
 
-local function distanceField(field, carry, seeds, yield, accept)
+local function distanceField(distKey, edgeKey, seeds, yield, accept)
 	local h = {}
 	for _, seed in ipairs(seeds) do
 		local s, d = seed[1], seed[2]
-		if d < (s[field] or math.huge) then
-			s[field] = d
-			if carry then s[carry] = seed[3] end
+		if d < (s[distKey] or math.huge) then
+			s[distKey] = d
+			if edgeKey then s[edgeKey] = seed[3] end
 			heapPush(h, s, d)
 		end
 	end
@@ -253,14 +253,14 @@ local function distanceField(field, carry, seeds, yield, accept)
 	local popped = 0
 	while #h > 0 do
 		local d, s = heapPop(h)
-		if d <= s[field] then
+		if d <= s[distKey] then
 			for k = 1, 8 do
 				local nb = s.links[k]
-				if nb and nb.kind == KIND_SNOW and (not accept or accept(nb, s[carry])) then
+				if nb and nb.kind == KIND_SNOW and (not accept or accept(nb, s[edgeKey])) then
 					local nd = d + DIRS[k][3] * CELL
-					if nd < (nb[field] or math.huge) then
-						nb[field] = nd
-						if carry then nb[carry] = s[carry] end
+					if nd < (nb[distKey] or math.huge) then
+						nb[distKey] = nd
+						if edgeKey then nb[edgeKey] = s[edgeKey] end
 						heapPush(h, nb, nd)
 					end
 				end
@@ -272,15 +272,15 @@ local function distanceField(field, carry, seeds, yield, accept)
 	end
 end
 
-local function signedEdgeDistance(s, field, edge, x, y)
-	local d = s[field] or math.huge
+local function signedEdgeDistance(s, distKey, edge, x, y)
+	local d = s[distKey] or math.huge
 	if not edge then return d end
 
 	return d - ((x - s.x) * edge.dx + (y - s.y) * edge.dy) / math.sqrt(edge.dx * edge.dx + edge.dy * edge.dy)
 end
 
-local function edgeDistance(s, field, edge, x, y)
-	return math.max(signedEdgeDistance(s, field, edge, x, y), 0)
+local function edgeDistance(s, distKey, edge, x, y)
+	return math.max(signedEdgeDistance(s, distKey, edge, x, y), 0)
 end
 
 local function wallLift(s, x, y)
@@ -381,14 +381,14 @@ end
 function heightfield.Build(triGrid, cx, cy, yield)
 	yield = yield or noYield
 	local n = CHUNK / CELL + MARGIN * 2
-	local data = { cx = cx, cy = cy, n = n, gx0 = cx * CHUNK / CELL - MARGIN, gy0 = cy * CHUNK / CELL - MARGIN, columns = {}, spans = {}, points = {} }
+	local field = { cx = cx, cy = cy, n = n, gx0 = cx * CHUNK / CELL - MARGIN, gy0 = cy * CHUNK / CELL - MARGIN, columns = {}, spans = {}, points = {} }
 	for k = 0, n * n - 1 do
-		data.columns[k] = {}
+		field.columns[k] = {}
 	end
 
-	gatherFloors(triGrid, data, yield)
-	buildSpans(data, yield)
-	local fadeSeeds, wallSeeds, riseSeeds = linkSpans(data, yield)
+	gatherFloors(triGrid, field, yield)
+	buildSpans(field, yield)
+	local fadeSeeds, wallSeeds, riseSeeds = linkSpans(field, yield)
 	distanceField("fade", "fadeEdge", fadeSeeds, yield)
 	for k = 1, 4 do
 		distanceField(WALL_FIELDS[k], WALL_EDGES[k], wallSeeds[k], yield)
@@ -403,7 +403,7 @@ function heightfield.Build(triGrid, cx, cy, yield)
 	distanceField("rise", "riseEdge", riseSeeds, yield, belowRise)
 
 	local snowSpans = {}
-	for _, s in ipairs(data.spans) do
+	for _, s in ipairs(field.spans) do
 		if s.kind == KIND_SNOW then
 			snowSpans[#snowSpans + 1] = s
 			s.height, s.lift = profile(s, s.x, s.y)
@@ -417,5 +417,5 @@ function heightfield.Build(triGrid, cx, cy, yield)
 		s.delta = s.amount - s.base
 	end
 
-	return data
+	return field
 end

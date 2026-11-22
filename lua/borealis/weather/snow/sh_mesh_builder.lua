@@ -111,7 +111,7 @@ function meshBuilder.Build(ch)
 	local triGrid = geometry.Triangles()
 	local x0, y0 = ch.cx * CHUNK, ch.cy * CHUNK
 	local x1, y1 = x0 + CHUNK, y0 + CHUNK
-	local cand = bspdata.Candidates(triGrid, x0, y0, x1, y1)
+	local candidates = bspdata.Candidates(triGrid, x0, y0, x1, y1)
 	local cache = { light = {}, samples = {} }
 	local groups, order, group = {}, {}
 	local zmin, zmax = math.huge, -math.huge
@@ -193,7 +193,7 @@ function meshBuilder.Build(ch)
 		end
 	end
 
-	for _, t in ipairs(cand) do
+	for _, t in ipairs(candidates) do
 		if t.vn then
 			local vn = t.vn
 			local tri = { { t[1], t[2], t[3], t[10], vn[1], vn[2] }, { t[4], t[5], t[6], t[11], vn[3], vn[4] }, { t[7], t[8], t[9], t[12], vn[5], vn[6] } }
@@ -253,7 +253,7 @@ function meshBuilder.Build(ch)
 		end
 
 		if tb > ta then
-			local function at(f)
+			local function pointAt(f)
 				return ax + dx * f, ay + dy * f, e[3] + (e[7] - e[3]) * f, e[4] + (e[8] - e[4]) * f
 			end
 
@@ -271,10 +271,10 @@ function meshBuilder.Build(ch)
 
 			table.sort(stops)
 
-			local px, py, pz, pa = at(ta)
+			local px, py, pz, pa = pointAt(ta)
 			local pc, pl, _, _, pm = snowAt(px, py, pz, pa, cache)
 			for _, stop in ipairs(stops) do
-				local qx, qy, qz, qa = at(stop)
+				local qx, qy, qz, qa = pointAt(stop)
 				local qc, ql, _, _, qm = snowAt(qx, qy, qz, qa, cache)
 				local mx, my, mz = (px + qx) * 0.5, (py + qy) * 0.5, (pz + qz) * 0.5
 				local ox, oy = mx + e[9] * SKIRT_CHECK_DISTANCE, my + e[10] * SKIRT_CHECK_DISTANCE

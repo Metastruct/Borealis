@@ -11,7 +11,7 @@ local NO_WALL = "vgui/black"
 local MESH_TRIS = 10000
 local MESH_CACHE_TRIS = jit.arch == "x64" and math.huge or 300000
 local PRELOAD = jit.arch == "x64"
-local FILL_K = 0.5
+local AMBIENT_FILL = 0.5
 local TOD_MATCH = 0.29
 local TOD_SUN_GAIN = 1.05
 local TOD_STYLE_GAIN = 1
@@ -67,9 +67,9 @@ local function buildChunk(ch)
 		writeChunk(ch, verts, tris)
 	end
 
-	if tris > 0 then lighting.Resolve(ch, verts, tris) end
+	if tris > 0 then lighting.Bake(ch, verts, tris) end
 
-	local groups, steps = {}, {}
+	local groups, snowCells = {}, {}
 	ch.groups = groups
 	local o = 0
 	for i, cluster in ipairs(tris > 0 and ch.clusters or {}) do
@@ -86,7 +86,7 @@ local function buildChunk(ch)
 				local light = verts[o + 6]
 				local nx, ny = verts[o + 4], verts[o + 5]
 				vpos:SetUnpacked(verts[o + 1], verts[o + 2], verts[o + 3])
-				if k % 3 == 1 then footsteps.Mark(steps, verts, o) end
+				if k % 3 == 1 then footsteps.MarkCells(snowCells, verts, o) end
 				vnormal:SetUnpacked(nx, ny, math.sqrt(math.max(1 - nx * nx - ny * ny, 0)))
 				mesh.Position(vpos)
 				mesh.Normal(vnormal)
@@ -100,7 +100,7 @@ local function buildChunk(ch)
 			left = left - count
 		end
 	end
-	ch.steps = steps
+	ch.snowCells = snowCells
 
 	return tris
 end
@@ -125,12 +125,12 @@ local function destroyChunk(ch)
 			m:Destroy()
 		end
 	end
-	ch.groups, ch.steps = nil, nil
+	ch.groups, ch.snowCells = nil, nil
 end
 
 local MAT, DEPTH_MAT
 local materialSerial = 0
-local extra = Matrix()
+local fogConstants = Matrix()
 
 local function skyTint(tonemap)
 	local procsky = shaderpack.procsky
@@ -146,13 +146,13 @@ local function skyTint(tonemap)
 end
 
 local visible = {}
-local sight = chunks.Sight()
+local pvsFilter = chunks.PVSFilter()
 local matchedScale, matchedR, matchedG, matchedB
 
 local function todChannel(light, amb, scale)
 	local world = tod.light_environment_named and amb + TOD_SUN_GAIN * math.max(light - amb, 0) * scale or TOD_STYLE_GAIN * light * scale
 
-	return TOD_MATCH * (light * scale + amb * FILL_K) / math.max(world, 1e-3)
+	return TOD_MATCH * (light * scale + amb * AMBIENT_FILL) / math.max(world, 1e-3)
 end
 
 local function matchTodSnow(scale, amb)
@@ -172,10 +172,10 @@ local function releaseTodSnow()
 	if tod and tod.snow and tod.snow.SetTint then tod.snow.SetTint() end
 end
 
-local function collect(shown, sky, n)
+local function collectMeshes(shown, sky, n)
 	for _, ch in ipairs(shown) do
 		for _, g in ipairs(ch.groups) do
-			if (g.cluster == SKY_CLUSTER) == sky and sight:Shows(g) then
+			if (g.cluster == SKY_CLUSTER) == sky and pvsFilter:Passes(g) then
 				for _, m in ipairs(g.meshes) do
 					n = n + 1
 					visible[n] = m
@@ -205,11 +205,11 @@ local function draw(depth, _, sky3d)
 
 	local view = chunks.View()
 	local eye = view.eye
-	sight:Begin(eye)
+	pvsFilter:SetEye(eye)
 
 	local shown = grid:Visible(view)
-	local nworld = collect(shown, false, 0)
-	local nvis = collect(shown, true, nworld)
+	local nworld = collectMeshes(shown, false, 0)
+	local nvis = collectMeshes(shown, true, nworld)
 
 	for i = #visible, nvis + 1, -1 do
 		visible[i] = nil
@@ -231,19 +231,19 @@ local function draw(depth, _, sky3d)
 	setConstant(MAT, "$c0", eye.x, eye.y, eye.z, CurTime() % 1000)
 	setConstant(MAT, "$c1", trails.Window())
 	setConstant(MAT, "$c2", sun.x, sun.y, sun.z, foliage.WorldLightScale())
-	setConstant(MAT, "$c3", packColor(amb.x * FILL_K, amb.y * FILL_K, amb.z * FILL_K), tonemap, fadeStart, fadeEnd)
+	setConstant(MAT, "$c3", packColor(amb.x * AMBIENT_FILL, amb.y * AMBIENT_FILL, amb.z * AMBIENT_FILL), tonemap, fadeStart, fadeEnd)
 
 	local fr, fg, fb = render.GetFogColor()
 	local fogStart, fogEnd = render.GetFogDistances()
 	local fogMax = render.GetFogMode() == MATERIAL_FOG_NONE and 0 or render.GetFogMaxDensity()
 	local sr, sg, sb = skyTint(tonemap)
-	extra:SetUnpacked(
+	fogConstants:SetUnpacked(
 		toLinear(fr) * tonemap, toLinear(fg) * tonemap, toLinear(fb) * tonemap, fogStart,
 		fogEnd, fogMax, 0, 0,
 		sr, sg, sb, 0,
 		invW, invH, flashInvW, flashInvH
 	)
-	MAT:SetMatrix("$viewprojmat", extra)
+	MAT:SetMatrix("$viewprojmat", fogConstants)
 
 	render.OverrideDepthEnable(true, true)
 	drawRange(MAT, 1, nworld, wallTex)

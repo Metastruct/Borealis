@@ -160,11 +160,11 @@ local function tick()
 	playUI(SOUND.tick, TICK_VOLUME, math.random(96, 104))
 end
 
-local s = 1
+local uiScale = 1
 local H, FONT = {}, {}
 
 local function px(v)
-	return math.floor(v * s + 0.5)
+	return math.floor(v * uiScale + 0.5)
 end
 
 local function buildTitle(length)
@@ -184,11 +184,11 @@ local function buildTitle(length)
 end
 
 local function buildFonts()
-	s = math.Clamp(ScrH() / 1080, 0.7, 2)
+	uiScale = math.Clamp(ScrH() / 1080, 0.7, 2)
 
 	local function font(key, face, size)
 		local name = "borealis_menu_" .. key
-		local height = math.max(10, math.floor(size * s))
+		local height = math.max(10, math.floor(size * uiScale))
 		FONT[key], H[key] = name, height
 		surface.CreateFont(name, { font = face, size = height, weight = 400, antialias = true, extended = true })
 	end
@@ -579,7 +579,7 @@ function SLIDER:Setup(label, min, max, decimals, convar, help)
 end
 
 function SLIDER:GetValue()
-	if self.Held ~= nil then return self.Held end
+	if self.Picked ~= nil then return self.Picked end
 
 	return self.ConVar:GetFloat()
 end
@@ -587,9 +587,9 @@ end
 function SLIDER:Pick()
 	local x = self:ScreenToLocal(gui.MouseX(), 0)
 	local frac = math.Clamp(x / self:GetWide(), 0, 1)
-	self.Held = math.Round(self.Min + (self.Max - self.Min) * frac, self.Decimals)
+	self.Picked = math.Round(self.Min + (self.Max - self.Min) * frac, self.Decimals)
 
-	local step = math.Round((self.Held - self.Min) / (self.Max - self.Min) * SEGMENTS)
+	local step = math.Round((self.Picked - self.Min) / (self.Max - self.Min) * SEGMENTS)
 	if self.Step and step ~= self.Step then tick() end
 	self.Step = step
 end
@@ -609,8 +609,8 @@ function SLIDER:OnMouseReleased(code)
 	self:MouseCapture(false)
 	self:Pick()
 	playUI(SOUND.release, TICK_VOLUME)
-	RunConsoleCommand(self.ConVar:GetName(), tostring(self.Held))
-	self.Held = nil
+	RunConsoleCommand(self.ConVar:GetName(), tostring(self.Picked))
+	self.Picked = nil
 end
 
 function SLIDER:Think()
@@ -620,8 +620,8 @@ end
 function SLIDER:Paint(w, h)
 	local value = self:GetValue()
 	local frac = math.Clamp((value - self.Min) / (self.Max - self.Min), 0, 1)
-	local held = self.Held ~= nil
-	local hovered = self:IsHovered() or held
+	local picking = self.Picked ~= nil
+	local hovered = self:IsHovered() or picking
 
 	say(self.Label, FONT.small, 0, 0, hovered and COL.bright or COL.mid)
 	say(self.Decimals > 0 and string.format("%." .. self.Decimals .. "f", value) or tostring(math.Round(value)), FONT.small, w, 0, COL.bright, TEXT_ALIGN_RIGHT)
@@ -633,7 +633,7 @@ function SLIDER:Paint(w, h)
 	local y = H.small + px(6)
 	for i = 0, math.floor(SEGMENTS * f) - 1 do
 		local x = math.floor(i * step)
-		rect(x, y, math.floor((i + 1) * step) - gap - x, h - y, i < filled and (held and COL.bright or COL.ink) or COL.line)
+		rect(x, y, math.floor((i + 1) * step) - gap - x, h - y, i < filled and (picking and COL.bright or COL.ink) or COL.line)
 	end
 end
 
@@ -672,14 +672,14 @@ end
 function CHART:OnMousePressed(code)
 	if not self.Pickable then return end
 	if code == MOUSE_RIGHT then
-		self.Held = nil
+		self.Picked = nil
 		return
 	end
 	if code ~= MOUSE_LEFT then return end
 
 	self.Dragging = true
 	self:MouseCapture(true)
-	self.Held = self:HourAt(self:ScreenToLocal(gui.MouseX(), 0))
+	self.Picked = self:HourAt(self:ScreenToLocal(gui.MouseX(), 0))
 	tick()
 end
 
@@ -693,8 +693,8 @@ end
 function CHART:Think()
 	if self.Dragging then
 		local hour = self:HourAt(self:ScreenToLocal(gui.MouseX(), 0))
-		if hour ~= self.Held then tick() end
-		self.Held = hour
+		if hour ~= self.Picked then tick() end
+		self.Picked = hour
 	end
 end
 
@@ -782,8 +782,8 @@ function CHART:Paint(w, h)
 	end
 
 	self:Cursor(currentCycle() * 24, COL.bright, COL.mid, true, true)
-	if self.Held then
-		self:Cursor(self.Held, COL.amber, COL.amber, true)
+	if self.Picked then
+		self:Cursor(self.Picked, COL.amber, COL.amber, true)
 	end
 end
 
@@ -899,11 +899,11 @@ local function buildStatus(tab, w, h)
 		overrideRow(tab, 0, h - rowH, lw, rowH, {
 			{ "Realtime", function() control("time", "realtime") end, "Sync the clock to real time for all players", function() return tod.GetMode() == 1 end, COL.ink },
 			{ "Demo", function() control("time", "demo") end, "Run a full day in 20 seconds for all players", function() return tod.GetMode() == 2 end },
-			{ function() return chart.Held and "Set " .. clock(chart.Held / 24) or "Set --:--" end, function()
-				if not chart.Held then return end
-				control("time", tostring(chart.Held))
-				chart.Held = nil
-			end, "Hold the clock at the selected time for all players", function() return chart.Held ~= nil end },
+			{ function() return chart.Picked and "Set " .. clock(chart.Picked / 24) or "Set --:--" end, function()
+				if not chart.Picked then return end
+				control("time", tostring(chart.Picked))
+				chart.Picked = nil
+			end, "Hold the clock at the selected time for all players", function() return chart.Picked ~= nil end },
 		}, labels)
 
 		local specs = { { "Auto", function() control("weather", "") end, "Resume the hourly weather schedule", function() return tod.force_weather == nil end, COL.ink } }
@@ -1042,15 +1042,15 @@ local function buildEffects(tab, w, h)
 		names[#names + 1] = entry[1]
 	end
 
-	local armed = 0
+	local confirmUntil = 0
 	local reset = vgui.Create("BorealisButton", tab)
-	reset:Setup(function() return RealTime() < armed and "Confirm reset" or "Factory settings" end, function()
-		if RealTime() >= armed then
-			armed = RealTime() + 3
+	reset:Setup(function() return RealTime() < confirmUntil and "Confirm reset" or "Factory settings" end, function()
+		if RealTime() >= confirmUntil then
+			confirmUntil = RealTime() + 3
 			return
 		end
 
-		armed = 0
+		confirmUntil = 0
 		for _, name in ipairs(names) do
 			local convar = GetConVar(name)
 			if convar and convar:GetString() ~= convar:GetDefault() then
@@ -1058,7 +1058,7 @@ local function buildEffects(tab, w, h)
 			end
 		end
 	end, "Restore factory settings. Press twice to confirm", COL.danger)
-	reset.IsActive = function() return RealTime() < armed end
+	reset.IsActive = function() return RealTime() < confirmUntil end
 	reset:SetPos(w - benchW * 2 - gap, math.floor((masterH - px(28)) / 2))
 	reset:SetSize(benchW, px(28))
 

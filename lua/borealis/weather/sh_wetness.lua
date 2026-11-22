@@ -201,7 +201,7 @@ end
 
 local FOG_DENSITY_MAX, FOG_FALLOFF_MAX = 0.001, 1000
 local quadColor = Color(0, 0, 0, 255)
-local extra = Matrix()
+local wetConstants = Matrix()
 
 local function draw()
 	if not active then return end
@@ -235,13 +235,13 @@ local function draw()
 
 	local rain = tod and tod.rain and tod.rain.amount or 0
 	local fogDensity, fogFalloff, fogBase = fog.Layer()
-	extra:SetUnpacked(
+	wetConstants:SetUnpacked(
 		CurTime() % 3600, rain, lutWeight, lutScale,
 		right.x, right.y, right.z, puddleLevel(pool),
 		bakedSun.x, bakedSun.y, bakedSun.z, pool,
 		(farX + FAR_COLUMNS / 2) * FAR_COLUMN, (farY + FAR_COLUMNS / 2) * FAR_COLUMN, fogBase, spans and vs.zfar or -vs.zfar
 	)
-	MAT:SetMatrix("$viewprojmat", extra)
+	MAT:SetMatrix("$viewprojmat", wetConstants)
 	quadColor.r = math.floor(math.min(fogDensity / FOG_DENSITY_MAX, 1) * 255 + 0.5)
 	quadColor.g = math.floor(math.Clamp(fogFalloff / FOG_FALLOFF_MAX, 1 / 255, 1) * 255 + 0.5)
 	quadColor.b = depthslices.Samples()

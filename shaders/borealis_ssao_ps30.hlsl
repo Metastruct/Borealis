@@ -41,9 +41,9 @@ float3 viewPos(float2 uv, float d)
 
 float3 tapPos(float2 uv)
 {
-	float raw = tex2Dlod(Depth, float4(uv, 0.0, 0.0)).r;
+	float depthSample = tex2Dlod(Depth, float4(uv, 0.0, 0.0)).r;
 
-	return viewPos(uv, IsSkyDepth(raw) ? SKY_FAR : raw * DEPTH_SCALE);
+	return viewPos(uv, IsSkyDepth(depthSample) ? SKY_FAR : depthSample * DEPTH_SCALE);
 }
 
 float3 nearer(float3 p, float3 a, float3 b)
@@ -67,17 +67,17 @@ float4 main(PS_IN i) : COLOR
 {
 	float2 px = floor(i.uv * AO_SIZE + 0.25);
 	float2 uv = (px * AO_SCALE + 0.5) * TEXEL;
-	float raw = tex2Dlod(Depth, float4(uv, 0.0, 0.0)).r;
-	float d = raw * DEPTH_SCALE;
-	[branch] if (IsSkyDepth(raw) || d > FADE_END)
+	float depthSample = tex2Dlod(Depth, float4(uv, 0.0, 0.0)).r;
+	float d = depthSample * DEPTH_SCALE;
+	[branch] if (IsSkyDepth(depthSample) || d > FADE_END)
 	{
-		return float4(1.0, raw, 0.0, 1.0);
+		return float4(1.0, depthSample, 0.0, 1.0);
 	}
 
 	float pixels = min(RADIUS * SCREEN_H * 0.5 / (d * TAN_V), MAX_PIXELS);
 	[branch] if (pixels < 1.0)
 	{
-		return float4(1.0, raw, 0.0, 1.0);
+		return float4(1.0, depthSample, 0.0, 1.0);
 	}
 
 	float3 p = viewPos(uv, d);
@@ -114,5 +114,5 @@ float4 main(PS_IN i) : COLOR
 	float ao = saturate(1.0 - sum * INTENSITY * (2.0 / SAMPLES));
 	ao = lerp(1.0, ao, saturate((FADE_END - d) / (FADE_END - FADE_START)));
 
-	return float4(ao, raw, 0.0, 1.0);
+	return float4(ao, depthSample, 0.0, 1.0);
 }

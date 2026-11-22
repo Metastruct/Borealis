@@ -89,17 +89,17 @@ local function currentBase()
 	return base
 end
 
-local lit
+local smoothedLight
 
 local function sceneLight()
 	local c = render.GetLightColor(EyePos())
-	if not lit then
-		lit = c
+	if not smoothedLight then
+		smoothedLight = c
 	else
-		lit = lit + (c - lit) * math.min(1, RealFrameTime() * LIGHT_RATE)
+		smoothedLight = smoothedLight + (c - smoothedLight) * math.min(1, RealFrameTime() * LIGHT_RATE)
 	end
 
-	return lit
+	return smoothedLight
 end
 
 local function luminance(r, g, b)
@@ -146,7 +146,7 @@ local function prepare()
 end
 
 local quadColor = Color(SUN_GAIN * 255, 0, 0, 255)
-local extra = Matrix()
+local fogConstants = Matrix()
 local ORDER = 20
 
 local function draw()
@@ -161,14 +161,14 @@ local function draw()
 	MAT:SetTexture("$texture3", coverRT)
 	local spans = cover.Spans()
 	MAT:SetTexture("$texture4", spans or coverRT)
-	extra:SetField(1, 1, spans and 1 or 0)
+	fogConstants:SetField(1, 1, spans and 1 or 0)
 	local exposure, ex, ey, einv, ez = cover.Exposure()
 	MAT:SetTexture("$texture5", exposure or coverRT)
-	extra:SetField(2, 1, ex or 0)
-	extra:SetField(2, 2, ey or 0)
-	extra:SetField(2, 3, einv or 0)
-	extra:SetField(2, 4, ez or 0)
-	MAT:SetMatrix("$viewprojmat", extra)
+	fogConstants:SetField(2, 1, ex or 0)
+	fogConstants:SetField(2, 2, ey or 0)
+	fogConstants:SetField(2, 3, einv or 0)
+	fogConstants:SetField(2, 4, ez or 0)
+	MAT:SetMatrix("$viewprojmat", fogConstants)
 
 	local eye = EyePos()
 	local fwd = EyeAngles():Forward()

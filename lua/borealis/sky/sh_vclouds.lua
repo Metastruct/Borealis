@@ -33,7 +33,7 @@ local OVERCAST_AMB = 0.55
 local OVERCAST_DENSITY = 2.5
 local VOLUME_OVERCAST_LIGHT = 1.2
 local VOLUME_OVERCAST_GREY = 0.7
-local THICK = 6000
+local CLOUD_THICKNESS = 6000
 local CIRRUS_ABOVE = 8000
 local CIRRUS_WIND_X, CIRRUS_WIND_Y = 140, 52
 local CIRRUS_MIN_OPACITY = 0.01
@@ -52,11 +52,11 @@ local SKY3D_FAR_FRAC = 0.98
 local SKY3D_ZFAR = 56755
 local SKY3D_OVERSIZE = 6
 local SKY3D_NEAR = 12
-local CLAMP = 4 + 8
+local RT_CLAMP = 4 + 8
 
 local MAT, LIGHT_MAT, lightMap, sky3dMask
 local materialSerial = 0
-local mapExtra = Matrix()
+local cloudConstants = Matrix()
 local mapOrigin = Vector()
 local mapReady = false
 
@@ -247,7 +247,7 @@ function vclouds.Cirrus(eye, tonemap, m)
 	if not active and not (clouds and clouds.IsActive()) then return end
 
 	local overcast = shaderpack.Overcast()
-	local height = baseZ() + THICK + CIRRUS_ABOVE - eye.z
+	local height = baseZ() + CLOUD_THICKNESS + CIRRUS_ABOVE - eye.z
 	if 1 - overcast < CIRRUS_MIN_OPACITY or height <= 0 then return end
 
 	local _, light, amb = lighting()
@@ -289,7 +289,7 @@ local function bakeLight()
 	render.OverrideAlphaWriteEnable(false)
 	render.PopRenderTarget()
 
-	mapExtra:SetUnpacked(
+	cloudConstants:SetUnpacked(
 		mapOrigin.x, mapOrigin.y, 1 / MAP_EXTENT, 1,
 		0, 0, 0, 0,
 		0, 0, 0, 0,
@@ -298,14 +298,14 @@ local function bakeLight()
 	mapReady = true
 end
 
-local ALPHA0, ALPHA1 = Color(0, 0, 0, 0), Color(255, 255, 255, 255)
+local ALPHA_CLEAR, ALPHA_OPAQUE = Color(0, 0, 0, 0), Color(255, 255, 255, 255)
 local sky3dFrame = -1
 
 local function sky3dMaskReady()
 	local w, h = ScrW(), ScrH()
 	if shaderpack.UsableRT(sky3dMask, w, h) then return true end
 
-	local rt = GetRenderTargetEx("borealis_vclouds_sky3d_" .. w .. "x" .. h, w, h, RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE, CLAMP, 0, IMAGE_FORMAT_RGBA8888)
+	local rt = GetRenderTargetEx("borealis_vclouds_sky3d_" .. w .. "x" .. h, w, h, RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE, RT_CLAMP, 0, IMAGE_FORMAT_RGBA8888)
 	if not shaderpack.UsableRT(rt, w, h) then return false end
 
 	sky3dMask = rt
@@ -331,13 +331,13 @@ local function captureSky3D(bDepth, _, b3DSky)
 
 	render.OverrideDepthEnable(true, false)
 	cam.IgnoreZ(true)
-	render.DrawQuadEasy(eye + fwd * near, -fwd, halfW * near * SKY3D_OVERSIZE, halfH * near * SKY3D_OVERSIZE, ALPHA0, 0)
+	render.DrawQuadEasy(eye + fwd * near, -fwd, halfW * near * SKY3D_OVERSIZE, halfH * near * SKY3D_OVERSIZE, ALPHA_CLEAR, 0)
 	cam.IgnoreZ(false)
-	render.DrawQuadEasy(eye + fwd * far, -fwd, halfW * far * SKY3D_OVERSIZE, halfH * far * SKY3D_OVERSIZE, ALPHA1, 0)
+	render.DrawQuadEasy(eye + fwd * far, -fwd, halfW * far * SKY3D_OVERSIZE, halfH * far * SKY3D_OVERSIZE, ALPHA_OPAQUE, 0)
 	render.CopyRenderTargetToTexture(sky3dMask)
 
 	cam.IgnoreZ(true)
-	render.DrawQuadEasy(eye + fwd * near, -fwd, halfW * near * SKY3D_OVERSIZE, halfH * near * SKY3D_OVERSIZE, ALPHA1, 0)
+	render.DrawQuadEasy(eye + fwd * near, -fwd, halfW * near * SKY3D_OVERSIZE, halfH * near * SKY3D_OVERSIZE, ALPHA_OPAQUE, 0)
 	cam.IgnoreZ(false)
 	render.OverrideDepthEnable(false, false)
 
@@ -350,10 +350,10 @@ end
 local function draw()
 	if not MAT and not build() then return end
 
-	mapExtra:SetField(2, 1, sky3dFrame == FrameNumber() and 1 or 0)
-	mapExtra:SetField(2, 2, densityGain())
-	mapExtra:SetField(2, 3, shaderpack.Overcast())
-	MAT:SetMatrix("$viewprojmat", mapExtra)
+	cloudConstants:SetField(2, 1, sky3dFrame == FrameNumber() and 1 or 0)
+	cloudConstants:SetField(2, 2, densityGain())
+	cloudConstants:SetField(2, 3, shaderpack.Overcast())
+	MAT:SetMatrix("$viewprojmat", cloudConstants)
 
 	local eye = EyePos()
 	if bit.band(util.PointContents(eye), CONTENTS_SOLID) ~= 0 then return end

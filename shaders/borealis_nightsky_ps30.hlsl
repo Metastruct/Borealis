@@ -84,9 +84,9 @@ float4 main(PS_IN i) : COLOR
 	float4 mw = tex2Dlod(MilkyWay, float4(mwUV(dir), 0.0, 0.0));
 	float3 col = mw.rgb * mw.rgb * (MW_MAX * MILKYWAY);
 
-	float3 st = starLayer(dir, 55.0, 0.22) * 1.6;
-	st += starLayer(dir, 130.0, 0.18 + 0.5 * mw.a) * 0.75;
-	col += st * STARS;
+	float3 stars = starLayer(dir, 55.0, 0.22) * 1.6;
+	stars += starLayer(dir, 130.0, 0.18 + 0.5 * mw.a) * 0.75;
+	col += stars * STARS;
 
 	float h = saturate(1.0 - elevation);
 	float3 haze = unpackColor(AIRGLOW) * 0.25 * pow(h, 5.0) * 0.14;

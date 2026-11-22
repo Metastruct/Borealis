@@ -104,7 +104,7 @@ foliage.WorldLightScale = worldLightScale
 local UP = Vector(0, 0, 1)
 local traceStart, traceEnd, lightPos = Vector(0, 0, 0), Vector(0, 0, 0), Vector(0, 0, 0)
 
-local function probe(t, x, y, z)
+local function lightSamplePoint(t, x, y, z)
 	if not t.sky then return x, y, z, 1 end
 	if not bspdata.BeyondWorld(x, y, z) then return end
 
@@ -163,7 +163,7 @@ function Layer:raster(ch, cand)
 				if x >= t[13] and x <= t[15] and y >= t[14] and y <= t[16] then
 					local z, alpha = sample(t, x, y)
 					local px, py, pz, scale
-					if z then px, py, pz, scale = probe(t, x, y, z) end
+					if z then px, py, pz, scale = lightSamplePoint(t, x, y, z) end
 					if not px then z = nil end
 
 					local kept = z and r3 * 255 > alpha and keep(px, py, pz, r5)
@@ -406,8 +406,8 @@ function Layer:draw(sky3d)
 
 	local visible = grid:Visible(v)
 
-	local sight = self.sight
-	sight:Begin(eye)
+	local pvsFilter = self.pvsFilter
+	pvsFilter:SetEye(eye)
 	local drawn, skyDrawn = self.drawn, self.skyDrawn
 	local shown, skyShown = 0, 0
 	if self.cfg.engineLights then
@@ -423,7 +423,7 @@ function Layer:draw(sky3d)
 		for _, b in ipairs(ch.meshes) do
 			local show = false
 			for _, g in ipairs(b.groups) do
-				if sight:Shows(g) then
+				if pvsFilter:Passes(g) then
 					show = true
 					break
 				end
@@ -530,7 +530,7 @@ function foliage.Layer(cfg)
 	local layer = setmetatable({
 		cfg = cfg, height = 1, radius = 3072,
 		drawn = {}, skyDrawn = {},
-		sight = chunks.Sight(),
+		pvsFilter = chunks.PVSFilter(),
 		skyConstants = Matrix(),
 	}, Layer)
 	layer.grid = chunks.Grid({

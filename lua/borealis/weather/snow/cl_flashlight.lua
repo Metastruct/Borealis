@@ -3,12 +3,12 @@ local flashlight = snow.flashlight or {}
 snow.flashlight = flashlight
 
 local RT_FLAGS = 1 + 4 + 8
-local NONE = "vgui/black"
+local NO_TEXTURE = "vgui/black"
 local ALBEDO = "[0.6 0.6 0.62]"
 
 local material, rt
 local meshes, count = {}, 0
-local any = false
+local anyFlashlight = false
 
 local function drawMeshes()
 	render.SetMaterial(material)
@@ -17,11 +17,11 @@ local function drawMeshes()
 	end
 end
 
-local function mark()
-	any = true
+local function noteFlashlight()
+	anyFlashlight = true
 end
 
-local function target()
+local function ensureRT()
 	local w, h = ScrW(), ScrH()
 	if not shaderpack.UsableRT(rt, w, h) then
 		rt = GetRenderTargetEx("borealis_snow_flashlight_" .. w .. "x" .. h, w, h, RT_SIZE_LITERAL, MATERIAL_RT_DEPTH_SEPARATE, RT_FLAGS, 0, IMAGE_FORMAT_RGBA16161616F)
@@ -46,9 +46,9 @@ end
 
 function flashlight.Render(visible, nvis)
 	meshes, count = visible, nvis
-	any = false
-	render.RenderFlashlights(mark)
-	if not any or not target() then return NONE, 0, 0 end
+	anyFlashlight = false
+	render.RenderFlashlights(noteFlashlight)
+	if not anyFlashlight or not ensureRT() then return NO_TEXTURE, 0, 0 end
 
 	render.PushRenderTarget(rt)
 	render.Clear(0, 0, 0, 0, true, true)

@@ -38,7 +38,7 @@ struct VS_OUTPUT
 	float4 projPos : POSITION;
 	float2 uv      : TEXCOORD0;
 	float3 centre  : TEXCOORD1;
-	float2 info    : TEXCOORD2;
+	float2 dimming    : TEXCOORD2;
 };
 
 float3 hash33(float3 p)
@@ -112,7 +112,7 @@ VS_OUTPUT main(VS_INPUT i)
 	o.projPos = mul(float4(world, 1.0), cViewProj);
 	o.uv = c;
 	o.centre = centre;
-	o.info = float2((size / s) * (size / s), 1.0 - smoothstep(REST * 0.4, REST, rest));
+	o.dimming = float2((size / s) * (size / s), 1.0 - smoothstep(REST * 0.4, REST, rest));
 
 	return o;
 }

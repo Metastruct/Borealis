@@ -5,8 +5,8 @@
 const float4 Constants0 : register(c0);
 const float4 Constants1 : register(c1);
 const float4 Constants2 : register(c2);
-const float4 Extra0 : register(c11);
-const float4 Extra1 : register(c12);
+const float4 Constants11 : register(c11);
+const float4 Constants12 : register(c12);
 
 sampler Frame : register(s0);
 sampler Depth : register(s1);
@@ -20,10 +20,10 @@ sampler Exposure : register(s4);
 #define BASE_Z    Constants1.w
 #define SUN_DIR   Constants2.xyz
 
-#define MAP_ORIGIN Extra0.xy
-#define MAP_INV    Extra0.z
-#define SPANS_ON   Extra0.w
-#define EXPOSURE_FRAME Extra1
+#define MAP_ORIGIN Constants11.xy
+#define MAP_INV    Constants11.z
+#define SPANS_ON   Constants11.w
+#define EXPOSURE_FRAME Constants12
 
 #define FADE_START 9000.0
 #define FADE_END 20000.0
@@ -59,9 +59,9 @@ float4 main(PS_IN i) : COLOR
 	float4 frame = tex2D(Frame, uv);
 	float3 scene = frame.rgb;
 
-	float raw = tex2D(Depth, uv).r;
-	float d = raw * DEPTH_SCALE;
-	if (IsSkyDepth(raw))
+	float depthSample = tex2D(Depth, uv).r;
+	float d = depthSample * DEPTH_SCALE;
+	if (IsSkyDepth(depthSample))
 	{
 		d = FADE_END * 4.0;
 	}

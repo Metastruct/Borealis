@@ -619,7 +619,7 @@ function bspdata.AddSkyboxTriangles(triGrid, tris, band)
 	return added
 end
 
-local SKYBOX_FACE_PROBE = 2
+local FACE_NORMAL_STEP = 2
 
 function bspdata.SkyboxTriangles(skipFlags)
 	local skybox = bspdata.SkyboxPVS()
@@ -665,7 +665,7 @@ function bspdata.SkyboxTriangles(skipFlags)
 			end
 			cx, cy, cz = cx / numedges, cy / numedges, cz / numedges
 
-			local cluster = bspdata.ClusterAt(cx + nx * SKYBOX_FACE_PROBE, cy + ny * SKYBOX_FACE_PROBE, cz + nz * SKYBOX_FACE_PROBE)
+			local cluster = bspdata.ClusterAt(cx + nx * FACE_NORMAL_STEP, cy + ny * FACE_NORMAL_STEP, cz + nz * FACE_NORMAL_STEP)
 			if cluster >= 0 and skybox[cluster] then
 				if di == -1 then
 					for e = 2, numedges - 1 do

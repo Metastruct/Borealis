@@ -8,7 +8,7 @@ local MIN_NZ = 0.3
 
 local triangles, edges
 
-local function classify(name)
+local function takesSnow(name)
 	if name:lower():find("^tools/") or Material(name):GetShader():lower():find("water", 1, true) then return end
 
 	return 1
@@ -32,7 +32,7 @@ end
 local submerged = snow.Submerged
 
 function geometry.Load()
-	local grid, why = bspdata.Triangles(classify, MIN_NZ, true, SURF_TRANS)
+	local grid, why = bspdata.Triangles(takesSnow, MIN_NZ, true, SURF_TRANS)
 	if not grid then return false, why end
 
 	local sky
@@ -40,7 +40,7 @@ function geometry.Load()
 	bspdata.AddSkyboxTriangles(grid, sky, snow.SKY_BAND)
 
 	local yieldIfOverBudget = bspdata.FrameBudget()
-	local seen, open, normals, up = {}, {}, {}, {}
+	local seen, open, normals, upFacing = {}, {}, {}, {}
 	for _, cell in pairs(grid) do
 		for _, t in ipairs(cell) do
 			if not seen[t] then
@@ -53,7 +53,7 @@ function geometry.Load()
 				if t.nz >= MIN_NZ then
 					local keys = { vertexKey(t[1], t[2], t[3]), vertexKey(t[4], t[5], t[6]), vertexKey(t[7], t[8], t[9]) }
 					t.keys = keys
-					up[#up + 1] = t
+					upFacing[#upFacing + 1] = t
 					for _, k in ipairs(keys) do
 						local sum = normals[k]
 						if not sum then
@@ -80,7 +80,7 @@ function geometry.Load()
 		end
 	end
 
-	for _, t in ipairs(up) do
+	for _, t in ipairs(upFacing) do
 		local vn = {}
 		for i, k in ipairs(t.keys) do
 			local sum = normals[k]
@@ -93,10 +93,10 @@ function geometry.Load()
 	end
 
 	local bx0, by0, bx1, by1 = snow.BandChunks()
-	local egrid = {}
-	for _, rec in pairs(open) do
-		if rec then
-			local t, e = rec[1], rec[2]
+	local edgesByChunk = {}
+	for _, owner in pairs(open) do
+		if owner then
+			local t, e = owner[1], owner[2]
 			local ia, ib, ic = (e - 1) * 3, (e % 3) * 3, ((e + 1) % 3) * 3
 			local ax, ay, az, bx, by, bz = t[ia + 1], t[ia + 2], t[ia + 3], t[ib + 1], t[ib + 2], t[ib + 3]
 			local ox, oy = by - ay, ax - bx
@@ -109,10 +109,10 @@ function geometry.Load()
 				for cy = math.max(math.floor(math.min(ay, by) / CHUNK), by0), math.min(math.floor(math.max(ay, by) / CHUNK), by1) do
 					for cx = math.max(math.floor(math.min(ax, bx) / CHUNK), bx0), math.min(math.floor(math.max(ax, bx) / CHUNK), bx1) do
 						local key = snow.ChunkKey(cx, cy)
-						local list = egrid[key]
+						local list = edgesByChunk[key]
 						if not list then
 							list = {}
-							egrid[key] = list
+							edgesByChunk[key] = list
 						end
 
 						list[#list + 1] = edge
@@ -124,7 +124,7 @@ function geometry.Load()
 		yieldIfOverBudget()
 	end
 
-	triangles, edges = grid, egrid
+	triangles, edges = grid, edgesByChunk
 
 	return true
 end

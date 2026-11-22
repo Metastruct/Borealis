@@ -56,10 +56,10 @@ float3 hash3(float2 p)
 	return frac((q.xxy + q.yzz) * q.zyx);
 }
 
-float2 drop(float f, float u, float lane, float hashSeed, float seg, float width, float px, float pv)
+float2 drop(float f, float u, float centerU, float hashSeed, float seg, float width, float px, float pv)
 {
-	float slot = floor(f);
-	float3 h = hash3(float2(frac(slot / SLOTS) * SLOTS, hashSeed));
+	float dropIndex = floor(f);
+	float3 h = hash3(float2(frac(dropIndex / SLOTS) * SLOTS, hashSeed));
 	if (h.x < SKIP)
 	{
 		return float2(0.0, 0.0);
@@ -69,7 +69,7 @@ float2 drop(float f, float u, float lane, float hashSeed, float seg, float width
 	float la = max(len, pv);
 
 	float off = frac(h.y * 11.3 + h.z * 4.7) * max(1.0 - la, 0.0);
-	float q = (f - slot - off) / la;
+	float q = (f - dropIndex - off) / la;
 	if (q < 0.0 || q > 1.0)
 	{
 		return float2(0.0, 0.0);
@@ -80,7 +80,7 @@ float2 drop(float f, float u, float lane, float hashSeed, float seg, float width
 
 	float w = width * (0.35 + 0.65 * q) * (0.7 + 0.6 * h.z);
 	float wa = max(w, px);
-	float d = abs(u - lane - (frac(h.x * 21.7 + h.z * 9.3) - 0.5) * JITTER);
+	float d = abs(u - centerU - (frac(h.x * 21.7 + h.z * 9.3) - 0.5) * JITTER);
 	float halo = 1.0 - smoothstep(wa * 0.2, wa, d);
 	float core = 1.0 - smoothstep(0.0, wa * 0.5, d);
 
@@ -120,8 +120,8 @@ float4 main(PS_IN i) : COLOR
 	a = a.x > d.x ? a : d;
 
 	float fown = j < 0.5 ? fa : (j < 1.5 ? fb : fd);
-	float slot = floor(fown);
-	float own = frac(slot / SLOTS) * SLOTS;
+	float dropIndex = floor(fown);
+	float own = frac(dropIndex / SLOTS) * SLOTS;
 	bool mine = abs(win - j) < 0.5 && abs(own - m) < 0.5 && i.wpos.z >= i.tileData.z && i.wpos.z <= i.tileData.w && i.wpos.z >= coverZ;
 
 	float dist = distance(i.wpos, EYE);
