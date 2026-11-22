@@ -122,6 +122,7 @@ local SOUND = {
 	tick = "borealis/menu/detent.wav",
 	release = "borealis/menu/release.wav",
 	on = "borealis/menu/power_on.wav",
+	onShort = "borealis/menu/power_on_short.wav",
 	off = "borealis/menu/power_off.wav",
 	tab = "borealis/menu/tab.wav",
 	hum = "ambient/machines/60hzhum.wav",
@@ -130,6 +131,7 @@ local SOUND = {
 local CLICK_VOLUME, TAB_VOLUME = 0.5, 0.5
 local TICK_VOLUME, TICK_GAP = 0.3, 0.025
 local ON_VOLUME, OFF_VOLUME = 0.5, 0.4
+local JINGLE_IDLE = 600
 local HUM_VOLUME, HUM_FADE = 0.08, 0.3
 local TYPING_VOLUME = 0.25
 
@@ -1322,7 +1324,8 @@ function FRAME:Init()
 	self:SetTab(menu.LastTab or "status")
 	tty.start = self.Opened + 0.32
 
-	playUI(SOUND.on, ON_VOLUME)
+	local idle = not menu.LastUsed or RealTime() - menu.LastUsed >= JINGLE_IDLE
+	playUI(idle and SOUND.on or SOUND.onShort, ON_VOLUME)
 	self.Hum = loopUI(SOUND.hum, HUM_VOLUME)
 end
 
@@ -1366,6 +1369,7 @@ end
 
 function FRAME:Think()
 	if self.Closing and RealTime() - self.Closing > 0.3 then
+		self:SetVisible(false)
 		self:Remove()
 	end
 end
@@ -1567,9 +1571,32 @@ function FRAME:DrawScreen()
 	end
 end
 
+local underRT, underMat
+
+local function underlay()
+	local w, h = ScrW(), ScrH()
+	if not underRT or underRT:Width() ~= w or underRT:Height() ~= h then
+		local name = "borealis_menu_under_" .. w .. "x" .. h
+		underRT = GetRenderTargetEx(name, w, h, RT_SIZE_LITERAL, MATERIAL_RT_DEPTH_NONE, 0, 0, IMAGE_FORMAT_RGB888)
+		underMat = CreateMaterial(name, "UnlitGeneric", {
+			["$basetexture"] = underRT:GetName(),
+			["$vertexalpha"] = 1,
+			["$vertexcolor"] = 1,
+			["$ignorez"] = 1,
+		})
+	end
+
+	return underRT, underMat
+end
+
 function FRAME:Paint(w, h)
 	tty.used = 0
-	surface.SetAlphaMultiplier(self:Fade())
+	local fade = self:Fade()
+	self.Underlay = fade < 1 and fade or nil
+	if self.Underlay then
+		local rt = underlay()
+		render.CopyRenderTargetToTexture(rt)
+	end
 	self:DrawTitle()
 	self:DrawCasing(w, h)
 	self:DrawScreen()
@@ -1599,10 +1626,21 @@ function FRAME:PaintOver(w, h)
 		end
 	end
 
-	surface.SetAlphaMultiplier(1)
+	if self.Underlay then
+		local _, mat = underlay()
+		local x, y = self:LocalToScreen(0, 0)
+		local fw, fh = w + self.Shadow, h + self.Shadow
+		local scrW, scrH = ScrW(), ScrH()
+		surface.SetMaterial(mat)
+		surface.SetDrawColor(255, 255, 255, (1 - self.Underlay) * 255)
+		surface.DisableClipping(true)
+		surface.DrawTexturedRectUV(0, 0, fw, fh, x / scrW, y / scrH, (x + fw) / scrW, (y + fh) / scrH)
+		surface.DisableClipping(false)
+	end
 end
 
 function FRAME:OnRemove()
+	menu.LastUsed = RealTime()
 	hook.Remove("OnPauseMenuShow", TAG)
 	self:StopTyping()
 	if self.Hum then
