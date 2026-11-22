@@ -11,6 +11,7 @@ if SERVER then
 end
 
 local procsky, cover, wind, surfacewater = shaderpack.procsky, shaderpack.cover, shaderpack.wind, shaderpack.surfacewater
+local locallights, dynamiclights = shaderpack.locallights, shaderpack.dynamiclights
 local ENABLED = CreateClientConVar("borealis_precipitations", "1", true, false, "draw falling rain and snow")
 
 local TILE = 512
@@ -34,10 +35,10 @@ local ALPHA = 0.24
 local COLOR_BODY = 0.5
 local COLOR_HEAD = 1.5
 local COLOR_HEAD_FLOOR = 0.22
+local LIT = 0.6
 local WRAP = 20
 
 local COLUMN, COLUMNS, Z_MIN = cover.COLUMN, cover.COLUMNS, cover.Z_MIN
-local COVERED = Z_MIN + cover.Z_RANGE
 local IN_WATER = CONTENTS_WATER
 
 local SNOW_COUNT = 12
@@ -49,10 +50,8 @@ local SNOW_DRIFT = 0.25
 local SNOW_SLANT_SPAN = 1000
 local SNOW_ALPHA = 0.9
 local SNOW_ALBEDO = 0.25
+local SNOW_LIT = 0.6
 local SNOW_FILL = 0.5
-local SNOW_LIGHT_LIFT = 16
-local SNOW_LIGHT_INTERVAL = 0.25
-local SNOW_LIGHT_BLEND = 4
 
 local SPLASH_STEP = 2
 local SPLASH_QUAD = 3
@@ -311,6 +310,9 @@ local function prepare()
 	if not DROP_MAT then build() end
 
 	submerged = bit.band(util.PointContents(eye), IN_WATER) ~= 0
+	locallights.Update(eye)
+	dynamiclights.Update(eye)
+	dynamiclights.UpdateProjected(eye)
 	if snowing then
 		updateSnowTiles(eye)
 	end
@@ -422,45 +424,21 @@ local function drawDrops(eye, time, level)
 end
 
 local snowRows = { {}, {}, {}, {} }
-local snowLight, snowLightTarget = Vector(), Vector()
-local snowLightPos = Vector()
-local nextSnowLight = 0
-
-local function updateSnowLight(eye)
-	local now = RealTime()
-	if now >= nextSnowLight then
-		local first = nextSnowLight == 0
-		nextSnowLight = now + SNOW_LIGHT_INTERVAL
-		local top = cover.HeightAt(eye.x, eye.y)
-		if top and top >= COVERED then top = nil end
-		snowLightPos:SetUnpacked(eye.x, eye.y, math.max(eye.z, (top or eye.z) + SNOW_LIGHT_LIFT))
-		local l, d = render.ComputeLighting(snowLightPos, UP), render.ComputeDynamicLighting(snowLightPos, UP)
-		local foliage = shaderpack.foliage
-		local scale = foliage and foliage.WorldLightScale and foliage.WorldLightScale() or 1
-		local amb = render.GetAmbientLightColor()
-		snowLightTarget:SetUnpacked(
-			math.Clamp(l.x - d.x, 0, 2) * scale + amb.x * SNOW_FILL,
-			math.Clamp(l.y - d.y, 0, 2) * scale + amb.y * SNOW_FILL,
-			math.Clamp(l.z - d.z, 0, 2) * scale + amb.z * SNOW_FILL)
-		if first then snowLight:Set(snowLightTarget) end
-	end
-
-	snowLight:Set(LerpVector(math.min(FrameTime() * SNOW_LIGHT_BLEND, 1), snowLight, snowLightTarget))
-
-	return snowLight
-end
 
 local function drawSnow(eye, amount)
 	local tonemap = shaderpack.ToneMapScale()
-	local light = updateSnowLight(eye)
 	local k = SNOW_ALBEDO * tonemap
+	local fill = render.GetAmbientLightColor() * (SNOW_FILL * k)
 	local fr, fg, fb = render.GetFogColor()
 	local fogStart, fogEnd = render.GetFogDistances()
 	local fogMax = render.GetFogMode() == MATERIAL_FOG_NONE and 0 or render.GetFogMaxDensity()
 	SNOW_MAT:SetTexture("$basetexture", cover.Texture())
+	SNOW_MAT:SetTexture("$texture1", locallights.Texture() or "vgui/black")
+	SNOW_MAT:SetTexture("$texture2", dynamiclights.Texture() or "vgui/black")
+	SNOW_MAT:SetTexture("$texture3", dynamiclights.ProjectedTexture() or "vgui/black")
 	setConstant(SNOW_MAT, "$c0", eye.x, eye.y, eye.z, fogMax)
-	setConstant(SNOW_MAT, "$c1", SNOW_ALPHA, nil, nil, fogStart)
-	setConstant(SNOW_MAT, "$c2", light.x * k, light.y * k, light.z * k, fogEnd)
+	setConstant(SNOW_MAT, "$c1", SNOW_ALPHA, locallights.Scale() * k, tonemap * SNOW_LIT, fogStart)
+	setConstant(SNOW_MAT, "$c2", fill.x, fill.y, fill.z, fogEnd)
 	setConstant(SNOW_MAT, "$c3", toLinear(fr) * tonemap, toLinear(fg) * tonemap, toLinear(fb) * tonemap)
 
 	local vs = render.GetViewSetup()
@@ -503,10 +481,13 @@ local function drawWeather()
 	local tonemap = shaderpack.ToneMapScale()
 
 	DROP_MAT:SetTexture("$basetexture", cover.Texture())
+	DROP_MAT:SetTexture("$texture1", locallights.Texture() or "vgui/black")
+	DROP_MAT:SetTexture("$texture2", dynamiclights.Texture() or "vgui/black")
+	DROP_MAT:SetTexture("$texture3", dynamiclights.ProjectedTexture() or "vgui/black")
 	setConstant(DROP_MAT, "$c0", eye.x, eye.y, eye.z, CurTime() % WRAP)
 	local body, head = streakColor()
 	setConstant(DROP_MAT, "$c1", ALPHA * k * tonemap, nil, nil, packColor(body[1], body[2], body[3]))
-	DROP_MAT:SetFloat("$c2_x", packColor(head[1], head[2], head[3]))
+	setConstant(DROP_MAT, "$c2", packColor(head[1], head[2], head[3]), locallights.Scale() * tonemap * LIT, nil, tonemap * LIT)
 	drawDrops(eye, CurTime() % WRAP, densityLevel(k))
 
 	if splashMesh then
@@ -548,6 +529,9 @@ local function material(name, pixelShader, vertexShader)
 		["$pixshader"] = pixelShader,
 		["$vertexshader"] = vertexShader or VS,
 		["$linearread_basetexture"] = 1,
+		["$linearread_texture1"] = 1,
+		["$linearread_texture2"] = 1,
+		["$linearread_texture3"] = 1,
 		["$ignorez"] = 0,
 		["$depthtest"] = 1,
 		["$additive"] = 0,

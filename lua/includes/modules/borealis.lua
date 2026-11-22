@@ -14,6 +14,7 @@ local FILES = {
 	"core/cl_dynamic_lights",
 	"core/cl_depth_hacks",
 	"core/sh_cover",
+	"core/cl_local_lights",
 	"core/sh_skybox3d",
 	"core/sv_halo",
 	"sky/sh_vclouds",

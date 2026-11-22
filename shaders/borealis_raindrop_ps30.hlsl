@@ -1,16 +1,24 @@
 #include "include/common.hlsl"
+#include "include/dynamic_lights.hlsl"
+#include "include/local_lights.hlsl"
 
 const float4 Constants0 : register(c0);
 const float4 Constants1 : register(c1);
 const float4 Constants2 : register(c2);
 
-sampler CoverTex : register(s0);
+sampler CoverTex     : register(s0);
+sampler WorldTex     : register(s1);
+sampler DynamicTex   : register(s2);
+sampler ProjectedTex : register(s3);
 
 #define EYE        Constants0.xyz
 #define TIME       Constants0.w
 #define INTENSITY  Constants1.x
-#define FADE_START Constants1.y
-#define FADE_END   Constants1.z
+#define WORLD_K    Constants2.y
+#define DYN_K      Constants2.w
+
+#define FADE_START 560.0
+#define FADE_END   760.0
 
 #define PERIOD   80.0
 #define SLOTS    16.0
@@ -122,6 +130,8 @@ float4 main(PS_IN i) : COLOR
 
 	float3 body = unpackColor(Constants1.w);
 	float3 head = unpackColor(Constants2.x);
+	float3 base = lerp(body, head, saturate(a.y));
+	float3 light = LocalLight(WorldTex, DynamicTex, ProjectedTex, i.wpos, coverZ, EYE.xy, WORLD_K, DYN_K);
 
-	return float4(lerp(body, head, saturate(a.y)), mine ? a.x * fade * INTENSITY * (0.45 + 0.55 * bright) / max(i.strip.w, 0.02) : 0.0);
+	return float4(sqrt(saturate(base * base + light)), mine ? a.x * fade * INTENSITY * (0.45 + 0.55 * bright) / max(i.strip.w, 0.02) : 0.0);
 }

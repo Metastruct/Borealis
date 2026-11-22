@@ -1,22 +1,29 @@
 #include "include/common.hlsl"
+#include "include/dynamic_lights.hlsl"
+#include "include/local_lights.hlsl"
 
 const float4 Constants0 : register(c0);
 const float4 Constants1 : register(c1);
 const float4 Constants2 : register(c2);
 const float4 Constants3 : register(c3);
 
-sampler CoverTex : register(s0);
+sampler CoverTex     : register(s0);
+sampler WorldTex     : register(s1);
+sampler DynamicTex   : register(s2);
+sampler ProjectedTex : register(s3);
 
 #define EYE        Constants0.xyz
 #define FOG_MAX    Constants0.w
 #define INTENSITY  Constants1.x
-#define FADE_START Constants1.y
-#define FADE_END   Constants1.z
+#define WORLD_K    Constants1.y
+#define DYN_K      Constants1.z
 #define FOG_START  Constants1.w
-#define LIT        Constants2.xyz
+#define FILL       Constants2.xyz
 #define FOG_END    Constants2.w
 #define FOG_COLOR  Constants3.xyz
 
+#define FADE_START   560.0
+#define FADE_END     760.0
 #define NEAR         20.0
 #define Z_FADE_START 240.0
 #define Z_FADE_END   400.0
@@ -53,7 +60,8 @@ float4 main(PS_IN i) : COLOR
 	fade *= lerp(1.0, FAR_ALPHA, depth);
 
 	float fog = saturate((dist - FOG_START) / max(FOG_END - FOG_START, 1.0)) * FOG_MAX;
-	float3 color = lerp(LIT, FOG_COLOR, max(fog, depth * HAZE));
+	float3 lit = FILL + LocalLight(WorldTex, DynamicTex, ProjectedTex, i.centre, coverZ, EYE.xy, WORLD_K, DYN_K);
+	float3 color = lerp(lit, FOG_COLOR, max(fog, depth * HAZE));
 
 	float a = i.centre.z >= coverZ - 1.0 ? disc * fade * i.info.x * i.info.y * INTENSITY : 0.0;
 
