@@ -249,7 +249,120 @@ local function draw()
 	return depthslices.Composite(MAT, quadColor)
 end
 
+local NOISE_FILE = "materials/" .. NOISE .. ".vtf"
+local NOISE_SIZE = 128
+local NOISE_PLANE = NOISE_SIZE * NOISE_SIZE
+local PATCH_SCALE, PATCH_SLICE = 1 / 900, 63
+local DETAIL_SCALE, DETAIL_SLICE = 1 / 140, 31
+local PATCH_DRY, ABSORB_LEVEL = 0.35, 0.3
+local PUDDLE_EDGE, PUDDLE_DETAIL = 0.03, 0.08
+local COVER_MARGIN, SLOPE_MARGIN, SLOPE_MARGIN_MAX, UNTRACED_MAX = 12, 34, 64, 8
+local UP_MIN, UP_FULL = 0.2, 0.6
+local STEP_SOUNDS = { "player/footsteps/slosh1.wav", "player/footsteps/slosh2.wav", "player/footsteps/slosh3.wav", "player/footsteps/slosh4.wav" }
+local STEP_LEVEL, STEP_PITCH, STEP_PITCH_SPREAD = 70, 160, 5
+local PUDDLE_VOLUME, DAMP_VOLUME, DAMP_MIN = 0.8, 0.28, 0.3
+
+local patchNoise, detailNoise
+local stepTrace = { mask = MASK_SOLID, start = Vector(), endpos = Vector(), output = {} }
+local skyTrace = { mask = MASK_SOLID_BRUSHONLY, start = Vector(), endpos = Vector(), output = {} }
+
+local function loadNoise()
+	patchNoise = false
+	local f = file.Open(NOISE_FILE, "rb", "GAME")
+	if not f then return end
+
+	f:Seek(12)
+	local header = f:ReadULong()
+	if f:Size() ~= header + NOISE_PLANE * NOISE_SIZE then
+		f:Close()
+
+		return
+	end
+
+	f:Seek(header + PATCH_SLICE * NOISE_PLANE)
+	local patch = f:Read(NOISE_PLANE * 2)
+	f:Seek(header + DETAIL_SLICE * NOISE_PLANE)
+	detailNoise = f:Read(NOISE_PLANE * 2)
+	f:Close()
+	patchNoise = patch
+end
+
+local function noiseTexel(planes, x, y)
+	local i = y % NOISE_SIZE * NOISE_SIZE + x % NOISE_SIZE + 1
+
+	return string.byte(planes, i) + string.byte(planes, i + NOISE_PLANE)
+end
+
+local function noiseAt(planes, u, v)
+	local x, y = u * NOISE_SIZE - 0.5, v * NOISE_SIZE - 0.5
+	local x0, y0 = math.floor(x), math.floor(y)
+	local fx, fy = x - x0, y - y0
+	local a = Lerp(fx, noiseTexel(planes, x0, y0), noiseTexel(planes, x0 + 1, y0))
+	local b = Lerp(fx, noiseTexel(planes, x0, y0 + 1), noiseTexel(planes, x0 + 1, y0 + 1))
+
+	return Lerp(fy, a, b) / 510
+end
+
+local function smoothstep(a, b, x)
+	local t = math.Clamp((x - a) / (b - a), 0, 1)
+
+	return t * t * (3 - 2 * t)
+end
+
+local function exposed(p, nz)
+	local top = cover.HeightAt(p.x, p.y)
+	if top then
+		local slope = math.min(SLOPE_MARGIN * math.sqrt(math.max(1 - nz * nz, 0)) / math.max(nz, 0.01), SLOPE_MARGIN_MAX)
+
+		return top <= p.z + COVER_MARGIN + slope and p.z - top < UNTRACED_MAX
+	end
+
+	skyTrace.start:SetUnpacked(p.x, p.y, p.z + 4)
+	skyTrace.endpos:SetUnpacked(p.x, p.y, p.z + Z_RANGE)
+	util.TraceLine(skyTrace)
+
+	return skyTrace.output.HitSky or not skyTrace.output.Hit
+end
+
+local function footstep(ply, pos, _, _, volume)
+	if not active or not patchNoise then return end
+	if ply == LocalPlayer() and not IsFirstTimePredicted() then return end
+	if ply:WaterLevel() > 0 then return end
+
+	stepTrace.start:SetUnpacked(pos.x, pos.y, pos.z + 4)
+	stepTrace.endpos:SetUnpacked(pos.x, pos.y, pos.z - 16)
+	stepTrace.filter = ply
+	util.TraceLine(stepTrace)
+	local hit = stepTrace.output
+	if not hit.Hit then return end
+
+	local nz = hit.HitNormal.z
+	local upward = smoothstep(UP_MIN, UP_FULL, nz)
+	if upward <= 0 or not exposed(hit.HitPos, nz) then return end
+
+	local x, y = hit.HitPos.x, hit.HitPos.y
+	local patch = noiseAt(patchNoise, x * PATCH_SCALE, y * PATCH_SCALE)
+	local threshold = puddleLevel(pool) + (1 - (cover.GLOSS[hit.MatType] or 1)) * ABSORB_LEVEL
+	local level = patch
+	if math.abs(patch - threshold) < PUDDLE_DETAIL then
+		level = level + (noiseAt(detailNoise, x * DETAIL_SCALE, y * DETAIL_SCALE) - 0.5) * PUDDLE_DETAIL
+	end
+
+	local gain
+	if smoothstep(threshold, threshold + PUDDLE_EDGE, level) * upward > 0.5 then
+		gain = PUDDLE_VOLUME
+	else
+		local damp = wet * upward * Lerp(smoothstep(0.3, 0.7, patch), 1 - PATCH_DRY, 1)
+		if damp <= DAMP_MIN then return end
+
+		gain = DAMP_VOLUME * damp
+	end
+
+	ply:EmitSound(STEP_SOUNDS[math.random(#STEP_SOUNDS)], STEP_LEVEL, math.random(STEP_PITCH - STEP_PITCH_SPREAD, STEP_PITCH + STEP_PITCH_SPREAD), math.min(volume * gain, 1))
+end
+
 local function stop()
+	hook.Remove("PlayerFootstep", "borealis_wetness")
 	hook.Remove("Think", "borealis_wetness")
 	hook.Remove("PreRender", "borealis_wetness")
 	depthslices.RemoveEffect("borealis_wetness")
@@ -271,6 +384,8 @@ local function start()
 	freeze()
 	hook.Add("Think", "borealis_wetness", think)
 	hook.Add("PreRender", "borealis_wetness", prepare)
+	if patchNoise == nil then loadNoise() end
+	hook.Add("PlayerFootstep", "borealis_wetness", footstep)
 	depthslices.AddEffect("borealis_wetness", ORDER, draw, false, function() return active end)
 end
 
