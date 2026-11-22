@@ -326,7 +326,6 @@ end
 
 local function footstep(ply, pos, _, _, volume)
 	if not active or not patchNoise then return end
-	if ply == LocalPlayer() and not IsFirstTimePredicted() then return end
 	if ply:WaterLevel() > 0 then return end
 
 	stepTrace.start:SetUnpacked(pos.x, pos.y, pos.z + 4)
