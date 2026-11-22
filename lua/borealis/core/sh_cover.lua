@@ -795,7 +795,24 @@ local function traceOpenColumn(cx, cy, top, bottom)
 	return spanData and spanCoverZ(x, y, top) or Z_MIN, false, SEED_GLOSS, false
 end
 
+local function spanCeiling(x, y, top, bottom)
+	local mid, best = (top + bottom) * 0.5
+	local base = spanBase(x, y)
+	for s = 0, SPAN_SLOTS - 1 do
+		local spanTop, spanBottom = spanSlot(base, s)
+		if spanBottom <= spanTop and spanTop >= mid and spanTop < top and (not best or spanTop < best) then
+			best = spanTop
+		end
+	end
+
+	return best and best - EXIT_INSET or top
+end
+
 local function traceColumn(cx, cy, top, bottom)
+	if spanData then
+		top = spanCeiling((cx + 0.5) * COLUMN, (cy + 0.5) * COLUMN, top, bottom)
+	end
+
 	local coverZ, level, gloss, waterLevel, normalZ = traceOpenColumn(cx, cy, top, bottom)
 	if spanData and coverZ < Z_MIN + Z_RANGE then
 		local nz = math.Clamp(normalZ or 1, SPAN_MIN_NORMAL, 1)

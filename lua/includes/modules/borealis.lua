@@ -30,6 +30,7 @@ local FILES = {
 	"weather/sh_precipitations",
 	"weather/sh_fog",
 	"weather/sh_wetness",
+	"weather/sh_drips",
 	"weather/snow/sh_core",
 	"liquids/sh_lava",
 	"liquids/sh_lava_splash",

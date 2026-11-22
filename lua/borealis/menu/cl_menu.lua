@@ -61,6 +61,7 @@ local EFFECT_GROUPS = {
 		{ "borealis_precipitations", "Rain and snow", "Drop rain and snow in bad weather" },
 		{ "borealis_fog", "Volumetric fog", "Thicken fog so lights shine through it" },
 		{ "borealis_wetness", "Wet surfaces", "Darken wet ground and form puddles" },
+		{ "borealis_drips", "Roof drips", "Drip rain off roof edges" },
 		{ "borealis_snow", "Deep snow", "Pile up snow in winter and keep footprints" },
 		{ "borealis_snow_powder", "Snow powder", "Kick up snow under cars and explosions" },
 	} },
