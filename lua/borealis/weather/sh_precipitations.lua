@@ -4,15 +4,29 @@ local DROP_PS, DROP_VS = "borealis_raindrop_ps30", "borealis_raindrop_vs30"
 local SNOW_PS, SNOW_VS = "borealis_snow_ps30", "borealis_snow_vs30"
 local SHADERS = { VS, SPLASH_PS, DROP_VS, DROP_PS, SNOW_VS, SNOW_PS }
 
+local RAIN_LOOP = "borealis/weather/rain_loop.wav"
+
 if SERVER then
 	shaderpack.AddResources(SHADERS)
+	resource.AddFile("sound/" .. RAIN_LOOP)
 
 	return
 end
 
+local precipitations = shaderpack.precipitations or {}
+shaderpack.precipitations = precipitations
+
 local procsky, cover, wind, surfacewater = shaderpack.procsky, shaderpack.cover, shaderpack.wind, shaderpack.surfacewater
 local locallights, dynamiclights = shaderpack.locallights, shaderpack.dynamiclights
 local ENABLED = CreateClientConVar("borealis_precipitations", "1", true, false, "draw falling rain and snow")
+local RAIN_VOLUME = CreateClientConVar("borealis_rain_volume", "0.4", true, false, "rain volume: the rumble, the drips under cover, the thunder and the rain on water, 0 to 1")
+local RAIN_MUTE = CreateClientConVar("borealis_rain_mute_losefocus", "1", true, false, "mute the rain while the game is unfocused")
+
+function precipitations.RainVolume()
+	if RAIN_MUTE:GetBool() and not system.HasFocus() then return 0 end
+
+	return math.Clamp(RAIN_VOLUME:GetFloat(), 0, 1)
+end
 
 local TILE = 512
 local DROP_TILE = 256
@@ -506,7 +520,10 @@ local function draw(bDepth, _, b3DSky)
 	drawWeather()
 end
 
+local setRainSounds
+
 local function stop()
+	setRainSounds(false)
 	cover.Unlisten("borealis_precipitations")
 	surfacewater.above.borealis_precipitations = nil
 	hook.Remove("PreRender", "borealis_precipitations")
@@ -577,6 +594,177 @@ local function start()
 	surfacewater.above.borealis_precipitations = drawWeather
 	hook.Add("PreRender", "borealis_precipitations", prepare)
 	hook.Add("PostDrawTranslucentRenderables", "borealis_precipitations", draw)
+	setRainSounds(true)
+end
+
+do
+	local RUMBLE = file.Exists("sound/" .. RAIN_LOOP, "GAME") and RAIN_LOOP or "ambient/weather/rumble_rain.wav"
+	local COVER_VOLUME = 0.3
+	local SKY_RANGE = 8192
+	local WAY_OUT, WAY_NEAR = 1400, 300
+	local WAY_STEPS = { 0.45, 0.95 }
+	local WAY_FAN, WAY_SPIN, WAY_WINDOW = 8, math.rad(17), 12
+	local COVER_INTERVAL = 0.25
+	local DRIP_INTERVAL = { 0.6, 1.8 }
+	local THUNDER_AMOUNT = 0.8
+	local THUNDER_INTERVAL = { 25, 70 }
+	local THUNDER_DELAY = { 0.8, 3 }
+
+	local coverTrace = { mask = bit.bor(CONTENTS_SOLID, CONTENTS_MOVEABLE, CONTENTS_WINDOW, CONTENTS_GRATE) }
+	local rainSounds = false
+	local raining = false
+	local rumbleOwner
+	local covered = false
+	local exposure = 0
+	local nextCover, nextDrip, nextThunder = 0, 0, 0
+	local wayPhase = 0
+	local wayLog, wayAt = {}, 1
+	for i = 1, WAY_WINDOW do
+		wayLog[i] = 0
+	end
+
+	if precipitations.rumble then
+		precipitations.rumble:Stop()
+		precipitations.rumble = nil
+	end
+
+	local function skyReach()
+		local eye = EyePos()
+		coverTrace.start = eye
+		coverTrace.endpos = eye + UP * SKY_RANGE
+
+		local up = util.TraceLine(coverTrace)
+		if not up.Hit or up.HitSky then return 1, true end
+
+		local near = WAY_OUT
+		wayPhase = wayPhase + WAY_SPIN
+		for i = 0, WAY_FAN - 1 do
+			local a = wayPhase + i * math.pi * 2 / WAY_FAN
+			local dir = Vector(math.cos(a), math.sin(a), 0)
+			coverTrace.start = eye
+			coverTrace.endpos = eye + dir * WAY_OUT
+			local out = util.TraceLine(coverTrace)
+			local clear = out.Fraction * WAY_OUT - 8
+			for _, k in ipairs(WAY_STEPS) do
+				local d = clear * k
+				if d <= 0 or d >= near then break end
+
+				coverTrace.start = eye + dir * d
+				coverTrace.endpos = coverTrace.start + UP * SKY_RANGE
+				local u = util.TraceLine(coverTrace)
+				if not u.Hit or u.HitSky then
+					near = d
+					break
+				end
+			end
+		end
+
+		return 1 - math.Clamp((near - WAY_NEAR) / (WAY_OUT - WAY_NEAR), 0, 1), false
+	end
+
+	local function stopRumble(fade)
+		local s = precipitations.rumble
+		if not s then return end
+
+		if fade then
+			s:FadeOut(fade)
+		else
+			s:Stop()
+		end
+
+		precipitations.rumble = nil
+	end
+
+	local function updateRumble(ply, volume)
+		local s = precipitations.rumble
+		if s and (rumbleOwner ~= ply or not s:IsPlaying()) then
+			s:Stop()
+			s, precipitations.rumble = nil, nil
+		end
+
+		if not s then
+			rumbleOwner = ply
+			s = CreateSound(ply, RUMBLE)
+			precipitations.rumble = s
+			s:PlayEx(0, 100)
+		end
+
+		s:ChangeVolume(volume, 0.5)
+	end
+
+	local function thunder(ply)
+		local v = precipitations.RainVolume()
+		local rain = tod and tod.rain
+		if v > 0 and rain and rain.amount > 0 and IsValid(ply) then
+			ply:EmitSound("ambient/weather/thunder" .. math.random(6) .. ".wav", 0, math.random(90, 110), 0.7 * v * exposure, CHAN_STATIC)
+		end
+	end
+
+	hook.Add("Think", "borealis_rain_sounds", function()
+		local rain = tod and tod.rain
+		local a = rain and rain.amount or 0
+		local now = RealTime()
+		if a <= 0 then
+			raining = false
+			stopRumble(2)
+			return
+		end
+
+		if not raining then
+			raining = true
+			nextThunder = now + math.Rand(THUNDER_INTERVAL[1], THUNDER_INTERVAL[2])
+		end
+
+		local ply = LocalPlayer()
+		if not IsValid(ply) then return end
+		if ply.IsDreaming and ply:IsDreaming() then
+			stopRumble()
+			return
+		end
+
+		if now >= nextCover then
+			nextCover = now + COVER_INTERVAL
+			local target, sky = skyReach()
+			covered = not sky
+			rain.covered = covered
+			wayLog[wayAt] = target
+			wayAt = wayAt % WAY_WINDOW + 1
+			exposure = 0
+			for i = 1, WAY_WINDOW do
+				exposure = math.max(exposure, wayLog[i])
+			end
+		end
+
+		local vol = precipitations.RainVolume()
+		if vol <= 0 then
+			stopRumble()
+			return
+		end
+
+		if exposure <= 0 then
+			stopRumble(1.5)
+			return
+		end
+
+		if rainSounds then
+			updateRumble(ply, a * vol * (covered and COVER_VOLUME or 1) * exposure)
+			if covered and now >= nextDrip then
+				nextDrip = now + math.Rand(DRIP_INTERVAL[1], DRIP_INTERVAL[2]) / a
+				sound.Play("ambient/weather/rain_drip" .. math.random(5) .. ".wav", ply:GetPos() + VectorRand() * 200, 65, math.random(90, 110), 0.6 * vol)
+			end
+		end
+
+		if a >= THUNDER_AMOUNT and now >= nextThunder then
+			nextThunder = now + math.Rand(THUNDER_INTERVAL[1], THUNDER_INTERVAL[2])
+			if rain.Flash then rain.Flash() end
+			timer.Simple(math.Rand(THUNDER_DELAY[1], THUNDER_DELAY[2]), function() thunder(ply) end)
+		end
+	end)
+
+	function setRainSounds(on)
+		rainSounds = on
+		if not on then stopRumble() end
+	end
 end
 
 shaderpack.Toggle("borealis_precipitations", ENABLED, SHADERS, start, stop)()

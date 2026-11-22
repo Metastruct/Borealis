@@ -9,6 +9,12 @@ resource.AddFile("resource/fonts/vt323.ttf")
 resource.AddFile("materials/shaderpack/menu/icon64.png")
 resource.AddFile("materials/shaderpack/menu/metastruct.png")
 resource.AddFile("materials/shaderpack/menu/facepunch.png")
+resource.AddFile("sound/borealis/menu/click.wav")
+resource.AddFile("sound/borealis/menu/power_on.wav")
+resource.AddFile("sound/borealis/menu/power_off.wav")
+resource.AddFile("sound/borealis/menu/tab.wav")
+resource.AddFile("sound/borealis/menu/detent.wav")
+resource.AddFile("sound/borealis/menu/release.wav")
 
 local SEASONS = { [""] = true, summer = true, autumn = true, winter = true }
 

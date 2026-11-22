@@ -79,14 +79,10 @@ local streamNear, streamDist, nextStreamPick = {}, {}, 0
 local drain, soundTokens = 0, 0
 local seeded = false
 local lastTime, nextEvict = nil, 0
-local rainVolume, rainMute
-
 local function soundVolume()
-	rainVolume = rainVolume or GetConVar("cl_rain_volume")
-	rainMute = rainMute or GetConVar("cl_rain_mute_losefocus")
-	if rainMute and rainMute:GetBool() and not system.HasFocus() then return 0 end
+	local precipitations = shaderpack.precipitations
 
-	return rainVolume and math.Clamp(rainVolume:GetFloat(), 0, 1) or 0.4
+	return precipitations and precipitations.RainVolume() or 0
 end
 
 local function frac(x)

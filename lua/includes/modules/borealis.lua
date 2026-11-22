@@ -55,4 +55,4 @@ for _, name in ipairs(FILES) do
 	end
 end
 
-if CLIENT then shaderpack.MigrateConVars() end
+if CLIENT then hook.Add("InitPostEntity", "borealis_migrate_convars", shaderpack.MigrateConVars) end

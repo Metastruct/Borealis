@@ -81,6 +81,7 @@ local EFFECT_GROUPS = {
 		{ "borealis_ssao_halfres", "Half-res occlusion", "Trade shading sharpness for speed" },
 		{ "borealis_sharpen", "Sharpening", "Sharpen the picture" },
 		{ "borealis_grade", "Colour grading", "Tint the picture by time of day" },
+		{ "borealis_rain_mute_losefocus", "Mute rain unfocused", "Silence rain while the game is in the background" },
 	} },
 }
 
@@ -89,6 +90,7 @@ local EFFECT_SLIDERS = {
 	{ "borealis_snow_distance", "Snow distance", 1024, 8192, 0, "Set how far away deep snow shows" },
 	{ "borealis_sharpen_strength", "Sharpening", 0, 1, 2, "Set sharpening strength" },
 	{ "borealis_ssao_strength", "Occlusion", 0, 1, 2, "Set shading darkness" },
+	{ "borealis_rain_volume", "Rain volume", 0, 1, 2, "Set how loud rain, drips and thunder are" },
 }
 
 local GLYPHS = {
@@ -114,6 +116,47 @@ local TITLE = "BOREALIS"
 local WINDOW_W, WINDOW_H = 1080, 720
 local TTY_CPS = 1400
 local SEGMENTS = 20
+
+local SOUND = {
+	click = "borealis/menu/click.wav",
+	tick = "borealis/menu/detent.wav",
+	release = "borealis/menu/release.wav",
+	on = "borealis/menu/power_on.wav",
+	off = "borealis/menu/power_off.wav",
+	tab = "borealis/menu/tab.wav",
+	hum = "ambient/machines/60hzhum.wav",
+	typing = "ambient/machines/keyboard_fast1_1second.wav",
+}
+local CLICK_VOLUME, TAB_VOLUME = 0.5, 0.5
+local TICK_VOLUME, TICK_GAP = 0.3, 0.025
+local ON_VOLUME, OFF_VOLUME = 0.5, 0.4
+local HUM_VOLUME, HUM_FADE = 0.08, 0.3
+local TYPING_VOLUME = 0.25
+
+local function playUI(path, volume, pitch)
+	local ply = LocalPlayer()
+	if IsValid(ply) then ply:EmitSound(path, 0, pitch or 100, volume, CHAN_STATIC) end
+end
+
+local function loopUI(path, volume)
+	local ply = LocalPlayer()
+	if not IsValid(ply) then return end
+
+	local patch = CreateSound(ply, path)
+	patch:SetSoundLevel(0)
+	patch:PlayEx(volume, 100)
+
+	return patch
+end
+
+local lastTick = 0
+local function tick()
+	local now = RealTime()
+	if now - lastTick < TICK_GAP then return end
+
+	lastTick = now
+	playUI(SOUND.tick, TICK_VOLUME, math.random(96, 104))
+end
 
 local s = 1
 local H, FONT = {}, {}
@@ -468,7 +511,7 @@ function BUTTON:Paint(w, h)
 end
 
 function BUTTON:DoClick()
-	surface.PlaySound("garrysmod/ui_click.wav")
+	playUI(SOUND.click, CLICK_VOLUME)
 	if self.OnPress then self:OnPress() end
 end
 
@@ -515,7 +558,7 @@ function TOGGLE:Paint(w, h)
 end
 
 function TOGGLE:DoClick()
-	surface.PlaySound("garrysmod/ui_click.wav")
+	playUI(SOUND.click, CLICK_VOLUME)
 	RunConsoleCommand(self.ConVar:GetName(), self.ConVar:GetBool() and "0" or "1")
 end
 
@@ -543,13 +586,19 @@ function SLIDER:Pick()
 	local x = self:ScreenToLocal(gui.MouseX(), 0)
 	local frac = math.Clamp(x / self:GetWide(), 0, 1)
 	self.Held = math.Round(self.Min + (self.Max - self.Min) * frac, self.Decimals)
+
+	local step = math.Round((self.Held - self.Min) / (self.Max - self.Min) * SEGMENTS)
+	if self.Step and step ~= self.Step then tick() end
+	self.Step = step
 end
 
 function SLIDER:OnMousePressed(code)
 	if code ~= MOUSE_LEFT then return end
 	self.Dragging = true
+	self.Step = nil
 	self:MouseCapture(true)
 	self:Pick()
+	tick()
 end
 
 function SLIDER:OnMouseReleased(code)
@@ -557,6 +606,7 @@ function SLIDER:OnMouseReleased(code)
 	self.Dragging = false
 	self:MouseCapture(false)
 	self:Pick()
+	playUI(SOUND.release, TICK_VOLUME)
 	RunConsoleCommand(self.ConVar:GetName(), tostring(self.Held))
 	self.Held = nil
 end
@@ -628,17 +678,21 @@ function CHART:OnMousePressed(code)
 	self.Dragging = true
 	self:MouseCapture(true)
 	self.Held = self:HourAt(self:ScreenToLocal(gui.MouseX(), 0))
+	tick()
 end
 
 function CHART:OnMouseReleased(code)
 	if code ~= MOUSE_LEFT or not self.Dragging then return end
 	self.Dragging = false
 	self:MouseCapture(false)
+	playUI(SOUND.release, TICK_VOLUME)
 end
 
 function CHART:Think()
 	if self.Dragging then
-		self.Held = self:HourAt(self:ScreenToLocal(gui.MouseX(), 0))
+		local hour = self:HourAt(self:ScreenToLocal(gui.MouseX(), 0))
+		if hour ~= self.Held then tick() end
+		self.Held = hour
 	end
 end
 
@@ -765,7 +819,6 @@ function KEY:Paint(w, h)
 end
 
 function KEY:DoClick()
-	surface.PlaySound("buttons/lightswitch2.wav")
 	if self.OnPress then self:OnPress() end
 end
 
@@ -1041,7 +1094,7 @@ local function buildEffects(tab, w, h)
 	end
 
 	local dy = top + tallest + px(26)
-	local sw = math.floor((w - gap * 3) / 4)
+	local sw = math.floor((w - gap * (#EFFECT_SLIDERS - 1)) / #EFFECT_SLIDERS)
 	local n = 0
 	for _, entry in ipairs(EFFECT_SLIDERS) do
 		local convar = GetConVar(entry[1])
@@ -1142,7 +1195,7 @@ function CARD:Paint(w, h)
 end
 
 function CARD:DoClick()
-	surface.PlaySound("garrysmod/ui_click.wav")
+	playUI(SOUND.click, CLICK_VOLUME)
 	gui.OpenURL(self.URL)
 end
 
@@ -1268,10 +1321,23 @@ function FRAME:Init()
 
 	self:SetTab(menu.LastTab or "status")
 	tty.start = self.Opened + 0.32
+
+	playUI(SOUND.on, ON_VOLUME)
+	self.Hum = loopUI(SOUND.hum, HUM_VOLUME)
+end
+
+function FRAME:StopTyping()
+	if self.Typing then
+		self.Typing:Stop()
+		self.Typing = nil
+	end
 end
 
 function FRAME:SetTab(id)
-	if self.Active ~= id then tty.start = RealTime() + 0.04 end
+	if self.Active ~= id then
+		tty.start = RealTime() + 0.04
+		if self.Active then playUI(SOUND.tab, TAB_VOLUME) end
+	end
 	self.Active = id
 	menu.LastTab = id
 	for tabId, tab in pairs(self.Tabs) do
@@ -1281,6 +1347,14 @@ end
 
 function FRAME:Close()
 	if self.Closing then return end
+
+	playUI(SOUND.off, OFF_VOLUME)
+	self:StopTyping()
+	if self.Hum then
+		self.Hum:FadeOut(HUM_FADE)
+		self.Hum = nil
+	end
+
 	if not shaderReady() then
 		self:Remove()
 		return
@@ -1477,6 +1551,8 @@ function FRAME:DrawScreen()
 	if help ~= self.Help then
 		self.Help = help
 		self.HelpStart = RealTime()
+		self:StopTyping()
+		if help and not self.Closing then self.Typing = loopUI(SOUND.typing, TYPING_VOLUME) end
 	end
 
 	rect(cx, self.PromptY - px(8), cw, 1, COL.line)
@@ -1484,6 +1560,7 @@ function FRAME:DrawScreen()
 
 	local str = "> " .. help:upper()
 	local n = 2 + math.floor((RealTime() - self.HelpStart) * 120)
+	if n >= #str then self:StopTyping() end
 	local tw = text(str:sub(1, n), FONT.small, cx, self.PromptY, COL.ink)
 	if n < #str or (RealTime() - self.HelpStart) % 1 < 0.55 then
 		rect(cx + tw + px(3), self.PromptY + H.small * 0.2, H.small * 0.42, H.small * 0.62, COL.ink)
@@ -1527,6 +1604,11 @@ end
 
 function FRAME:OnRemove()
 	hook.Remove("OnPauseMenuShow", TAG)
+	self:StopTyping()
+	if self.Hum then
+		self.Hum:Stop()
+		self.Hum = nil
+	end
 end
 
 vgui.Register("BorealisMenu", FRAME, "EditablePanel")

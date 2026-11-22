@@ -121,7 +121,7 @@ function shaderpack.Enabled()
 	return MASTER:GetBool()
 end
 
-local RENAMED_CONVARS = {
+local RENAMED_CONVARS = { {
 	cl_shaderpack = "borealis_enabled",
 	cl_draw_procsky = "borealis_procsky",
 	cl_draw_clouds = "borealis_clouds",
@@ -148,17 +148,23 @@ local RENAMED_CONVARS = {
 	cl_ssao_strength = "borealis_ssao_strength",
 	cl_ssao_ambient = "borealis_ssao_ambient",
 	cl_ssao_halfres = "borealis_ssao_halfres",
-}
+}, {
+	cl_rain_volume = "borealis_rain_volume",
+	cl_rain_mute_losefocus = "borealis_rain_mute_losefocus",
+} }
 
 function shaderpack.MigrateConVars()
-	if cookie.GetNumber("borealis_convars_renamed", 0) == 1 then return end
-	cookie.Set("borealis_convars_renamed", 1)
+	local done = cookie.GetNumber("borealis_convars_renamed", 0)
+	if done >= #RENAMED_CONVARS then return end
+	cookie.Set("borealis_convars_renamed", #RENAMED_CONVARS)
 
-	for old, new in pairs(RENAMED_CONVARS) do
-		local value = CreateClientConVar(old, "", true, false):GetString()
-		local convar = GetConVar(new)
-		if value ~= "" and convar then
-			convar:SetString(value)
+	for version = done + 1, #RENAMED_CONVARS do
+		for old, new in pairs(RENAMED_CONVARS[version]) do
+			local value = CreateClientConVar(old, "", true, false):GetString()
+			local convar = GetConVar(new)
+			if value ~= "" and convar then
+				convar:SetString(value)
+			end
 		end
 	end
 end

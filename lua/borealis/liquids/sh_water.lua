@@ -842,7 +842,199 @@ local function drawTranslucent(bDepth, bSkybox, bSkybox3D)
 	render.OverrideDepthEnable(false, false)
 end
 
+local startRainSound, stopRainSound
+do
+	local COLUMN = cover.COLUMN
+	local COVERED = cover.Z_MIN + cover.Z_RANGE
+	local WATER_PROBE = 2
+	local NEAR_WATER, NEAR_WATER_Z = 900, 600
+	local UPDATE_INTERVAL = 0.25
+	local SEED_PER_FRAME = 512
+	local PRUNE_RANGE = 1200
+
+	local RAIN_SOUNDS = { "ambient/weather/rumble_rain_nowind.wav", "ambient/weather/crucial_rumble_rain_nowind.wav" }
+	local RAIN_PITCHES = { 100, 93 }
+	local RAIN_LEVEL, RAIN_GAIN, RAIN_FADE = 80, 2.5, 0.5
+	local RAIN_REACH, RAIN_RANGE, RAIN_FULL = 400, 900, 60
+	local RAIN_LIFT = 8
+	local SOUND_MODEL = "models/props_junk/popcan01a.mdl"
+
+	local columnKey, columnFromKey = cover.ColumnKey, cover.ColumnFromKey
+	local samplePos = Vector()
+
+	local water = {}
+	local seedList, seedAt
+	local near = false
+	local nextUpdate = 0
+	local rainEnt, rainPatches = nil, {}
+	local function soundVolume()
+		local precipitations = shaderpack.precipitations
+
+		return precipitations and precipitations.RainVolume() or 0
+	end
+
+	local function nearWater(eye)
+		for _, g in pairs(meshes) do
+			if g.mesh and not g.sky and not g.nonWater and not g.frozen
+				and eye.x > g.minX - NEAR_WATER and eye.x < g.maxX + NEAR_WATER
+				and eye.y > g.minY - NEAR_WATER and eye.y < g.maxY + NEAR_WATER
+				and math.abs(eye.z - g.surfaceZ) < NEAR_WATER_Z then
+				return true
+			end
+		end
+
+		return false
+	end
+
+	local function classify(cx, cy)
+		local key = columnKey(cx, cy)
+		local x, y = (cx + 0.5) * COLUMN, (cy + 0.5) * COLUMN
+		local z = cover.HeightAt(x, y)
+		water[key] = nil
+		if not z or z >= COVERED then return end
+
+		samplePos:SetUnpacked(x, y, z - WATER_PROBE)
+		local contents = util.PointContents(samplePos)
+		if bit.band(contents, CONTENTS_WATER) ~= 0 and bit.band(contents, CONTENTS_SLIME) == 0 then
+			water[key] = z
+		end
+	end
+
+	local function onColumn(cx, cy, coverChanged)
+		if coverChanged and near then classify(cx, cy) end
+	end
+
+	local function reset()
+		water = {}
+		seedList, seedAt = nil, nil
+	end
+
+	local function seedStep()
+		if not seedList then
+			local winX, winY = cover.Window()
+			if not winX then return end
+
+			seedList, seedAt = {}, 1
+			for cx = winX, winX + cover.COLUMNS - 1 do
+				for cy = winY, winY + cover.COLUMNS - 1 do
+					seedList[#seedList + 1] = columnKey(cx, cy)
+				end
+			end
+		end
+
+		local last = math.min(seedAt + SEED_PER_FRAME - 1, #seedList)
+		for i = seedAt, last do
+			classify(columnFromKey(seedList[i]))
+		end
+
+		if last >= #seedList then
+			seedList, seedAt = false, nil
+		else
+			seedAt = last + 1
+		end
+	end
+
+	local function stopRain()
+		for _, p in pairs(rainPatches) do
+			p:Stop()
+		end
+
+		rainPatches = {}
+	end
+
+	local function setRain(volume, x, y, z)
+		if volume <= 0.001 then return stopRain() end
+
+		if not IsValid(rainEnt) then
+			rainEnt = ClientsideModel(SOUND_MODEL)
+			rainEnt:SetNoDraw(true)
+			rainPatches = {}
+		end
+
+		samplePos:SetUnpacked(x, y, z + RAIN_LIFT)
+		rainEnt:SetPos(samplePos)
+		for i, path in ipairs(RAIN_SOUNDS) do
+			local p = rainPatches[i]
+			if not p then
+				p = CreateSound(rainEnt, path)
+				p:SetSoundLevel(RAIN_LEVEL)
+				rainPatches[i] = p
+			end
+
+			if p:IsPlaying() then
+				p:ChangeVolume(volume, RAIN_FADE)
+			else
+				p:PlayEx(volume, RAIN_PITCHES[i])
+			end
+		end
+	end
+
+	local function update(eye)
+		local rain = tod and tod.rain and tod.rain.amount or 0
+		local rain2, prune2, reach2 = RAIN_RANGE * RAIN_RANGE, PRUNE_RANGE * PRUNE_RANGE, RAIN_REACH * RAIN_REACH
+		local sum, nearest, nx, ny, nz = 0, rain2, 0, 0, 0
+		for key, z in pairs(water) do
+			local cx, cy = columnFromKey(key)
+			local x, y = (cx + 0.5) * COLUMN, (cy + 0.5) * COLUMN
+			local dx, dy, dz = x - eye.x, y - eye.y, z - eye.z
+			local d2 = dx * dx + dy * dy + dz * dz
+			if d2 > prune2 then
+				water[key] = nil
+			elseif rain > 0 and d2 < rain2 then
+				sum = sum + 1 / (1 + d2 / reach2)
+				if d2 < nearest then nearest, nx, ny, nz = d2, x, y, z end
+			end
+		end
+
+		if sum > 0 then
+			setRain(math.min(rain * soundVolume() * math.min(sum / RAIN_FULL, 1) * RAIN_GAIN, 1), nx, ny, nz)
+		else
+			stopRain()
+		end
+	end
+
+	local function think()
+		local now = RealTime()
+		local eye = EyePos()
+		local due = now >= nextUpdate
+		if due then
+			nextUpdate = now + UPDATE_INTERVAL
+
+			local wasNear = near
+			near = nearWater(eye) and not isUnderwater(eye)
+			if not near then
+				if wasNear then
+					stopRain()
+					reset()
+				end
+				return
+			end
+		end
+
+		if not near or not cover.Update(eye) then return end
+
+		if seedList ~= false then return seedStep() end
+		if due then update(eye) end
+	end
+
+	function stopRainSound()
+		cover.Unlisten("borealis_water_rain")
+		hook.Remove("Think", "borealis_water_rain")
+		stopRain()
+		if IsValid(rainEnt) then rainEnt:Remove() end
+		rainEnt, near = nil, false
+		reset()
+	end
+
+	function startRainSound()
+		stopRainSound()
+		cover.Listen("borealis_water_rain", onColumn, reset)
+		hook.Add("Think", "borealis_water_rain", think)
+	end
+end
+
 local function stop()
+	stopRainSound()
 	hook.Remove("PostDrawOpaqueRenderables", "borealis_water")
 	hook.Remove("PostDrawTranslucentRenderables", "borealis_water_underwater")
 	depthslices.RemoveEffect("borealis_water")
@@ -858,6 +1050,7 @@ local function start()
 	hook.Add("PostDrawTranslucentRenderables", "borealis_water_underwater", drawTranslucent)
 	depthWanted = true
 	depthslices.AddEffect("borealis_water", SURFACE_ORDER, drawSurfaceAbove, false, function() return depthWanted end)
+	startRainSound()
 end
 
 shaderpack.AfterWorld("borealis_water", shaderpack.Toggle("borealis_water", WATER_ENABLED, SHADERS, start, stop, { NOISE }))
