@@ -17,7 +17,7 @@ local precipitations = shaderpack.precipitations or {}
 shaderpack.precipitations = precipitations
 
 local procsky, cover, wind, surfacewater = shaderpack.procsky, shaderpack.cover, shaderpack.wind, shaderpack.surfacewater
-local dynamiclights = shaderpack.dynamiclights
+local locallights, dynamiclights = shaderpack.locallights, shaderpack.dynamiclights
 local ENABLED = CreateClientConVar("borealis_precipitations", "1", true, false, "draw falling rain and snow")
 local RAIN_VOLUME = CreateClientConVar("borealis_rain_volume", "0.4", true, false, "rain volume: the rumble, the drips under cover, the thunder and the rain on water, 0 to 1")
 local RAIN_MUTE = CreateClientConVar("borealis_rain_mute_losefocus", "1", true, false, "mute the rain while the game is unfocused")
@@ -324,6 +324,7 @@ local function prepare()
 	if not DROP_MAT then build() end
 
 	submerged = bit.band(util.PointContents(eye), IN_WATER) ~= 0
+	locallights.Update(eye)
 	if snowing then
 		updateSnowTiles(eye)
 	end
@@ -446,8 +447,9 @@ local function drawSnow(eye, amount)
 	SNOW_MAT:SetTexture("$basetexture", cover.Texture())
 	SNOW_MAT:SetTexture("$texture1", dynamiclights.Texture() or "vgui/black")
 	SNOW_MAT:SetTexture("$texture2", dynamiclights.ProjectedTexture() or "vgui/black")
+	SNOW_MAT:SetTexture("$texture3", locallights.Texture() or "vgui/black")
 	setConstant(SNOW_MAT, "$c0", eye.x, eye.y, eye.z, fogMax)
-	setConstant(SNOW_MAT, "$c1", SNOW_ALPHA, nil, tonemap * SNOW_LIGHT_GAIN, fogStart)
+	setConstant(SNOW_MAT, "$c1", SNOW_ALPHA, locallights.Scale() * k, tonemap * SNOW_LIGHT_GAIN, fogStart)
 	setConstant(SNOW_MAT, "$c2", fill.x, fill.y, fill.z, fogEnd)
 	setConstant(SNOW_MAT, "$c3", toLinear(fr) * tonemap, toLinear(fg) * tonemap, toLinear(fb) * tonemap)
 
@@ -493,10 +495,11 @@ local function drawWeather()
 	DROP_MAT:SetTexture("$basetexture", cover.Texture())
 	DROP_MAT:SetTexture("$texture1", dynamiclights.Texture() or "vgui/black")
 	DROP_MAT:SetTexture("$texture2", dynamiclights.ProjectedTexture() or "vgui/black")
+	DROP_MAT:SetTexture("$texture3", locallights.Texture() or "vgui/black")
 	setConstant(DROP_MAT, "$c0", eye.x, eye.y, eye.z, CurTime() % WRAP)
 	local body, head = streakColor()
 	setConstant(DROP_MAT, "$c1", ALPHA * k * tonemap, nil, nil, packColor(body[1], body[2], body[3]))
-	setConstant(DROP_MAT, "$c2", packColor(head[1], head[2], head[3]), nil, nil, tonemap * LIGHT_GAIN)
+	setConstant(DROP_MAT, "$c2", packColor(head[1], head[2], head[3]), locallights.Scale() * tonemap * LIGHT_GAIN, nil, tonemap * LIGHT_GAIN)
 	drawDrops(eye, CurTime() % WRAP, densityLevel(k))
 
 	if splashMesh then
