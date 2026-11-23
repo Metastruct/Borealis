@@ -113,6 +113,7 @@ for name, rows in pairs(GLYPHS) do
 end
 
 local TITLE = "BOREALIS"
+local TITLE_WIDTH_PER_SIZE = 8.35
 local WINDOW_W, WINDOW_H = 1080, 720
 local TTY_CPS = 1400
 local SEGMENTS = 20
@@ -170,17 +171,8 @@ end
 local function buildTitle(length)
 	FONT.title = "borealis_menu_title"
 
-	local function create(size)
-		surface.CreateFont(FONT.title, { font = "Nine Circles", size = size, weight = 400, antialias = true, extended = true })
-		surface.SetFont(FONT.title)
-
-		return surface.GetTextSize(TITLE)
-	end
-
-	local size = math.floor(100 * length / create(100))
-	while size > 10 and create(size) > length do
-		size = size - 1
-	end
+	local size = math.max(10, math.floor(length / TITLE_WIDTH_PER_SIZE))
+	surface.CreateFont(FONT.title, { font = "Nine Circles", size = size, weight = 400, antialias = true, extended = true })
 end
 
 local function buildFonts()
