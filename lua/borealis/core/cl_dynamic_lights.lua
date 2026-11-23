@@ -2,6 +2,8 @@ local dynamiclights = shaderpack.dynamiclights or {}
 shaderpack.dynamiclights = dynamiclights
 
 local CELL, CELLS = 64, 24
+local SLICES = 4
+local SLICE_ROWS = CELLS / SLICES
 local HEIGHT_CACHE_LIMIT = 16384
 local HEIGHT_BAND, HEIGHT_BANDS = 64, 1024
 local TRACE_UP, TRACE_DOWN = 128, 1024
@@ -16,7 +18,9 @@ local exitPos = Vector()
 local heightRes = {}
 local heightTrace = { mask = MASK_SOLID_BRUSHONLY, start = Vector(), endpos = Vector(), output = heightRes }
 
-local rt, updatedFrame, wasLit
+local rt, updatedFrame, gridX, gridY
+local nextSlice = 0
+local sliceLit = {}
 local heights, heightCount = {}, 0
 local litX, litY, litR, litG, litB = {}, {}, {}, {}, {}
 
@@ -72,22 +76,18 @@ function dynamiclights.Texture()
 	return rt
 end
 
-function dynamiclights.Update(eye)
-	local frame = FrameNumber()
-	if not rt or updatedFrame == frame then return end
-	updatedFrame = frame
-
+local function updateSlice(slice, x0, y0, z)
 	local compute = render.ComputeDynamicLighting
 	local floor = math.floor
-	local x0, y0 = floor(eye.x / CELL + 0.5) - CELLS / 2, floor(eye.y / CELL + 0.5) - CELLS / 2
+	local row0 = slice * SLICE_ROWS
 	local lit = 0
-	for iy = 0, CELLS - 1 do
+	for iy = row0, row0 + SLICE_ROWS - 1 do
 		local cy = y0 + iy
 		local y = (cy + 0.5) * CELL
 		for ix = 0, CELLS - 1 do
 			local cx = x0 + ix
 			local x = (cx + 0.5) * CELL
-			samplePos:SetUnpacked(x, y, groundHeight(cx, cy, x, y, eye.z) + SAMPLE_HEIGHT)
+			samplePos:SetUnpacked(x, y, groundHeight(cx, cy, x, y, z) + SAMPLE_HEIGHT)
 			local l = compute(samplePos, UP)
 			if l.x > 0 or l.y > 0 or l.z > 0 then
 				lit = lit + 1
@@ -96,11 +96,11 @@ function dynamiclights.Update(eye)
 		end
 	end
 
-	if lit == 0 and not wasLit then return end
-	wasLit = lit > 0
+	if lit == 0 and not sliceLit[slice] then return end
+	sliceLit[slice] = lit > 0
 
 	render.PushRenderTarget(rt)
-	render.SetViewPort(0, 0, CELLS, CELLS)
+	render.SetViewPort(0, row0, CELLS, SLICE_ROWS)
 	render.Clear(0, 0, 0, 255)
 	for i = 1, lit do
 		render.SetViewPort(litX[i], litY[i], 1, 1)
@@ -109,6 +109,24 @@ function dynamiclights.Update(eye)
 
 	render.SetViewPort(0, 0, CELLS, CELLS)
 	render.PopRenderTarget()
+end
+
+function dynamiclights.Update(eye)
+	local frame = FrameNumber()
+	if not rt or updatedFrame == frame then return end
+	updatedFrame = frame
+
+	local x0, y0 = math.floor(eye.x / CELL + 0.5) - CELLS / 2, math.floor(eye.y / CELL + 0.5) - CELLS / 2
+	local first, last = nextSlice, nextSlice
+	if x0 ~= gridX or y0 ~= gridY then
+		gridX, gridY = x0, y0
+		first, last = 0, SLICES - 1
+	end
+	nextSlice = (nextSlice + 1) % SLICES
+
+	for slice = first, last do
+		updateSlice(slice, x0, y0, eye.z)
+	end
 end
 
 local projectedRT, projectedMat, groundMesh, groundMeshX, groundMeshY, groundMeshBand, projectedFrame, projectedLit

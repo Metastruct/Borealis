@@ -7,7 +7,7 @@ if SERVER then
 	return
 end
 
-local cover, locallights, dynamiclights, wind = shaderpack.cover, shaderpack.locallights, shaderpack.dynamiclights, shaderpack.wind
+local cover, dynamiclights, wind = shaderpack.cover, shaderpack.dynamiclights, shaderpack.wind
 local ENABLED = CreateClientConVar("borealis_drips", "1", true, false, "drip rain off roof edges")
 
 local COLUMN = cover.COLUMN
@@ -619,7 +619,9 @@ local function draw(bDepth, _, b3DSky)
 	MAT:SetTexture("$basetexture", dynamiclights.Texture() or "vgui/black")
 	MAT:SetTexture("$texture1", dynamiclights.ProjectedTexture() or "vgui/black")
 	setConstant(MAT, "$c0", eye.x, eye.y, eye.z, CurTime() % WRAP)
-	setConstant(MAT, "$c1", ALPHA * tonemap, drain, locallights.Scale() * tonemap * LIGHT_GAIN, tonemap * LIGHT_GAIN)
+	local foliage = shaderpack.foliage
+	local worldScale = foliage and foliage.WorldLightScale and foliage.WorldLightScale() or 1
+	setConstant(MAT, "$c1", ALPHA * tonemap, drain, worldScale * tonemap * LIGHT_GAIN, tonemap * LIGHT_GAIN)
 	setConstant(MAT, "$c2", packColor(fr * COLOR_BODY, fg * COLOR_BODY, fb * COLOR_BODY),
 		packColor(math.max(fr * COLOR_HEAD, COLOR_HEAD_FLOOR), math.max(fg * COLOR_HEAD, COLOR_HEAD_FLOOR), math.max(fb * COLOR_HEAD, COLOR_HEAD_FLOOR)))
 

@@ -1,6 +1,5 @@
 #include "include/common.hlsl"
 #include "include/dynamic_lights.hlsl"
-#include "include/local_lights.hlsl"
 
 const float4 Constants0 : register(c0);
 const float4 Constants1 : register(c1);
@@ -8,14 +7,12 @@ const float4 Constants2 : register(c2);
 const float4 Constants3 : register(c3);
 
 sampler CoverTex     : register(s0);
-sampler WorldTex     : register(s1);
-sampler DynamicTex   : register(s2);
-sampler ProjectedTex : register(s3);
+sampler DynamicTex   : register(s1);
+sampler ProjectedTex : register(s2);
 
 #define EYE        Constants0.xyz
 #define FOG_MAX    Constants0.w
 #define INTENSITY  Constants1.x
-#define WORLD_K    Constants1.y
 #define DYN_K      Constants1.z
 #define FOG_START  Constants1.w
 #define FILL       Constants2.xyz
@@ -60,7 +57,7 @@ float4 main(PS_IN i) : COLOR
 	fade *= lerp(1.0, FAR_ALPHA, depth);
 
 	float fog = saturate((dist - FOG_START) / max(FOG_END - FOG_START, 1.0)) * FOG_MAX;
-	float3 lit = FILL + LocalLight(WorldTex, DynamicTex, ProjectedTex, i.centre, coverZ, EYE.xy, WORLD_K, DYN_K);
+	float3 lit = FILL + GroundLight(DynamicTex, ProjectedTex, i.centre, coverZ, EYE.xy, DYN_K);
 	float3 color = lerp(lit, FOG_COLOR, max(fog, depth * HAZE));
 
 	float a = i.centre.z >= coverZ - 1.0 ? disc * fade * i.dimming.x * i.dimming.y * INTENSITY : 0.0;
