@@ -40,7 +40,7 @@ local function snowTextured(sound)
 	return (sound:find("grass", 1, true) or sound:find("dirt", 1, true)) and shaderpack.Season() == "winter"
 end
 
-hook.Add("PlayerFootstep", "borealis_snow", function(ply, pos, _, sound, volume)
+shaderpack.footsteps.Add("borealis_snow", function(ply, pos, _, sound, volume)
 	if not footsteps.OnSnow(pos) and not snowTextured(sound) then return end
 
 	ply:EmitSound("player/footsteps/snow" .. math.random(6) .. ".wav", 75, math.random(95, 105), volume)

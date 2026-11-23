@@ -10,6 +10,7 @@ local FILES = {
 	"sky/sh_sunshafts",
 	"core/cl_chunks",
 	"core/sh_trails",
+	"core/sh_footsteps",
 	"core/cl_skywall",
 	"core/cl_dynamic_lights",
 	"core/cl_depth_hacks",

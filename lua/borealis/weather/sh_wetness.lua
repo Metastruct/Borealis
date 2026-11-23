@@ -361,7 +361,7 @@ local function footstep(ply, pos, _, _, volume)
 end
 
 local function stop()
-	hook.Remove("PlayerFootstep", "borealis_wetness")
+	shaderpack.footsteps.Remove("borealis_wetness")
 	hook.Remove("Think", "borealis_wetness")
 	hook.Remove("PreRender", "borealis_wetness")
 	depthslices.RemoveEffect("borealis_wetness")
@@ -384,7 +384,7 @@ local function start()
 	hook.Add("Think", "borealis_wetness", think)
 	hook.Add("PreRender", "borealis_wetness", prepare)
 	if patchNoise == nil then loadNoise() end
-	hook.Add("PlayerFootstep", "borealis_wetness", footstep)
+	shaderpack.footsteps.Add("borealis_wetness", footstep)
 	depthslices.AddEffect("borealis_wetness", ORDER, draw, false, function() return active end)
 end
 
