@@ -28,7 +28,8 @@ float SliceDepth(float d, float code, float samples)
 	}
 	else
 	{
-		d = max(d, SLICE_NEAR * pow(SLICE_RATIO, SLICES - 1.0 - samples * (SLICES - code)) / SLICE_MARGIN);
+		float lowest = SLICES - 1.0 - samples * (SLICES - code);
+		d = lowest < 0.0 ? d : max(d, SLICE_NEAR * pow(SLICE_RATIO, lowest) / SLICE_MARGIN);
 		if (ks < SLICES - 1.0 && d > SLICE_NEAR * pow(SLICE_RATIO, ks + 1.0) * SLICE_MARGIN)
 		{
 			d = SLICE_NEAR * pow(SLICE_RATIO, ks + 0.5);

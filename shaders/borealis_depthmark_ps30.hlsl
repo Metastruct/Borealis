@@ -38,7 +38,8 @@ float surfaceDepth(float depthSample, float2 uv)
 		return d > SLICE_NEAR * pow(SLICE_RATIO, code - SLICE_EXACT + 1.0) ? SLICE_NEAR * pow(SLICE_RATIO, code - SLICE_EXACT - 0.5) : d;
 	}
 
-	d = max(d, SLICE_NEAR * pow(SLICE_RATIO, SLICES - 1.0 - max(SAMPLES, 1.0) * (SLICES - code)) / SLICE_MARGIN);
+	float lowest = SLICES - 1.0 - max(SAMPLES, 1.0) * (SLICES - code);
+	d = lowest < 0.0 ? d : max(d, SLICE_NEAR * pow(SLICE_RATIO, lowest) / SLICE_MARGIN);
 	float ks = floor(code + 0.5) - 1.0;
 	if (ks < 0.0)
 	{
