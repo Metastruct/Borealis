@@ -71,10 +71,8 @@ float2 cirrusCoord(float2 p)
 	return float2(r.x * CIRRUS_STRETCH.x + r.y * CIRRUS_STRETCH.y, r.y * CIRRUS_STRETCH.z);
 }
 
-float cirrusDensity(float2 q, float2 gx, float2 gy, float keep)
+float cirrusDensity(float b, float keep)
 {
-	float b = tex2Dgrad(Cirrus, q * CIRRUS_BASE, gx * CIRRUS_BASE, gy * CIRRUS_BASE).r;
-
 	return pow(smoothstep(CIRRUS_AMOUNT, CIRRUS_AMOUNT + CIRRUS_SOFT, b * b * keep), 1.5);
 }
 
@@ -93,8 +91,9 @@ float4 main(PS_IN i) : COLOR
 
 	float cirrusT = CIRRUS_HEIGHT / max(dir.z, CIRRUS_HORIZON);
 	float2 cq = cirrusCoord(CIRRUS_ORIGIN + dir.xy * cirrusT);
-	float2 cdx = ddx(cq);
-	float2 cdy = ddy(cq);
+	float cBreak = tex2D(Cirrus, cq * CIRRUS_BREAKUP + float2(0.37, 0.71)).a;
+	float cBase = tex2D(Cirrus, cq * CIRRUS_BASE).r;
+	float cBaseSun = tex2D(Cirrus, (cq + cirrusCoord(SUN_DIR.xy * CIRRUS_LIGHT_STEP)) * CIRRUS_BASE).r;
 
 	float3 col = tex2Dlod(SkyLut, float4(lutUV(dir), 0.0, 0.0)).rgb;
 	float mu = dot(dir, SUN_DIR);
@@ -115,9 +114,9 @@ float4 main(PS_IN i) : COLOR
 
 	[branch] if (CIRRUS_ON > 0.0 && dir.z > CIRRUS_HORIZON)
 	{
-		float keep = 1.0 - tex2Dgrad(Cirrus, cq * CIRRUS_BREAKUP + float2(0.37, 0.71), cdx * CIRRUS_BREAKUP, cdy * CIRRUS_BREAKUP).a * CIRRUS_BREAKUP_W;
-		float cd = cirrusDensity(cq, cdx, cdy, keep);
-		float cdSun = cirrusDensity(cq + cirrusCoord(SUN_DIR.xy * CIRRUS_LIGHT_STEP), cdx, cdy, keep);
+		float keep = 1.0 - cBreak * CIRRUS_BREAKUP_W;
+		float cd = cirrusDensity(cBase, keep);
+		float cdSun = cirrusDensity(cBaseSun, keep);
 		float a = sqrt(cd) * CIRRUS_OPACITY * saturate((dir.z - CIRRUS_HORIZON) / CIRRUS_FADE) * CIRRUS_ON;
 		float lit = (CIRRUS_LIT + saturate(cd - cdSun) * CIRRUS_EDGE) * (1.0 - cd * cd * CIRRUS_THICK);
 		float3 cirrusCol = CIRRUS_SUN_COL * lit * (CIRRUS_SUN + CIRRUS_SCATTER * hgPhase(mu, CIRRUS_G)) + CIRRUS_AMB_COL * CIRRUS_AMB;
