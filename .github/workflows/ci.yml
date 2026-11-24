@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  shaders:
+    runs-on: windows-latest
+    env:
+      SHADERCOMPAT_VERSION: v0.3.0
+      GLSLANG_VERSION: 16.6.0
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install gm_shadercompat and glslang
+        run: |
+          $tools = Join-Path $env:RUNNER_TEMP "ci-tools"
+          New-Item -ItemType Directory -Force $tools | Out-Null
+          curl.exe -fsSL -o "$tools\gm_shadercompat.exe" "https://github.com/Earu/gm_shadercompat/releases/download/$env:SHADERCOMPAT_VERSION/gm_shadercompat-windows-x86_64.exe"
+          curl.exe -fsSL -o "$tools\glslang.zip" "https://github.com/KhronosGroup/glslang/releases/download/$env:GLSLANG_VERSION/glslang-$env:GLSLANG_VERSION-windows-x86_64-release.zip"
+          Expand-Archive -Force "$tools\glslang.zip" "$tools\glslang"
+          Copy-Item "$tools\glslang\bin\glslang.exe" "$tools\glslangValidator.exe"
+          Add-Content $env:GITHUB_PATH $tools
+      - name: Check shaders
+        run: |
+          python ci/shaders.py shaders materials junit.xml
+          if ($LASTEXITCODE -eq 1) {
+            Write-Output "::warning::ToGL can't translate some shaders, see the log"
+            exit 0
+          }
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: shaders-junit
+          path: junit.xml
+          retention-days: 7
+
+  package:
+    runs-on: ubuntu-latest
+    needs: shaders
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 ci/package.py borealis.gma
+      - uses: actions/upload-artifact@v4
+        with:
+          name: borealis-${{ github.sha }}
+          path: borealis.gma
+          retention-days: 7
