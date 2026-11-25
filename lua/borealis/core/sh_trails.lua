@@ -127,6 +127,7 @@ local function leavesTrail(e)
 
 	local class = e:GetClass()
 	if class == "viewmodel" or class == "predicted_viewmodel" then return false end
+	if e:IsWeapon() and e:IsCarriedByLocalPlayer() and not LocalPlayer():ShouldDrawLocalPlayer() then return false end
 
 	local parent = e:GetParent()
 	if IsValid(parent) then return leavesTrail(parent) end
