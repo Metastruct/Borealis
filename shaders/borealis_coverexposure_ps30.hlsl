@@ -12,7 +12,6 @@ sampler CoverSpans : register(s2);
 
 #define SAMPLES 24
 #define RADIUS 160.0
-#define BELOW 56.0
 #define GOLDEN 2.3999632
 
 struct PS_IN
@@ -24,7 +23,7 @@ float4 main(PS_IN i) : COLOR
 {
 	float2 xy = ORIGIN + ((i.vpos + 0.5) / SIZE - 0.5) * EXTENT;
 	float4 z = (BASE_Z + float4(0.0, 1.0, 2.0, 3.0) * COVER_EXPOSURE_STEP - COVER_SPANS_MIN) / COVER_SPANS_SIZE;
-	float4 zBelow = z + BELOW / COVER_SPANS_SIZE;
+	float4 zBelow = z + COVER_EXPOSURE_BELOW / COVER_SPANS_SIZE;
 	float4 open = float4(0.0, 0.0, 0.0, 0.0);
 	[loop] for (int k = 0; k < SAMPLES; k++)
 	{

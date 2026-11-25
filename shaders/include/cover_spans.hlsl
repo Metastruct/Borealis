@@ -4,6 +4,7 @@
 
 #define COVER_EXPOSURE_STEP 256.0
 #define COVER_EXPOSURE_EDGE 0.1
+#define COVER_EXPOSURE_BELOW 56.0
 
 float2 CoverSpansColumnOf(float2 xy)
 {
@@ -15,6 +16,21 @@ float CoverSpansInside(float4 a, float4 b, float z, float zBelow)
 	float4 inside = step(z, float4(a.x, a.z, b.x, b.z)) * step(float4(a.y, a.w, b.y, b.w), zBelow);
 
 	return saturate(dot(inside, 1.0));
+}
+
+void CoverSpansFetch(sampler spans, float2 col, out float4 a, out float4 b)
+{
+	float2 uv = (col + 0.5) / float2(COVER_SPANS_COLUMNS * 2.0, COVER_SPANS_COLUMNS);
+	a = tex2Dlod(spans, float4(uv, 0.0, 0.0));
+	b = tex2Dlod(spans, float4(uv.x + 0.5, uv.y, 0.0, 0.0));
+}
+
+float CoverSpansRoof(float4 a, float4 b, float z)
+{
+	float4 bottoms = float4(a.y, a.w, b.y, b.w);
+	float4 above = lerp(1.0, bottoms, step(z, bottoms));
+
+	return min(min(above.x, above.y), min(above.z, above.w)) * COVER_SPANS_SIZE + COVER_SPANS_MIN;
 }
 
 float CoverSpansColumn(sampler spans, float2 col, float z, float zBelow)
@@ -61,13 +77,23 @@ float CoverSpansExposure(sampler spans, float3 p, float radius, float below, flo
 	return open / 8.0;
 }
 
-float2 CoverExposureAt(sampler exposure, float3 p, float4 frame)
+float2 CoverExposureLayers(sampler exposure, float3 p, float4 frame, float top)
 {
 	float2 uv = (p.xy - frame.xy) * frame.z + 0.5;
 	float window = saturate(min(min(uv.x, uv.y), min(1.0 - uv.x, 1.0 - uv.y)) / COVER_EXPOSURE_EDGE);
 	float4 e = tex2Dlod(exposure, float4(uv, 0.0, 0.0));
-	float u = clamp((p.z - frame.w) / COVER_EXPOSURE_STEP, 0.0, 3.0);
+	float u = clamp((p.z - frame.w) / COVER_EXPOSURE_STEP, 0.0, top);
 	float4 w = saturate(1.0 - abs(u - float4(0.0, 1.0, 2.0, 3.0)));
 
 	return float2(dot(e, w), window);
+}
+
+float2 CoverExposureAt(sampler exposure, float3 p, float4 frame)
+{
+	return CoverExposureLayers(exposure, p, frame, 3.0);
+}
+
+float CoverExposureTop(float roof, float4 frame)
+{
+	return clamp(floor((roof - COVER_EXPOSURE_BELOW - frame.w) / COVER_EXPOSURE_STEP), 0.0, 3.0);
 }

@@ -69,19 +69,25 @@ float sunTau(float3 p, float h)
 	return (above + below) / sz;
 }
 
-bool sheltered(float3 p, float2 eyeCol)
+bool sheltered(float3 p, float2 eyeCol, out float roof)
 {
 	float2 col = floor(p.xy / COLUMN);
 	float2 off = abs(col - eyeCol);
 	bool covered = false;
+	roof = Z_MIN + Z_RANGE;
 	[branch] if (max(off.x, off.y) <= COVER_RANGE)
 	{
 		float2 c = tex2Dlod(CoverTex, float4(frac(col / COLUMNS) + 0.5 / COLUMNS, 0.0, 0.0)).rg;
-		covered = p.z < (c.r * 65280.0 + c.g * 255.0) / 65535.0 * Z_RANGE + Z_MIN;
+		roof = (c.r * 65280.0 + c.g * 255.0) / 65535.0 * Z_RANGE + Z_MIN;
+		covered = p.z < roof;
 	}
 	else if (SPANS_ON > 0.5)
 	{
-		covered = CoverSpansOpen(CoverSpans, p, 0.0) < 0.5;
+		float4 a, b;
+		CoverSpansFetch(CoverSpans, CoverSpansColumnOf(p.xy), a, b);
+		float z = (p.z - COVER_SPANS_MIN) / COVER_SPANS_SIZE;
+		covered = CoverSpansInside(a, b, z, z) < 0.5;
+		roof = CoverSpansRoof(a, b, z);
 	}
 
 	return covered;
@@ -89,11 +95,12 @@ bool sheltered(float3 p, float2 eyeCol)
 
 float exposure(float3 p, float2 eyeCol)
 {
-	bool roofed = sheltered(p, eyeCol);
+	float roof;
+	bool roofed = sheltered(p, eyeCol, roof);
 	float open = roofed ? 0.0 : 1.0;
 	[branch] if (EXPOSURE_FRAME.z > 0.0)
 	{
-		float2 baked = CoverExposureAt(Exposure, p, EXPOSURE_FRAME);
+		float2 baked = CoverExposureLayers(Exposure, p, EXPOSURE_FRAME, roofed ? CoverExposureTop(roof, EXPOSURE_FRAME) : 3.0);
 		float e = roofed ? smoothstep(ROOFED_MIN, ROOFED_MAX, baked.x) : smoothstep(EXPOSED_MIN, EXPOSED_MAX, baked.x);
 		open = lerp(open, e, baked.y);
 	}
