@@ -24,6 +24,7 @@ physenv.AddSurfaceData([[
 ]])
 
 function ice.Winter()
+	if tod and tod.loaded_season then return tod.loaded_season == "winter" end
 	if tod and tod.GetSeason then return tod.GetSeason() == "winter" end
 
 	local month = tonumber(os.date("%m")) or 0
