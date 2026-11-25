@@ -1,4 +1,4 @@
-if SERVER then AddCSLuaFile() end
+AddCSLuaFile()
 
 require("bspdata")
 

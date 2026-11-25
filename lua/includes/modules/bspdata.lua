@@ -1,4 +1,4 @@
-if SERVER then AddCSLuaFile() end
+AddCSLuaFile()
 
 local bspdata = _G.bspdata or {}
 _G.bspdata = bspdata

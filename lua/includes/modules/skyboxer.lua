@@ -1,3 +1,5 @@
+AddCSLuaFile()
+
 local TAG = "skyboxer"
 
 local skyboxer = _G.skyboxer or {}

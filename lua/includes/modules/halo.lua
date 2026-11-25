@@ -1,5 +1,6 @@
 require("shader_to_gma")
 
+AddCSLuaFile()
 module("halo", package.seeall)
 
 local ROWS_PS, OUTLINE_PS, QUAD_VS = "borealis_halo_rows_ps30", "borealis_halo_ps30", "borealis_passthrough_vs30"
@@ -7,7 +8,7 @@ local SHADERS = { ROWS_PS, OUTLINE_PS, QUAD_VS }
 
 local FLAGS = bit.bor(STUDIO_RENDER, STUDIO_SKIP_DECALS or 0)
 local MAX_WIDTH = 15
-local PHYSGUN_WIDTH = 2
+--local PHYSGUN_WIDTH = 2
 local DEPTH_BIAS = 8
 local MAX_DEPTH_SHIFT = 0.01
 local GROUPS_PER_PASS = 6
