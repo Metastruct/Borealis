@@ -13,6 +13,8 @@ local SKIRT_DEPTH, SKIRT_SINK, SKIRT_CHECK_DISTANCE = 1, 0.6, 2
 local RAY_HEIGHT = snow.RAY_HEIGHT
 local WALL_CUT_DEPTH = 4
 
+meshBuilder.SKIRT_DEPTH = SKIRT_DEPTH
+
 local cellKey = snow.CellKey
 local wallTrace = { mask = MASK_SOLID_BRUSHONLY, start = Vector(), endpos = Vector(), output = {} }
 local checkPos = Vector()

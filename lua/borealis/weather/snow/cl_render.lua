@@ -1,6 +1,7 @@
 local snow = shaderpack.snow
 local bspdata, depthslices, foliage, chunks, dynamiclights = bspdata, shaderpack.depthslices, shaderpack.foliage, shaderpack.chunks, shaderpack.dynamiclights
 local geometry, meshBuilder, cache, download, lighting, trails, flashlight, footsteps = snow.geometry, snow.meshBuilder, snow.cache, snow.download, snow.lighting, snow.trails, snow.flashlight, snow.footsteps
+local icicles = snow.icicles
 
 local ENABLED = CreateClientConVar("borealis_snow", "1", true, false, "draw deep snow with footprints in winter")
 local DISTANCE = CreateClientConVar("borealis_snow_distance", "3072", true, false, "snow draw distance in units", 1024, 16384)
@@ -102,7 +103,7 @@ local function buildChunk(ch)
 	end
 	ch.snowCells = snowCells
 
-	return tris
+	return tris + (tris > 0 and icicles.Build(ch, verts, tris) or 0)
 end
 
 local function load()
@@ -120,6 +121,7 @@ local function load()
 end
 
 local function destroyChunk(ch)
+	icicles.Destroy(ch)
 	for _, g in ipairs(ch.groups or {}) do
 		for _, m in ipairs(g.meshes) do
 			m:Destroy()
@@ -187,6 +189,13 @@ local function collectMeshes(shown, sky, n)
 	return n
 end
 
+local function shade(mat, eye, sun, lightScale, fill, tonemap)
+	setConstant(mat, "$c0", eye.x, eye.y, eye.z, CurTime() % 1000)
+	setConstant(mat, "$c2", sun.x, sun.y, sun.z, lightScale)
+	setConstant(mat, "$c3", fill, tonemap, fadeStart, fadeEnd)
+	mat:SetMatrix("$viewprojmat", fogConstants)
+end
+
 local function drawRange(mat, first, last, wallTex)
 	if first > last then return end
 
@@ -210,16 +219,17 @@ local function draw(depth, _, sky3d)
 	local shown = grid:Visible(view)
 	local nworld = collectMeshes(shown, false, 0)
 	local nvis = collectMeshes(shown, true, nworld)
+	local ntotal = icicles.Collect(shown, pvsFilter, visible, nvis)
 
-	for i = #visible, nvis + 1, -1 do
+	for i = #visible, ntotal + 1, -1 do
 		visible[i] = nil
 	end
 
-	if nvis == 0 then return end
+	if ntotal == 0 then return end
 
 	dynamiclights.Update(eye)
 	cam.PushModelMatrix(Matrix(), false)
-	local flashlightTex, flashInvW, flashInvH = flashlight.Render(visible, nvis)
+	local flashlightTex, flashInvW, flashInvH = flashlight.Render(visible, ntotal)
 	MAT:SetTexture("$texture4", flashlightTex)
 	MAT:SetTexture("$basetexture", trails.Texture())
 	MAT:SetTexture("$texture2", dynamiclights.Texture())
@@ -228,10 +238,9 @@ local function draw(depth, _, sky3d)
 
 	local tonemap = shaderpack.ToneMapScale()
 	local sun = bspdata.BakedSun()
-	setConstant(MAT, "$c0", eye.x, eye.y, eye.z, CurTime() % 1000)
+	local fill = packColor(amb.x * AMBIENT_FILL, amb.y * AMBIENT_FILL, amb.z * AMBIENT_FILL)
+	local lightScale = foliage.WorldLightScale()
 	setConstant(MAT, "$c1", trails.Window())
-	setConstant(MAT, "$c2", sun.x, sun.y, sun.z, foliage.WorldLightScale())
-	setConstant(MAT, "$c3", packColor(amb.x * AMBIENT_FILL, amb.y * AMBIENT_FILL, amb.z * AMBIENT_FILL), tonemap, fadeStart, fadeEnd)
 
 	local fr, fg, fb = render.GetFogColor()
 	local fogStart, fogEnd = render.GetFogDistances()
@@ -243,16 +252,18 @@ local function draw(depth, _, sky3d)
 		sr, sg, sb, 0,
 		invW, invH, flashInvW, flashInvH
 	)
-	MAT:SetMatrix("$viewprojmat", fogConstants)
+	shade(MAT, eye, sun, lightScale, fill, tonemap)
+	if ntotal > nvis then shade(icicles.Material(), eye, sun, lightScale, fill, tonemap) end
 
 	render.OverrideDepthEnable(true, true)
 	drawRange(MAT, 1, nworld, wallTex)
 	drawRange(MAT, nworld + 1, nvis, NO_WALL)
 	render.OverrideDepthEnable(false, false)
+	icicles.Queue(visible, nvis + 1, ntotal, wallTex, flashlightTex)
 
 	if DEPTH_MAT and depthslices.BeginDepthWrite() then
 		render.SetMaterial(DEPTH_MAT)
-		for i = 1, nvis do
+		for i = 1, ntotal do
 			visible[i]:Draw()
 		end
 		depthslices.EndDepthWrite()
@@ -268,6 +279,7 @@ local function stop()
 	hook.Remove("PostDrawOpaqueRenderables", "borealis_snow")
 	trails.Stop()
 	grid:Stop()
+	icicles.Stop()
 	geometry.Clear()
 end
 
@@ -327,6 +339,7 @@ local function start()
 		["$nocull"] = 1,
 	})
 	flashlight.Start(suffix)
+	icicles.Start(suffix)
 
 	grid:Start()
 	running = true

@@ -2,8 +2,9 @@ local snow = shaderpack.snow or {}
 shaderpack.snow = snow
 
 snow.PS, snow.VS, snow.DEPTH_PS = "borealis_snowcover_ps30", "borealis_water_vs30", "borealis_waterdepth_ps30"
+snow.ICICLE_PS = "borealis_icicle_ps30"
 snow.NOISE = "shaderpack/procsky/fognoise"
-snow.SHADERS = { snow.PS, snow.VS, snow.DEPTH_PS, "borealis_trailstamp_ps30" }
+snow.SHADERS = { snow.PS, snow.VS, snow.DEPTH_PS, "borealis_trailstamp_ps30", snow.ICICLE_PS }
 
 if SERVER then
 	shaderpack.AddResources(snow.SHADERS, { snow.NOISE })
@@ -109,6 +110,7 @@ local FILES = {
 	"cl_footsteps",
 	"cl_powder",
 	"cl_breath",
+	"cl_icicles",
 	"cl_impacts",
 	"sv_impacts",
 	"cl_render",
