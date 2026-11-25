@@ -115,19 +115,19 @@ if SERVER then
 		GetSky():SetKeyValue("sunnormal", n.x .. " " .. n.y .. " " .. n.z)
 
 		do
-			local ent = ents.FindByClass("shadow_control")[1] or NULL
+			local control = ents.FindByClass("shadow_control")[1] or NULL
 
-			if ent:IsValid() then
+			if control:IsValid() then
 				local p = val.p
 				p = math.Clamp(p, 50, 130)
-				ent:Fire("SetAngles", math.Round(p) .. " " .. math.Round(val.y) .. " " .. math.Round(val.r))
+				control:Fire("SetAngles", math.Round(p) .. " " .. math.Round(val.y) .. " " .. math.Round(val.r))
 				local fade = (val.p / 180)
-				ent:Fire("SetDistance", fade * 70)
+				control:Fire("SetDistance", fade * 70)
 
 				if fade > 0 then
-					ent:Fire("SetShadowsDisabled", "0")
+					control:Fire("SetShadowsDisabled", "0")
 				else
-					ent:Fire("SetShadowsDisabled", "1")
+					control:Fire("SetShadowsDisabled", "1")
 				end
 			end
 		end
@@ -359,7 +359,7 @@ if CLIENT then
 				local fraction = 1
 				local ply = LocalPlayer()
 
-				if ply:GetAimVector():DotProduct((self:GetPos() - ply:EyePos()):GetNormalized()) > 0.999 then
+				if ply:GetAimVector():Dot(-C.moon_angles:Forward()) > 0.999 then
 					fraction = ply:GetFOV() / 5
 					fraction = fraction ^ 20
 				end
@@ -411,14 +411,9 @@ if CLIENT then
 			local gmancol = Color(170, 190, 255, 255)
 
 			function tod.InitializeSky()
-				local origin = vector_origin
-
-				hook.Add("RenderScene", "tod_moon", function(pos, ang)
-					origin = pos
-					angles = ang
-				end)
-
 				local function PostDraw2DSkyBox()
+					local origin = EyePos()
+
 					if tod.moon_ent:IsValid() then
 						local pos = origin + C.moon_angles:Forward() * -8000
 						tod.moon_ent:SetLocalPos(pos)
@@ -440,7 +435,7 @@ if CLIENT then
 					render.ClearDepth()
 				end
 
-				pcall(require, 'skyboxer')
+				pcall(require, "skyboxer")
 
 				if skyboxer then
 					-- moon is FAR, but skybox could even be farther
