@@ -305,6 +305,8 @@ if CLIENT then
 		hook.Remove("RenderScene", "tod_lightmap_timer")
 
 		timer.Create("tod_update_lightmap", 0.5, 0, function()
+			if tod.updating_lightmaps then return end
+
 			local byte = tod.MultToLightEnv(C.world_light_multiplier)
 
 			if last_byte ~= byte then
@@ -315,6 +317,25 @@ if CLIENT then
 
 				last_byte = byte
 			end
+		end)
+	end)
+
+	net.Receive("tod_lightmaps", function()
+		tod.updating_lightmaps = true
+		local frame, time, done = FrameNumber() + 2, SysTime() + 0.1, false
+
+		hook.Add("Think", "tod_lightmaps", function()
+			if FrameNumber() < frame or SysTime() < time then return end
+
+			if done then
+				hook.Remove("Think", "tod_lightmaps")
+				tod.updating_lightmaps = nil
+				return
+			end
+
+			render.RedownloadAllLightmaps(true)
+			last_byte = tod.MultToLightEnv(C.world_light_multiplier)
+			done = true
 		end)
 	end)
 
@@ -978,6 +999,7 @@ if SERVER then
 	end
 
 	util.AddNetworkString("tod_forceweather")
+	util.AddNetworkString("tod_lightmaps")
 
 	function tod.ForceWeather(name, reason)
 		if name == "" then name = nil end
@@ -1007,22 +1029,27 @@ if SERVER then
 		local time24 = tonumber(val)
 
 		if val == "demo" then
-			RunConsoleCommand("sv_tod", "2")
+			tod.cvar:SetInt(2)
 		elseif time24 and time24 >= 0 then
-			RunConsoleCommand("sv_tod", "0")
+			tod.cvar:SetInt(0)
 			tod.SetCycle((time24 / 24) % 1, reason)
 		else
 			-- "realtime", a negative hour or no argument
-			RunConsoleCommand("sv_tod", "1")
+			tod.cvar:SetInt(1)
 		end
 
-		timer.Simple(0.1, function()
-			tod.SetMode(tod.cvar:GetInt(), nil, reason)
+		tod.SetMode(tod.cvar:GetInt(), nil, reason)
 
-			timer.Simple(0.5, function()
-				BroadcastLua[[render.RedownloadAllLightmaps()]]
-			end)
-		end)
+		if tod.is_hidden_entity.light_environment == false then return end
+
+		for _, ply in ipairs(player.GetAll()) do
+			if not ply.BorealisMenuOpen then
+				ply:PrintMessage(HUD_PRINTCENTER, "Updating map lighting")
+			end
+		end
+
+		net.Start("tod_lightmaps")
+		net.Broadcast()
 	end
 
 	if aowl then

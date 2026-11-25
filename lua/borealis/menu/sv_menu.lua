@@ -39,10 +39,16 @@ local ACTIONS = {
 }
 
 net.Receive(TAG, function(_, ply)
-	if not IsValid(ply) or not ply:IsAdmin() or not tod then return end
+	if not IsValid(ply) then return end
 
-	local action = ACTIONS[net.ReadString()]
-	if not action then return end
+	local name, arg = net.ReadString(), net.ReadString()
+	if name == "open" then
+		ply.BorealisMenuOpen = arg ~= "" or nil
+		return
+	end
 
-	action(net.ReadString(), string.format("borealis menu by %s (%s)", ply:Nick(), ply:SteamID()))
+	local action = ACTIONS[name]
+	if not action or not ply:IsAdmin() or not tod then return end
+
+	action(arg, string.format("borealis menu by %s (%s)", ply:Nick(), ply:SteamID()))
 end)

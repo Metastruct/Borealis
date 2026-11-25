@@ -349,6 +349,15 @@ local function control(action, arg)
 	net.SendToServer()
 end
 
+local function reportOpen(open)
+	if util.NetworkStringToID(TAG) == 0 then return end
+
+	net.Start(TAG)
+	net.WriteString("open")
+	net.WriteString(open and "1" or "")
+	net.SendToServer()
+end
+
 local function currentCycle()
 	if not tod then return 0 end
 	if tod.GetMode() == 1 then return tod.GetRealTime() end
@@ -1243,6 +1252,12 @@ local UNSUPPORTED_TABS = {
 	{ "unsupported", nil, buildUnsupported },
 }
 
+local function buildLightmapNotice(tab)
+	function tab:Paint()
+		say("UPDATING MAP LIGHTING", FONT.body, 0, 0, COL.amber)
+	end
+end
+
 local MAT
 
 local function shaderReady()
@@ -1321,6 +1336,12 @@ function FRAME:Init()
 		self.Tabs[id] = tab
 	end
 
+	self.LightmapNotice = vgui.Create("EditablePanel", self)
+	self.LightmapNotice:SetPos(self.ContentX, cy)
+	self.LightmapNotice:SetSize(self.ContentW, ch)
+	self.LightmapNotice:SetVisible(false)
+	buildLightmapNotice(self.LightmapNotice)
+
 	local offW = px(84)
 	self.OffX = w - self.Side - offW
 	local off = vgui.Create("BorealisKey", self)
@@ -1330,6 +1351,8 @@ function FRAME:Init()
 
 	self:SetTab(self.Tabs[menu.LastTab] and menu.LastTab or tabs[1][1])
 	tty.start = self.Opened + 0.32
+
+	reportOpen(true)
 
 	local idle = not menu.LastUsed or RealTime() - menu.LastUsed >= JINGLE_IDLE
 	playUI(idle and SOUND.on or SOUND.onShort, ON_VOLUME)
@@ -1375,6 +1398,14 @@ function FRAME:Close()
 end
 
 function FRAME:Think()
+	local updating = tod and tod.updating_lightmaps or false
+	if self.LightmapNotice:IsVisible() ~= updating then
+		self.LightmapNotice:SetVisible(updating)
+		for id, tab in pairs(self.Tabs) do
+			tab:SetVisible(not updating and id == self.Active)
+		end
+	end
+
 	if self.Closing and RealTime() - self.Closing > 0.3 then
 		self:SetVisible(false)
 		self:Remove()
@@ -1647,6 +1678,7 @@ function FRAME:PaintOver(w, h)
 end
 
 function FRAME:OnRemove()
+	reportOpen(false)
 	menu.LastUsed = RealTime()
 	hook.Remove("OnPauseMenuShow", TAG)
 	self:StopTyping()
