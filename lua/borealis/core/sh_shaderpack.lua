@@ -66,10 +66,18 @@ if SERVER then
 	return
 end
 
+local DX_LEVEL = render.GetDXLevel()
+
+function shaderpack.Supported()
+	return DX_LEVEL >= 90 and DX_LEVEL < 100
+end
+
 local mountedShaders = {}
 local presentTextures, missingTextures = {}, {}
 
 function shaderpack.Available(shaders, textures)
+	if not shaderpack.Supported() then return false end
+
 	for _, name in ipairs(shaders) do
 		if not mountedShaders[name] then
 			if not ShaderExists(name) then return false end
@@ -96,6 +104,8 @@ end
 
 function shaderpack.WhenMounted(id, shaders, start, textures)
 	hook.Remove("ShaderMounted", id)
+	if not shaderpack.Supported() then return false end
+
 	if shaderpack.Available(shaders, textures) then
 		start()
 		return true
@@ -118,7 +128,7 @@ local MASTER = CreateClientConVar("borealis_enabled", "1", true, false, "draw th
 shaderpack.toggles = shaderpack.toggles or { order = {}, apply = {} }
 
 function shaderpack.Enabled()
-	return MASTER:GetBool()
+	return shaderpack.Supported() and MASTER:GetBool()
 end
 
 local RENAMED_CONVARS = { {
@@ -175,7 +185,7 @@ function shaderpack.PostProcess(name, entry)
 		entry.func = function(panel)
 			local icon = spawnmenu.CreateContentIcon("postprocess", panel, { name = name, icon = entry.icon })
 			icon.checkbox.Think = function(box)
-				local on = MASTER:GetBool()
+				local on = shaderpack.Enabled()
 				box:SetEnabled(on)
 				box:SetChecked(on and convar:GetBool())
 			end

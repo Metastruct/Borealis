@@ -1233,6 +1233,16 @@ local TABS = {
 	{ "credits", "Credits", buildCredits },
 }
 
+local function buildUnsupported(tab, w, h)
+	function tab:Paint()
+		say("YOUR DIRECTX VERSION IS NOT SUPPORTED, BOREALIS NEEDS DIRECTX 9", FONT.body, 0, 0, COL.amber)
+	end
+end
+
+local UNSUPPORTED_TABS = {
+	{ "unsupported", nil, buildUnsupported },
+}
+
 local MAT
 
 local function shaderReady()
@@ -1290,15 +1300,18 @@ function FRAME:Init()
 	local keyW, keyH = px(124), px(40)
 	self.KeyY = h - self.BotH + px(26)
 	local kx = self.ScreenX
-	for _, spec in ipairs(TABS) do
+	local tabs = shaderpack.Supported() and TABS or UNSUPPORTED_TABS
+	for _, spec in ipairs(tabs) do
 		local id = spec[1]
-		local key = vgui.Create("BorealisKey", self)
-		key:Setup(spec[2], function() self:SetTab(id) end)
-		key.IsActive = function() return self.Active == id end
-		key:SetPos(kx, self.KeyY)
-		key:SetSize(keyW, keyH)
-		self.Keys[#self.Keys + 1] = key
-		kx = kx + keyW + px(10)
+		if spec[2] then
+			local key = vgui.Create("BorealisKey", self)
+			key:Setup(spec[2], function() self:SetTab(id) end)
+			key.IsActive = function() return self.Active == id end
+			key:SetPos(kx, self.KeyY)
+			key:SetSize(keyW, keyH)
+			self.Keys[#self.Keys + 1] = key
+			kx = kx + keyW + px(10)
+		end
 
 		local tab = vgui.Create("EditablePanel", self)
 		tab:SetPos(self.ContentX, cy)
@@ -1315,7 +1328,7 @@ function FRAME:Init()
 	off:SetPos(self.OffX, self.KeyY)
 	off:SetSize(offW, keyH)
 
-	self:SetTab(menu.LastTab or "status")
+	self:SetTab(self.Tabs[menu.LastTab] and menu.LastTab or tabs[1][1])
 	tty.start = self.Opened + 0.32
 
 	local idle = not menu.LastUsed or RealTime() - menu.LastUsed >= JINGLE_IDLE

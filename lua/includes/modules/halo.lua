@@ -267,6 +267,7 @@ end
 local function shaderReady(w, h)
 	master = master or GetConVar("borealis_enabled")
 	if not master or not master:GetBool() then return false end
+	if shaderpack and shaderpack.Supported and not shaderpack.Supported() then return false end
 	if rt_Store:Width() ~= w or rt_Store:Height() ~= h or rt_Blur:Width() ~= w or rt_Blur:Height() ~= h then return false end
 	if OUTLINE_MAT then return true end
 	if RealTime() < retryAt then return false end
