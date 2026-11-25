@@ -245,4 +245,4 @@ local function stop()
 	drawing = false
 end
 
-shaderpack.Toggle(Tag, nil, {}, start, stop)()
+shaderpack.Toggle(Tag, nil, {}, start, stop, nil, true)()

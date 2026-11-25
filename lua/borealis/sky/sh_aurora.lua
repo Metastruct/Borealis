@@ -11,6 +11,7 @@ end
 
 local procsky, cover = shaderpack.procsky, shaderpack.cover
 local AURORA_ENABLED = CreateClientConVar("borealis_auroras", 1, true, false, "should we draw auroras")
+local NIGHTSKY_ENABLED = CreateClientConVar("borealis_nightsky", 1, true, false, "draw the stars and milky way at night")
 local INTENSITY = 0.35
 local SCALE = 2
 local HUE = 0.5
@@ -175,6 +176,8 @@ local function start(PIXEL_SHADER, SKY_SHADER, MAP_SHADER)
 	end
 
 	local function drawNightSky()
+		if not NIGHTSKY_ENABLED:GetBool() then return end
+
 		local night, fwd, right, halfW, halfH = viewRays()
 		if not night then return end
 
@@ -254,9 +257,8 @@ local function start(PIXEL_SHADER, SKY_SHADER, MAP_SHADER)
 		end)
 	else
 		hook.Add("PostDraw2DSkyBox", "borealis_aurora_sky", function()
-			if not AURORA_ENABLED:GetBool() then return end
 			drawNightSky()
-			drawAurora()
+			if AURORA_ENABLED:GetBool() then drawAurora() end
 		end)
 	end
 end
@@ -272,4 +274,4 @@ end
 
 shaderpack.Toggle("borealis_aurora_sky", nil, SHADERS, function()
 	start("borealis_aurora_ps30", "borealis_nightsky_ps30", "borealis_aurora_map_ps30")
-end, stop, { NOISE, MILKYWAY })()
+end, stop, { NOISE, MILKYWAY }, true)()

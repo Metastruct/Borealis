@@ -188,4 +188,4 @@ local function start()
 	depthslices.AddEffect("borealis_vcloud_shadows", ORDER, draw, false, function() return active end)
 end
 
-shaderpack.Toggle("borealis_vcloud_shadows", nil, { PS, VS, MAP_PS, MAP_VS, unpack(cover.EXPOSURE_SHADERS) }, start, stop, { SHAPE, DETAIL })()
+shaderpack.Toggle("borealis_vcloud_shadows", nil, { PS, VS, MAP_PS, MAP_VS, unpack(cover.EXPOSURE_SHADERS) }, start, stop, { SHAPE, DETAIL }, true)()

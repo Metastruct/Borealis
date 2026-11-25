@@ -434,7 +434,7 @@ local function start()
 	end
 end
 
-local apply = shaderpack.Toggle("borealis_procsky", SKY_ENABLED, SHADERS, start, stop, { CIRRUS })
+local apply = shaderpack.Toggle("borealis_procsky", SKY_ENABLED, SHADERS, start, stop, { CIRRUS }, true)
 
 hook.Add("Think", "borealis_procsky", think)
 hook.Add("RenderScreenspaceEffects", "borealis_procsky_tint", function()

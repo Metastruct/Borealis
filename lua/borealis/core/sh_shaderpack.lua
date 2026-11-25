@@ -126,6 +126,11 @@ end
 local MASTER = CreateClientConVar("borealis_enabled", "1", true, false, "draw the shaderpack effects, overrides every borealis_* convar when off")
 
 shaderpack.toggles = shaderpack.toggles or { order = {}, apply = {} }
+shaderpack.toggles.tod = shaderpack.toggles.tod or {}
+
+function shaderpack.TodEnabled()
+	return not (tod and tod.Enabled) or tod.Enabled()
+end
 
 function shaderpack.Enabled()
 	return shaderpack.Supported() and MASTER:GetBool()
@@ -197,8 +202,9 @@ function shaderpack.PostProcess(name, entry)
 	list.Set("PostProcess", name, entry)
 end
 
-function shaderpack.Toggle(id, convar, shaders, start, stop, textures)
+function shaderpack.Toggle(id, convar, shaders, start, stop, textures, needsTod)
 	local toggles = shaderpack.toggles
+	toggles.tod[id] = needsTod or nil
 
 	local function apply()
 		if not toggles.apply[id] then
@@ -206,7 +212,7 @@ function shaderpack.Toggle(id, convar, shaders, start, stop, textures)
 		end
 		toggles.apply[id] = apply
 
-		if not MASTER:GetBool() or (convar and not convar:GetBool()) then
+		if not MASTER:GetBool() or (convar and not convar:GetBool()) or (needsTod and not shaderpack.TodEnabled()) then
 			hook.Remove("ShaderMounted", id)
 			stop()
 			return
@@ -241,6 +247,16 @@ end
 cvars.RemoveChangeCallback("borealis_enabled", "shaderpack")
 cvars.AddChangeCallback("borealis_enabled", function()
 	pendingToggles = table.Add({}, shaderpack.toggles.order)
+	hook.Add("Think", "shaderpack_toggles", applyNextToggle)
+end, "shaderpack")
+
+cvars.RemoveChangeCallback("sv_tod_enabled", "shaderpack")
+cvars.AddChangeCallback("sv_tod_enabled", function()
+	for _, id in ipairs(shaderpack.toggles.order) do
+		if shaderpack.toggles.tod[id] and not table.HasValue(pendingToggles, id) then
+			pendingToggles[#pendingToggles + 1] = id
+		end
+	end
 	hook.Add("Think", "shaderpack_toggles", applyNextToggle)
 end, "shaderpack")
 

@@ -11,7 +11,8 @@ local SKY_OFFSET, SKY_LENGTH = 4, 32768
 local SKY_SAMPLE_INSETS = { 0.5, 0.9 }
 local SKY_MIN_OPEN = 0.25
 local WATER_SURFACEPROPS = { water = true, slime = true, wade = true }
-local SURFACE = "borealis_ice"
+local SURFACE, GRIP_SURFACE = "borealis_ice", "borealis_ice_grip"
+local SLIPPERY = CreateConVar("sv_borealis_ice_slippery", "1", bit.bor(FCVAR_REPLICATED, FCVAR_ARCHIVE, FCVAR_NOTIFY), "0 makes frozen water as grippy as normal ground")
 
 physenv.AddSurfaceData([[
 "borealis_ice"
@@ -19,6 +20,13 @@ physenv.AddSurfaceData([[
 	"base"	"glass"
 	"density"	"917"
 	"friction"	"0.1"
+	"elasticity"	"0.1"
+}
+"borealis_ice_grip"
+{
+	"base"	"glass"
+	"density"	"917"
+	"friction"	"0.8"
 	"elasticity"	"0.1"
 }
 ]])
@@ -203,7 +211,8 @@ function ENT:Initialize()
 		return
 	end
 
-	self:PhysicsInitMultiConvex(hulls, util.GetSurfaceIndex(SURFACE) >= 0 and SURFACE or "ice")
+	local surface = SLIPPERY:GetBool() and SURFACE or GRIP_SURFACE
+	self:PhysicsInitMultiConvex(hulls, util.GetSurfaceIndex(surface) >= 0 and surface or "ice")
 	self:SetSolid(SOLID_VPHYSICS)
 	self:SetMoveType(MOVETYPE_NONE)
 	self:EnableCustomCollisions(true)
@@ -225,6 +234,181 @@ if CLIENT then
 
 		return true
 	end
+
+	local LIGHT_CELL, LIGHT_LIFT, MAX_VERTS = 256, 4, 65535
+	local LIGHT_INWARD = { 0, 0.1, 0.25, 0.5, 1 }
+	local UP = Vector(0, 0, 1)
+	local lightPos = Vector()
+
+	local function tessellationCount(verts, cell)
+		local count = 0
+		for i = 1, #verts, 3 do
+			local a, b, c = verts[i], verts[i + 1], verts[i + 2]
+			local n = math.max(1, math.ceil(math.max(a:Distance(b), b:Distance(c), c:Distance(a)) / cell))
+			count = count + n * n * 3
+		end
+
+		return count
+	end
+
+	local function bakedLight(v, centre, lightCache)
+		local key = math.Round(v.x) .. "," .. math.Round(v.y)
+		local light = lightCache[key]
+		if light then return light end
+
+		for _, f in ipairs(LIGHT_INWARD) do
+			lightPos:SetUnpacked(v.x + (centre.x - v.x) * f, v.y + (centre.y - v.y) * f, v.z + LIGHT_LIFT)
+			if bit.band(util.PointContents(lightPos), CONTENTS_SOLID) == 0 then break end
+		end
+
+		local l, d = render.ComputeLighting(lightPos, UP), render.ComputeDynamicLighting(lightPos, UP)
+		light = {
+			math.Clamp(math.floor((l.x - d.x) * 127.5), 0, 255),
+			math.Clamp(math.floor((l.y - d.y) * 127.5), 0, 255),
+			math.Clamp(math.floor((l.z - d.z) * 127.5), 0, 255),
+		}
+		lightCache[key] = light
+
+		return light
+	end
+
+	function ice.Bake(verts)
+		local cell = LIGHT_CELL
+		local count = tessellationCount(verts, cell)
+		while count > math.max(MAX_VERTS, #verts) do
+			cell = cell * math.sqrt(count / MAX_VERTS) * 1.05
+			count = tessellationCount(verts, cell)
+		end
+
+		local out, lights, lightCache = {}, {}, {}
+		for i = 1, #verts, 3 do
+			local a, b, c = verts[i], verts[i + 1], verts[i + 2]
+			local n = math.max(1, math.ceil(math.max(a:Distance(b), b:Distance(c), c:Distance(a)) / cell))
+			local ab, ac = (b - a) / n, (c - a) / n
+			local centre = (a + b + c) / 3
+			local function addVertex(u, w)
+				local v = a + ab * u + ac * w
+				out[#out + 1] = v
+				lights[#lights + 1] = bakedLight(v, centre, lightCache)
+			end
+
+			for u = 0, n - 1 do
+				for w = 0, n - 1 - u do
+					addVertex(u, w)
+					addVertex(u + 1, w)
+					addVertex(u, w + 1)
+					if u + w < n - 1 then
+						addVertex(u + 1, w)
+						addVertex(u + 1, w + 1)
+						addVertex(u, w + 1)
+					end
+				end
+			end
+		end
+
+		return out, lights
+	end
+
+	local CHEAP_AMBIENT = 0.45
+	local CHEAP_MAT = CreateMaterial("borealis_ice_cheap", "VertexLitGeneric", {
+		["$basetexture"] = "glass/glasswindowbreak070a",
+		["$color2"] = "[0.78 0.8 0.83]",
+		["$envmap"] = "env_cubemap",
+		["$envmapmask"] = "glass/glasswindowbreak070a_mask",
+		["$envmaptint"] = "[0.08 0.08 0.08]",
+		["$translucent"] = 1,
+		["$nocull"] = 1,
+		["$vertexcolor"] = 1,
+	})
+	local cheapMeshes, cheapLight
+
+	local function buildCheapMeshes()
+		local polys = {}
+		for _, face in ipairs(bspdata.WaterFaces()) do
+			if ice.FaceFreezes(face) then
+				polys[#polys + 1] = face.poly
+			end
+		end
+
+		cheapMeshes = {}
+		if #polys == 0 then return end
+
+		local find = connect(polys)
+		local groups = {}
+		for i, poly in ipairs(polys) do
+			local root = find(i)
+			local g = groups[root]
+			if not g then
+				g = { verts = {}, minX = math.huge, minY = math.huge, maxX = -math.huge, maxY = -math.huge }
+				groups[root] = g
+			end
+
+			for n = 2, #poly - 1 do
+				g.verts[#g.verts + 1] = poly[1]
+				g.verts[#g.verts + 1] = poly[n]
+				g.verts[#g.verts + 1] = poly[n + 1]
+			end
+
+			for _, v in ipairs(poly) do
+				g.minX, g.minY = math.min(g.minX, v.x), math.min(g.minY, v.y)
+				g.maxX, g.maxY = math.max(g.maxX, v.x), math.max(g.maxY, v.y)
+			end
+		end
+
+		local brightest = { 1, 1, 1 }
+		for _, g in pairs(groups) do
+			g.verts, g.lights = ice.Bake(g.verts)
+			for _, light in ipairs(g.lights) do
+				if light[1] + light[2] + light[3] > brightest[1] + brightest[2] + brightest[3] then
+					brightest = light
+				end
+			end
+		end
+
+		local peak = math.max(brightest[1], brightest[2], brightest[3])
+		cheapLight = Vector(brightest[1], brightest[2], brightest[3]) / 127.5
+		local scale = (1 - CHEAP_AMBIENT) * 255 / peak
+		local ambient = CHEAP_AMBIENT * 255
+		for _, g in pairs(groups) do
+			local size = math.max(g.maxX - g.minX, g.maxY - g.minY, 1)
+			local m = Mesh(CHEAP_MAT)
+			mesh.Begin(m, MATERIAL_TRIANGLES, #g.verts / 3)
+			for i, v in ipairs(g.verts) do
+				local light = g.lights[i]
+				local shade = ambient + math.max(light[1], light[2], light[3]) * scale
+				mesh.Position(Vector(v.x, v.y, v.z + HEIGHT_OFFSET))
+				mesh.Normal(UP)
+				mesh.TexCoord(0, (v.y - g.minY) / size, (v.x - g.minX) / size)
+				mesh.Color(shade, shade, shade, 255)
+				mesh.AdvanceVertex()
+			end
+			mesh.End()
+			cheapMeshes[#cheapMeshes + 1] = m
+		end
+	end
+
+	hook.Add("PostDrawTranslucentRenderables", "borealis_ice_cheap", function(depth, skybox, skybox3d)
+		if depth or skybox or skybox3d then return end
+
+		local rt = render.GetRenderTarget()
+		if rt and rt:GetName():lower():find("_rt_water", 1, true) then return end
+
+		local water = shaderpack.surfacewater
+		if water and water.active or not ice.Winter() then return end
+
+		if not cheapMeshes then buildCheapMeshes() end
+		if #cheapMeshes == 0 then return end
+
+		local foliage = shaderpack.foliage
+		local gain = 2 * (foliage and foliage.WorldLightScale and foliage.WorldLightScale() or 1)
+		render.SuppressEngineLighting(true)
+		render.ResetModelLighting(cheapLight.x * gain, cheapLight.y * gain, cheapLight.z * gain)
+		render.SetMaterial(CHEAP_MAT)
+		for _, m in ipairs(cheapMeshes) do
+			m:Draw()
+		end
+		render.SuppressEngineLighting(false)
+	end)
 end
 
 function ENT:Draw() end
@@ -277,3 +461,4 @@ ice.Spawn = spawn
 
 hook.Add("InitPostEntity", "borealis_ice", spawn)
 hook.Add("PostCleanupMap", "borealis_ice", spawn)
+cvars.AddChangeCallback("sv_borealis_ice_slippery", spawn, "borealis_ice")

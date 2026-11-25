@@ -117,7 +117,7 @@ local function start()
 	hook.Add("PostDrawEffects", "borealis_grade", fallback)
 end
 
-shaderpack.Toggle("borealis_grade", nil, { PS, VS }, start, stop)()
+shaderpack.Toggle("borealis_grade", nil, { PS, VS }, start, stop, nil, true)()
 
 shaderpack.PostProcess("Colour Grading", {
 	icon = "gui/postprocess/base.png",

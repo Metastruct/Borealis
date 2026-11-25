@@ -217,80 +217,7 @@ local function bodyOpenness(g)
 	return total > 0 and open / total or 1
 end
 
-local ICE_LIGHT_CELL, ICE_LIGHT_LIFT, ICE_MAX_VERTS = 256, 4, 65535
-local ICE_LIGHT_INWARD = { 0, 0.1, 0.25, 0.5, 1 }
-local UP = Vector(0, 0, 1)
-local lightPos = Vector()
 local NO_LIGHT = { 0, 0, 255 }
-
-local function tessellationCount(verts, cell)
-	local count = 0
-	for i = 1, #verts, 3 do
-		local a, b, c = verts[i], verts[i + 1], verts[i + 2]
-		local n = math.max(1, math.ceil(math.max(a:Distance(b), b:Distance(c), c:Distance(a)) / cell))
-		count = count + n * n * 3
-	end
-
-	return count
-end
-
-local function bakedLight(v, centre, lightCache)
-	local key = math.Round(v.x) .. "," .. math.Round(v.y)
-	local light = lightCache[key]
-	if light then return light end
-
-	for _, f in ipairs(ICE_LIGHT_INWARD) do
-		lightPos:SetUnpacked(v.x + (centre.x - v.x) * f, v.y + (centre.y - v.y) * f, v.z + ICE_LIGHT_LIFT)
-		if bit.band(util.PointContents(lightPos), CONTENTS_SOLID) == 0 then break end
-	end
-
-	local l, d = render.ComputeLighting(lightPos, UP), render.ComputeDynamicLighting(lightPos, UP)
-	light = {
-		math.Clamp(math.floor((l.x - d.x) * 127.5), 0, 255),
-		math.Clamp(math.floor((l.y - d.y) * 127.5), 0, 255),
-		math.Clamp(math.floor((l.z - d.z) * 127.5), 0, 255),
-	}
-	lightCache[key] = light
-
-	return light
-end
-
-local function bakeIce(verts)
-	local cell = ICE_LIGHT_CELL
-	local count = tessellationCount(verts, cell)
-	while count > math.max(ICE_MAX_VERTS, #verts) do
-		cell = cell * math.sqrt(count / ICE_MAX_VERTS) * 1.05
-		count = tessellationCount(verts, cell)
-	end
-
-	local out, lights, lightCache = {}, {}, {}
-	for i = 1, #verts, 3 do
-		local a, b, c = verts[i], verts[i + 1], verts[i + 2]
-		local n = math.max(1, math.ceil(math.max(a:Distance(b), b:Distance(c), c:Distance(a)) / cell))
-		local ab, ac = (b - a) / n, (c - a) / n
-		local centre = (a + b + c) / 3
-		local function addVertex(u, w)
-			local v = a + ab * u + ac * w
-			out[#out + 1] = v
-			lights[#lights + 1] = bakedLight(v, centre, lightCache)
-		end
-
-		for u = 0, n - 1 do
-			for w = 0, n - 1 - u do
-				addVertex(u, w)
-				addVertex(u + 1, w)
-				addVertex(u, w + 1)
-				if u + w < n - 1 then
-					addVertex(u + 1, w)
-					addVertex(u + 1, w + 1)
-					addVertex(u, w + 1)
-				end
-			end
-		end
-	end
-
-	return out, lights
-end
 
 local function writeBodyMesh(g, ent)
 	if g.mesh then g.mesh:Destroy() end
@@ -347,7 +274,7 @@ local function buildMeshes()
 				murk = math.floor(murk / MURK_MAX * 255 + 0.5) / 255 * MURK_MAX, clusters = g.clusters, nonWater = nonWater,
 				frozen = g.frozen, sky = g.sky,
 			}
-			if g.frozen then body.verts, body.lights = bakeIce(g.verts) end
+			if g.frozen then body.verts, body.lights = shaderpack.ice.Bake(g.verts) end
 			if g.model == 0 then writeBodyMesh(body) end
 			meshes[key] = body
 		end
@@ -1034,6 +961,7 @@ do
 end
 
 local function stop()
+	surfacewater.active = nil
 	stopRainSound()
 	hook.Remove("PostDrawOpaqueRenderables", "borealis_water")
 	hook.Remove("PostDrawTranslucentRenderables", "borealis_water_underwater")
@@ -1051,6 +979,7 @@ local function start()
 	depthWanted = true
 	depthslices.AddEffect("borealis_water", SURFACE_ORDER, drawSurfaceAbove, false, function() return depthWanted end)
 	startRainSound()
+	surfacewater.active = true
 end
 
 shaderpack.AfterWorld("borealis_water", shaderpack.Toggle("borealis_water", WATER_ENABLED, SHADERS, start, stop, { NOISE }))

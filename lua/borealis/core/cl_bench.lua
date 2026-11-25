@@ -6,7 +6,7 @@ local GENERAL = { "borealis_procsky", "borealis_clouds", "cl_draw_skyterrain", "
 local RAIN = { "borealis_precipitations", "borealis_fog", "borealis_wetness" }
 local SNOW = { "borealis_precipitations", "borealis_fog" }
 local WINTER = { "borealis_snow" }
-local NIGHT = { "borealis_auroras" }
+local NIGHT = { "borealis_nightsky", "borealis_auroras" }
 local LISTS = { GENERAL, RAIN, SNOW, WINTER, NIGHT }
 
 local function pauseFoliage(layer)

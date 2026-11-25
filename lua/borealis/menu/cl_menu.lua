@@ -54,6 +54,7 @@ local EFFECT_GROUPS = {
 		{ "borealis_procsky", "Atmosphere", "Shift sky colour with the time of day" },
 		{ "borealis_clouds", "Clouds", "Drift clouds across the sky" },
 		{ "borealis_vclouds", "Volumetric clouds", "Replace clouds with thick 3D clouds" },
+		{ "borealis_nightsky", "Night sky", "Fill the night with stars and the milky way" },
 		{ "borealis_auroras", "Auroras", "Show northern lights on some nights" },
 		{ "borealis_sunshafts", "Sun shafts", "Cast sunbeams through gaps and treetops" },
 	} },

@@ -178,4 +178,4 @@ local function start()
 	hook.Add("RenderScreenspaceEffects", "borealis_sunshafts", drawShafts)
 end
 
-shaderpack.Toggle("borealis_sunshafts", SHAFTS_ENABLED, SHADERS, start, stop)()
+shaderpack.Toggle("borealis_sunshafts", SHAFTS_ENABLED, SHADERS, start, stop, nil, true)()

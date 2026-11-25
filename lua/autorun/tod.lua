@@ -21,6 +21,12 @@ end
 local P = tod.Params
 local C = tod.CurrentParams
 
+tod.enabled_cvar = CreateConVar("sv_tod_enabled", "1", bit.bor(FCVAR_REPLICATED, FCVAR_ARCHIVE, FCVAR_NOTIFY))
+
+function tod.Enabled()
+	return tod.enabled_cvar:GetBool()
+end
+
 -- sky paint
 local function GetSky()
 	local ent = ents.FindByClass("env_skypaint")[1] or NULL
@@ -80,11 +86,78 @@ ADD_SKY_KEYVALUE("starscale", 0.2)
 ADD_SKY_KEYVALUE("starfade", 1)
 ADD_SKY_KEYVALUE("starspeed", 0.01)
 ADD_SKY_KEYVALUE("hdrscale", 0.66)
-RunConsoleCommand("sv_skyname", "painted")
 
 if SERVER then
+	if tod.Enabled() then
+		RunConsoleCommand("sv_skyname", "painted")
+	end
+
+	local map = {}
+
+	local function captureMap()
+		local f, lump = bspdata.OpenLumps()
+		if f then
+			map.skyname = lump(0):match([["skyname"%s+"([^"]*)"]])
+			f:Close()
+		end
+
+		local sky = ents.FindByClass("env_skypaint")[1]
+		map.skypaint = IsValid(sky) and sky:GetNetworkVars() or nil
+
+		local sun = ents.FindByClass("env_sun")[1]
+		if IsValid(sun) then
+			map.sun = { angles = sun:GetAngles(), pitch = sun:GetKeyValues().pitch, on = sun:GetInternalVariable("m_bOn") }
+		end
+
+		local shadow = ents.FindByClass("shadow_control")[1]
+		map.shadow = IsValid(shadow) and shadow:GetKeyValues() or nil
+
+		local light = ents.FindByClass("light_environment")[1]
+		map.pattern = IsValid(light) and light:GetKeyValues().pattern or ""
+	end
+
+	function tod.RestoreMap()
+		if map.skyname then
+			RunConsoleCommand("sv_skyname", map.skyname)
+		end
+
+		local sky = ents.FindByClass("env_skypaint")[1]
+		if IsValid(sky) and map.skypaint then
+			for name, val in pairs(map.skypaint) do
+				sky["Set" .. name](sky, val)
+			end
+		end
+
+		local sun = ents.FindByClass("env_sun")[1]
+		if IsValid(sun) and map.sun then
+			timer.Remove("tod_sun_angles_hack")
+			sun:SetAngles(map.sun.angles)
+			sun:Fire("addoutput", "pitch " .. map.sun.pitch)
+			sun:Activate()
+			sun:Fire(map.sun.on and "TurnOn" or "TurnOff")
+		end
+
+		local control, kv = ents.FindByClass("shadow_control")[1], map.shadow
+		if IsValid(control) and kv then
+			local ang = Vector(tostring(kv.direction)):Angle()
+			control:Fire("SetAngles", ang.p .. " " .. ang.y .. " " .. ang.r)
+			control:Fire("color", tostring(kv.color))
+			control:Fire("SetDistance", tostring(kv.distance))
+			control:Fire("SetShadowsDisabled", tobool(kv.disableallshadows) and "1" or "0")
+		end
+
+		local light = ents.FindByClass("light_environment")[1]
+		local pattern = map.pattern ~= "" and map.pattern or "m"
+		if IsValid(light) then
+			light:Fire("SetPattern", pattern)
+		else
+			engine.LightStyle(0, pattern)
+		end
+	end
+
 	hook.Add("InitPostEntity", "tod", function()
-		GetSky()
+		captureMap()
+		if tod.Enabled() then GetSky() end
 	end)
 end
 
@@ -305,7 +378,7 @@ if CLIENT then
 		hook.Remove("RenderScene", "tod_lightmap_timer")
 
 		timer.Create("tod_update_lightmap", 0.5, 0, function()
-			if tod.updating_lightmaps then return end
+			if tod.updating_lightmaps or not tod.Enabled() then return end
 
 			local byte = tod.MultToLightEnv(C.world_light_multiplier)
 
@@ -412,6 +485,8 @@ if CLIENT then
 
 			function tod.InitializeSky()
 				local function PostDraw2DSkyBox()
+					if not tod.Enabled() then return end
+
 					local origin = EyePos()
 
 					if tod.moon_ent:IsValid() then
@@ -457,7 +532,7 @@ if CLIENT then
 	end
 
 	local function SetupFog(scale)
-		if C.STOP_STEALING_FOG_CONTROLS then return end
+		if C.STOP_STEALING_FOG_CONTROLS or not tod.Enabled() then return end
 		scale = scale or 1
 		render.FogMode(1)
 		render.FogStart(C.fog_start * scale)
@@ -546,6 +621,12 @@ if CLIENT then
 
 		local function apply()
 			local s = render.GetToneMappingScaleLinear().x
+			if not tod.Enabled() then
+				scale, engineScale = s, s
+
+				return
+			end
+
 			if s == scale or not render.GetHDREnabled() then return end
 
 			engineScale = s
@@ -1035,6 +1116,10 @@ if SERVER then
 
 		tod.SetMode(tod.cvar:GetInt(), nil, reason)
 
+		if tod.Enabled() then tod.UpdateClientLightmaps() end
+	end
+
+	function tod.UpdateClientLightmaps()
 		if tod.is_hidden_entity.light_environment == false then return end
 
 		for _, ply in ipairs(player.GetAll()) do
@@ -1172,6 +1257,8 @@ hook.Add("Think", "tod", function()
 			tod.SetMode(tod.cvar:GetInt(), nil, "init")
 		end
 
+		if not tod.Enabled() then return end
+
 		local time
 
 		-- manual
@@ -1275,6 +1362,33 @@ hook.Add("Think", "tod", function()
 		end
 	end)
 end)
+
+local function mapLight()
+	if not tod.Enabled() then
+		C.world_light_multiplier = (string.byte("m") - min) / (127 - min)
+	end
+end
+
+if CLIENT then mapLight() end
+
+cvars.AddChangeCallback("sv_tod_enabled", function()
+	last_time = nil
+
+	if CLIENT then
+		mapLight()
+
+		return
+	end
+
+	if tod.Enabled() then
+		RunConsoleCommand("sv_skyname", "painted")
+		GetSky()
+	else
+		tod.RestoreMap()
+	end
+
+	tod.UpdateClientLightmaps()
+end, "tod")
 
 include("tod/default_cycle.lua")
 
