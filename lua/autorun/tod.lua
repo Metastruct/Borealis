@@ -406,7 +406,7 @@ if CLIENT then
 				return
 			end
 
-			render.RedownloadAllLightmaps(true)
+			render.RedownloadAllLightmaps(true, true)
 			last_byte = tod.MultToLightEnv(C.world_light_multiplier)
 			done = true
 		end)
