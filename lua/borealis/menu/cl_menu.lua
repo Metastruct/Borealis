@@ -64,6 +64,7 @@ local EFFECT_GROUPS = {
 		{ "borealis_drips", "Roof drips", "Drip rain off roof edges" },
 		{ "borealis_snow", "Deep snow", "Pile up snow in winter and keep footprints" },
 		{ "borealis_snow_powder", "Snow powder", "Kick up snow under cars and explosions" },
+		{ "borealis_breath", "Cold breath", "Show breath outdoors in winter" },
 	} },
 	{ "NATURE", {
 		{ "borealis_water", "Water", "Upgrade water above and below the surface" },

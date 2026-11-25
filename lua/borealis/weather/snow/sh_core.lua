@@ -108,6 +108,7 @@ local FILES = {
 	"cl_flashlight",
 	"cl_footsteps",
 	"cl_powder",
+	"cl_breath",
 	"cl_impacts",
 	"sv_impacts",
 	"cl_render",
