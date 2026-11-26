@@ -391,12 +391,12 @@ function Layer:draw(sky3d)
 	local invW, invH = skywall.InvSize()
 	local skyConstants = self.skyConstants
 	local trails, trailTex = shaderpack.trails, nil
-	local tx0, ty0, tx1, ty1 = 0, 0, 0, 0
+	local trailX, trailY = -1e7, -1e7
 	if self.cfg.trails then
 		trailTex = trails.Texture()
-		tx0, ty0, tx1, ty1 = trails.Window()
+		trailX, trailY = trails.Centre()
 	end
-	skyConstants:SetUnpacked(fwd.x, fwd.y, fwd.z, 0, invW, invH, 0, 0, tx0, ty0, tx1, ty1, self.cfg.quadH * self.height, 0, 0, 0)
+	skyConstants:SetUnpacked(fwd.x, fwd.y, fwd.z, 0, invW, invH, 0, 0, trailX, trailY, 0, 0, self.cfg.quadH * self.height, 0, 0, 0)
 	for _, m in ipairs({ MAT, DEPTH_MAT }) do
 		m:SetTexture("$texture2", skyTex)
 		if self.cfg.trails then m:SetTexture("$texture3", trailTex or "vgui/black") end

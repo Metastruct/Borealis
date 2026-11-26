@@ -16,7 +16,7 @@ local LEVELS, LEVEL, TEXEL = 4, 768, 2
 local STRIDE = LEVEL + 2
 local ATLAS = STRIDE * 2
 local RECENTRE_STEP = 32
-local SCAN_HALF = LEVEL * TEXEL
+local SCAN_HALF = LEVEL * TEXEL * 2
 local REFILL_INTERVAL = 1
 local CAPTURE_PAD = 4
 local STAMP_BLUR = 2
@@ -25,14 +25,17 @@ local CANDIDATE_INTERVAL = 0.25
 local RESTAMP_INTERVAL = 1
 local GROUND_PAD = 10
 local CHANNELS = 2
+local SAMPLE_REACH, SAMPLE_BLEND = 732, 0.7
+local SEEN_MARGIN = 64
 
 local toLinear, setConstant = shaderpack.ToLinear, shaderpack.SetConstant
 
-local levelTexel, levelX, levelY = {}, {}, {}
+local levelTexel, levelX, levelY, levelSeen = {}, {}, {}, {}
 for i = 1, LEVELS do
 	levelTexel[i] = TEXEL * 2 ^ (i - 1)
 	levelX[i] = (i - 1) % 2 * STRIDE + 1
 	levelY[i] = math.floor((i - 1) / 2) * STRIDE + 1
+	levelSeen[i] = SAMPLE_REACH * SAMPLE_BLEND * 2 ^ (i - 2) - SEEN_MARGIN
 end
 
 local trailRT, stampRT
@@ -45,7 +48,6 @@ local passes = {}
 local reach = 0
 local liveMask = { 0, 0, 0 }
 local tracked = {}
-local levelPos = {}
 
 local function emit(i, px, py, w, h, offX, offY, fn, mirror)
 	local ox, oy = levelX[i], levelY[i]
@@ -101,24 +103,31 @@ local function copyAtlas()
 	render.PopRenderTarget()
 end
 
-local function enteredStrips(i, wx, wy, fn)
+local entered = {}
+
+local function enteredRects(i, wx, wy)
 	local cx, cy = winX[i], winY[i]
-	if not wx or math.abs(cx - wx) >= LEVEL or math.abs(cy - wy) >= LEVEL then
-		eachRect(i, cx, cy, LEVEL, LEVEL, fn, true)
+	if not wx or math.abs(cx - wx) >= LEVEL or math.abs(cy - wy) >= LEVEL then return { { cx, cy, LEVEL, LEVEL } } end
 
-		return
-	end
-
+	local rects = {}
 	local dx, dy = cx - wx, cy - wy
 	if dx > 0 then
-		eachRect(i, wx + LEVEL, cy, dx, LEVEL, fn, true)
+		rects[#rects + 1] = { wx + LEVEL, cy, dx, LEVEL }
 	elseif dx < 0 then
-		eachRect(i, cx, cy, -dx, LEVEL, fn, true)
+		rects[#rects + 1] = { cx, cy, -dx, LEVEL }
 	end
 	if dy > 0 then
-		eachRect(i, cx, wy + LEVEL, LEVEL, dy, fn, true)
+		rects[#rects + 1] = { cx, wy + LEVEL, LEVEL, dy }
 	elseif dy < 0 then
-		eachRect(i, cx, cy, LEVEL, -dy, fn, true)
+		rects[#rects + 1] = { cx, cy, LEVEL, -dy }
+	end
+
+	return rects
+end
+
+local function enteredStrips(i, rects, fn)
+	for _, r in ipairs(rects) do
+		eachRect(i, r[1], r[2], r[3], r[4], fn, true)
 	end
 end
 
@@ -130,10 +139,17 @@ local function recentreLevel(i, eye)
 	if cx == wx and cy == wy then return false end
 
 	winX[i], winY[i] = cx, cy
+	local rects = enteredRects(i, wx, wy)
+	local list = entered[i] or {}
+	entered[i] = list
+	for _, r in ipairs(rects) do
+		list[#list + 1] = r
+	end
+
 	if i == LEVELS then
 		render.PushRenderTarget(trailRT)
 		render.OverrideAlphaWriteEnable(true, true)
-		enteredStrips(i, wx, wy, clearRect)
+		enteredStrips(i, rects, clearRect)
 		render.SetViewPort(0, 0, ATLAS, ATLAS)
 		render.OverrideAlphaWriteEnable(false)
 		render.PopRenderTarget()
@@ -149,7 +165,7 @@ local function recentreLevel(i, eye)
 	render.OverrideAlphaWriteEnable(true, true)
 	render.OverrideBlend(true, BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD, BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD)
 	render.SetMaterial(fillMat)
-	enteredStrips(i, wx, wy, quadRect)
+	enteredStrips(i, rects, quadRect)
 	render.SetScissorRect(0, 0, 0, 0, false)
 	render.OverrideBlend(false)
 	render.OverrideAlphaWriteEnable(false)
@@ -158,13 +174,10 @@ local function recentreLevel(i, eye)
 	return true
 end
 
-local nearMoved = false
-
 local function recentre(eye)
 	eyeX, eyeY = eye.x, eye.y
 	for i = LEVELS, 1, -1 do
 		if recentreLevel(i, eye) and i == 1 then
-			nearMoved = true
 			for _, u in pairs(users) do
 				u.cache = {}
 			end
@@ -286,7 +299,7 @@ local GROUND_INSET = 0.35
 local GROUND_MAX_SLOPE = 1.2
 local SAMPLES = { { 0, 0 }, { -1, -1 }, { 1, -1 }, { -1, 1 }, { 1, 1 } }
 
-local stamps, dirty = {}, {}
+local dirty = {}
 
 local function groundPlane(mins, maxs, mx, my)
 	local hx, hy = (maxs.x - mins.x) * GROUND_INSET, (maxs.y - mins.y) * GROUND_INSET
@@ -365,100 +378,234 @@ local function measure(e)
 	end
 	if height == 0 then return end
 
-	local s = { e = e, pos = e:GetPos(), top = maxs.z, minX = mins.x, minY = mins.y, maxX = maxs.x, maxY = maxs.y, clipNormal = clipNormal, clipBase = clipBase, height = height, accepted = accepted, live = live, persistent = persistent }
-	s.X0, s.Y0, s.w, s.h = levelRect(s, 1)
-	if not s.X0 then s.X0, s.Y0, s.w, s.h = 0, 0, 0, 0 end
+	return { e = e, pos = e:GetPos(), top = maxs.z, minX = mins.x, minY = mins.y, maxX = maxs.x, maxY = maxs.y, size = math.max(maxs.x - mins.x, maxs.y - mins.y), clipNormal = clipNormal, clipBase = clipBase, height = height, accepted = accepted, live = live, persistent = persistent }
+end
 
-	return s
+local function fits(s, i)
+	return i == 1 or s.size >= levelTexel[i]
+end
+
+local function liveHidden(s, i)
+	if i == 1 or not eyeX then return false end
+
+	local dx = math.max(s.minX - eyeX, eyeX - s.maxX, 0)
+	local dy = math.max(s.minY - eyeY, eyeY - s.maxY, 0)
+
+	return dx * dx + dy * dy < levelSeen[i] * levelSeen[i]
+end
+
+local function unseen(s, i)
+	return not s.persistent and liveHidden(s, i)
 end
 
 local function overlaps(a, b)
 	return a.X0 < b.X0 + b.w and b.X0 < a.X0 + a.w and a.Y0 < b.Y0 + b.h and b.Y0 < a.Y0 + a.h
 end
 
+local function touchesRect(s, i, r)
+	local texel = levelTexel[i]
+	local X0, X1 = math.floor(s.minX / texel) - CAPTURE_PAD, math.ceil(s.maxX / texel) + CAPTURE_PAD
+	local Y0, Y1 = math.floor(-s.maxY / texel) - CAPTURE_PAD, math.ceil(-s.minY / texel) + CAPTURE_PAD
+
+	return X0 < r[1] + r[3] and r[1] < X1 and Y0 < r[2] + r[4] and r[2] < Y1
+end
+
+local plan = {}
+local planCount, dirtyCount = 0, 0
+local planned = {}
+
+local function planDraw(track, i)
+	local s = track.stamp
+	local done = planned[track]
+	if done and done[i] then return end
+
+	local X0, Y0, w, h = levelRect(s, i)
+	if not X0 then
+		track.recs[i] = nil
+
+		return
+	end
+
+	if not done then
+		done = {}
+		planned[track] = done
+	end
+	done[i] = true
+
+	local live = s.live and not liveHidden(s, i)
+	planCount = planCount + 1
+	local p = plan[planCount] or {}
+	plan[planCount] = p
+	p.s, p.i, p.X0, p.Y0, p.w, p.h, p.live = s, i, X0, Y0, w, h, live
+	track.recs[i] = { x = s.pos.x, y = s.pos.y, X0 = X0, Y0 = Y0, w = w, h = h, live = live, needsLive = s.live and not live }
+	if s.live and not live then track.deferred = true end
+end
+
+local function clearRec(rec, i)
+	if not rec.live then return end
+
+	local X0, Y0 = math.max(rec.X0, winX[i]), math.max(rec.Y0, winY[i])
+	local X1, Y1 = math.min(rec.X0 + rec.w, winX[i] + LEVEL), math.min(rec.Y0 + rec.h, winY[i] + LEVEL)
+	if X1 <= X0 or Y1 <= Y0 then return end
+
+	dirtyCount = dirtyCount + 1
+	local d = dirty[dirtyCount] or {}
+	dirty[dirtyCount] = d
+	d.i, d.X0, d.Y0, d.w, d.h = i, X0, Y0, X1 - X0, Y1 - Y0
+end
+
+local function clearTrack(track)
+	for i, rec in pairs(track.recs) do
+		clearRec(rec, i)
+		track.recs[i] = nil
+	end
+end
+
+local function remeasure(e, track, pos, ang)
+	local ok, s = pcall(measure, e)
+	s = ok and s or nil
+	track.pos, track.ang, track.stamp = pos, ang, s
+	if not s then
+		clearTrack(track)
+
+		return
+	end
+
+	for i = 1, LEVELS do
+		local rec = track.recs[i]
+		local texel = levelTexel[i]
+		if i == 1 or not fits(s, i) or not rec or math.abs(rec.x - s.pos.x) + math.abs(rec.y - s.pos.y) >= texel * 0.5 then
+			if rec then
+				clearRec(rec, i)
+				track.recs[i] = nil
+			end
+			if fits(s, i) then
+				if unseen(s, i) then
+					track.deferred = true
+				else
+					planDraw(track, i)
+				end
+			end
+		end
+	end
+end
+
+local function catchUp(track)
+	local s = track.stamp
+	local pending = false
+	if s then
+		for i = 2, LEVELS do
+			local rec = track.recs[i]
+			if fits(s, i) then
+				if not rec or rec.stale then
+					if unseen(s, i) then
+						pending = true
+					else
+						planDraw(track, i)
+					end
+				elseif rec.needsLive then
+					if liveHidden(s, i) then
+						pending = true
+					else
+						planDraw(track, i)
+					end
+				end
+			end
+		end
+	end
+	track.deferred = pending
+end
+
+local function redraw(track, i)
+	if unseen(track.stamp, i) then
+		local rec = track.recs[i]
+		if rec then rec.stale = true end
+		track.deferred = true
+	else
+		planDraw(track, i)
+	end
+end
+
 local function collectStamps()
 	local now = RealTime()
-	local n, nd = 0, 0
-	local seen, queued = {}, {}
-	local function queue(s)
-		if queued[s] then return end
-		queued[s] = true
-		n = n + 1
-		stamps[n] = s
-	end
+	planCount, dirtyCount = 0, 0
+	planned = {}
+	local seen = {}
 
 	for _, e in ipairs(candidates) do
 		if leavesTrail(e) then
 			seen[e] = true
 			local track = tracked[e]
 			local pos, ang = e:GetPos(), e:GetAngles()
-			if not track or track.pos ~= pos or track.ang ~= ang then
-				if track and track.stamp and track.stamp.live then
-					nd = nd + 1
-					dirty[nd] = track.stamp
-				end
-
-				local ok, stamp = pcall(measure, e)
-				stamp = ok and stamp or nil
-				tracked[e] = { pos = pos, ang = ang, stamp = stamp, t = track and track.t or now - math.random() * RESTAMP_INTERVAL }
-				if stamp then queue(stamp) end
+			if not track then
+				track = { recs = {}, t = now - math.random() * RESTAMP_INTERVAL, restamps = 0 }
+				tracked[e] = track
+				remeasure(e, track, pos, ang)
+			elseif track.pos ~= pos or track.ang ~= ang then
+				remeasure(e, track, pos, ang)
 			elseif track.stamp and track.stamp.persistent and now - track.t >= RESTAMP_INTERVAL then
 				track.t = now
-				track.restamps = (track.restamps or 0) + 1
-				track.stamp.restamp = track.restamps
-				queue(track.stamp)
+				track.restamps = track.restamps + 1
+				for i in pairs(track.recs) do
+					if track.restamps % 2 ^ (i - 1) == 0 then planDraw(track, i) end
+				end
 			end
 		end
 	end
 
 	for e, track in pairs(tracked) do
 		if not seen[e] then
-			if track.stamp and track.stamp.live then
-				nd = nd + 1
-				dirty[nd] = track.stamp
-			end
+			clearTrack(track)
 			tracked[e] = nil
-			levelPos[e] = nil
 		end
 	end
 	for e in pairs(standIns) do
 		if not tracked[e] then dropStandIn(e) end
 	end
 
-	if nearMoved then
-		nearMoved = false
+	for i, rects in pairs(entered) do
 		for _, track in pairs(tracked) do
 			local s = track.stamp
-			if s then
-				s.X0, s.Y0, s.w, s.h = levelRect(s, 1)
-				if not s.X0 then s.X0, s.Y0, s.w, s.h = 0, 0, 0, 0 end
-				if s.live then queue(s) end
+			if s and fits(s, i) then
+				for _, r in ipairs(rects) do
+					if touchesRect(s, i, r) then
+						redraw(track, i)
+						break
+					end
+				end
 			end
 		end
+		entered[i] = nil
 	end
 
-	if nd > 0 then
+	if dirtyCount > 0 then
 		for _, track in pairs(tracked) do
-			local s = track.stamp
-			if s and s.live and not queued[s] then
-				for i = 1, nd do
-					if overlaps(s, dirty[i]) then
-						queue(s)
-						break
+			for i, rec in pairs(track.recs) do
+				if rec.live then
+					for k = 1, dirtyCount do
+						local d = dirty[k]
+						if d.i == i and overlaps(rec, d) then
+							redraw(track, i)
+							break
+						end
 					end
 				end
 			end
 		end
 	end
 
-	for i = #stamps, n + 1, -1 do
-		stamps[i] = nil
-	end
-	for i = #dirty, nd + 1, -1 do
-		dirty[i] = nil
+	for _, track in pairs(tracked) do
+		if track.deferred then catchUp(track) end
 	end
 
-	return n, nd
+	for k = #plan, planCount + 1, -1 do
+		plan[k] = nil
+	end
+	for k = #dirty, dirtyCount + 1, -1 do
+		dirty[k] = nil
+	end
+
+	return planCount, dirtyCount
 end
 
 local color = { 0, 0, 0 }
@@ -487,7 +634,7 @@ local function drawStamp(p)
 			color[c] = 0
 		end
 		for id, value in pairs(pass.values) do
-			if s.accepted[id] and (i == 1 or not users[id].live) then
+			if s.accepted[id] and (p.live or not users[id].live) then
 				color[users[id].channel] = value
 				anyChannel = true
 			end
@@ -508,63 +655,24 @@ local function clearLive(nd)
 	cam.Start2D()
 	render.OverrideBlend(true, BLEND_ONE, BLEND_ONE, BLENDFUNC_REVERSE_SUBTRACT, BLEND_ZERO, BLEND_ONE, BLENDFUNC_ADD)
 	surface.SetDrawColor(liveMask[1], liveMask[2], liveMask[3], 255)
-	for i = 1, nd do
-		local d = dirty[i]
-		if d.w > 0 then eachRect(1, d.X0, d.Y0, d.w, d.h, paintRect, true) end
+	for k = 1, nd do
+		local d = dirty[k]
+		eachRect(d.i, d.X0, d.Y0, d.w, d.h, paintRect, true)
 	end
 	render.OverrideBlend(true, BLEND_ONE, BLEND_ONE, BLENDFUNC_MAX, BLEND_ONE, BLEND_ONE, BLENDFUNC_MAX)
 	surface.SetDrawColor(0, 0, 0, 255)
-	for i = 1, nd do
-		local d = dirty[i]
-		if d.w > 0 then eachRect(1, d.X0, d.Y0, d.w, d.h, paintRect, true) end
+	for k = 1, nd do
+		local d = dirty[k]
+		eachRect(d.i, d.X0, d.Y0, d.w, d.h, paintRect, true)
 	end
 	render.OverrideBlend(false)
 	cam.End2D()
 	render.PopRenderTarget()
 end
 
-local plan = {}
-
-local function planStamps(n)
-	local m = 0
-	for k = 1, n do
-		local s = stamps[k]
-		local last = levelPos[s.e] or {}
-		levelPos[s.e] = last
-		local size = math.max(s.maxX - s.minX, s.maxY - s.minY)
-		for i = 1, LEVELS do
-			local texel = levelTexel[i]
-			local want = i == 1
-			if not want and s.persistent and size >= texel then
-				local p = last[i]
-				want = s.restamp and s.restamp % 2 ^ (i - 1) == 0 or not p or math.abs(p.x - s.pos.x) + math.abs(p.y - s.pos.y) >= texel * 0.5
-			end
-			if want then
-				local X0, Y0, w, h = levelRect(s, i)
-				if X0 then
-					m = m + 1
-					local p = plan[m] or {}
-					plan[m] = p
-					p.s, p.i, p.X0, p.Y0, p.w, p.h = s, i, X0, Y0, w, h
-					last[i] = s.pos
-				end
-			end
-		end
-		s.restamp = nil
-	end
-	for k = #plan, m + 1, -1 do
-		plan[k] = nil
-	end
-
-	return m
-end
-
 local function capture()
-	local n, nd = collectStamps()
+	local m, nd = collectStamps()
 	if nd > 0 then clearLive(nd) end
-	if n == 0 then return end
-
-	local m = planStamps(n)
 	if m == 0 then return end
 
 	render.PushRenderTarget(stampRT)
@@ -787,7 +895,7 @@ local function start()
 		render.PopRenderTarget()
 	end
 
-	winX, winY, eyeX, eyeY, levelPos = {}, {}, nil, nil, {}
+	winX, winY, eyeX, eyeY, entered = {}, {}, nil, nil, {}
 	hook.Add("PreRender", "borealis_trails", updateTrails)
 	hook.Add("ShouldDrawLocalPlayer", "borealis_trails", function()
 		if capturing then return true end
@@ -804,7 +912,7 @@ local function stop()
 	hook.Remove("ShouldDrawLocalPlayer", "borealis_trails")
 	hook.Remove("OnEntityCreated", "borealis_trails")
 	trailRT, stampRT, winX, winY, eyeX, eyeY = nil, nil, {}, {}, nil, nil
-	tracked, discs, levelPos = {}, {}, {}
+	tracked, discs, entered = {}, {}, {}
 	for e in pairs(standIns) do
 		dropStandIn(e)
 	end
@@ -830,12 +938,6 @@ end
 
 function trails.Texture()
 	return trailRT
-end
-
-function trails.Window()
-	if not winX[1] then return 0, 0, 0, 0 end
-
-	return (winX[1] + 1) * TEXEL, -(winY[1] + LEVEL - 1) * TEXEL, (winX[1] + LEVEL - 1) * TEXEL, -(winY[1] + 1) * TEXEL
 end
 
 function trails.Centre()

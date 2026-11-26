@@ -22,13 +22,16 @@ sampler Trail : register(s3);
 #define FADE_END   Constants3.w
 #define VIEW_FWD   Constants11.xyz
 #define INV_SCREEN Constants12.xy
-#define TRAIL_MIN  Constants13.xy
-#define TRAIL_MAX  Constants13.zw
+#define TRAIL_EYE  Constants13.xy
 #define QUAD_UNITS Constants14.x
 
 #define TRAIL_TEXEL 2.0
 #define TRAIL_LEVEL 768.0
+#define TRAIL_STRIDE 770.0
 #define TRAIL_ATLAS 1540.0
+#define TRAIL_LEVELS 4.0
+#define TRAIL_REACH 732.0
+#define TRAIL_BLEND 0.7
 #define TRAMPLE_H 64.0
 #define TRAMPLE_LEAN 0.6
 
@@ -60,13 +63,29 @@ float2 test(float4 b, float u, float v, float bend)
 	return float2(inside, inside * t);
 }
 
+float trailTap(float2 xy, float k)
+{
+	float2 origin = float2(fmod(k, 2.0), floor(k * 0.5)) * TRAIL_STRIDE + 1.0;
+	float2 u = frac(float2(xy.x, -xy.y) / (TRAIL_TEXEL * exp2(k) * TRAIL_LEVEL)) * TRAIL_LEVEL;
+
+	return tex2Dlod(Trail, float4((origin + u) / TRAIL_ATLAS, 0.0, 0.0)).g;
+}
+
 float clearanceAt(float2 xy)
 {
+	float d = length(xy - TRAIL_EYE);
+	float k = max(ceil(log2(max(d, 1.0) / TRAIL_REACH)), 0.0);
 	float press = 0.0;
-	[branch] if (all(xy >= TRAIL_MIN) && all(xy <= TRAIL_MAX))
+	[branch] if (k < TRAIL_LEVELS)
 	{
-		float2 u = frac(float2(xy.x, -xy.y) / (TRAIL_TEXEL * TRAIL_LEVEL)) * TRAIL_LEVEL;
-		press = tex2Dlod(Trail, float4((1.0 + u) / TRAIL_ATLAS, 0.0, 0.0)).g;
+		float reach = TRAIL_REACH * exp2(k);
+		float blend = smoothstep(reach * TRAIL_BLEND, reach, d);
+		press = trailTap(xy, k);
+		[branch] if (blend > 0.0)
+		{
+			float next = k < TRAIL_LEVELS - 1.0 ? trailTap(xy, k + 1.0) : 0.0;
+			press = lerp(press, next, blend);
+		}
 	}
 
 	return (1.0 - press) * TRAMPLE_H;
