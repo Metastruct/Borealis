@@ -1,7 +1,7 @@
 local NOISE = "shaderpack/procsky/fognoise"
 
 if SERVER then
-	shaderpack.AddResources({ "borealis_water_vs30", "borealis_water_ps30", "borealis_underwater_ps30", "borealis_water_skyfill_ps30", "borealis_water_sun_ps30", "borealis_waterdepth_ps30" }, { NOISE })
+	shaderpack.AddResources({ "borealis_water_vs30", "borealis_water_ps30", "borealis_underwater_ps30", "borealis_water_skyfill_ps30", "borealis_water_sun_ps30", "borealis_waterdepth_ps30", "borealis_wakesim_ps30" }, { NOISE })
 
 	return
 end
@@ -217,7 +217,32 @@ local function bodyOpenness(g)
 	return total > 0 and open / total or 1
 end
 
-local NO_LIGHT = { 0, 0, 255 }
+local LIGHT_SAMPLES, LIGHT_LIFT = 16, 4
+local LIGHT_UP = Vector(0, 0, 1)
+local lightPos = Vector()
+
+local function bodyLight(g, ent)
+	local verts = g.verts
+	local tris = #verts / 3
+	local stride = math.max(1, math.floor(tris / LIGHT_SAMPLES))
+	local r, gr, b, n = 0, 0, 0, 0
+	for t = 0, tris - 1, stride do
+		local a, bv, c = verts[t * 3 + 1], verts[t * 3 + 2], verts[t * 3 + 3]
+		lightPos:SetUnpacked((a.x + bv.x + c.x) / 3, (a.y + bv.y + c.y) / 3, (a.z + bv.z + c.z) / 3 + LIGHT_LIFT)
+		if ent then lightPos:Set(ent:LocalToWorld(lightPos)) end
+		if bit.band(util.PointContents(lightPos), CONTENTS_SOLID) == 0 then
+			local l, d = render.ComputeLighting(lightPos, LIGHT_UP), render.ComputeDynamicLighting(lightPos, LIGHT_UP)
+			r, gr, b, n = r + l.x - d.x, gr + l.y - d.y, b + l.z - d.z, n + 1
+		end
+	end
+	if n == 0 then return { 0, 0, 0 } end
+
+	return {
+		math.Clamp(math.floor(r / n * 127.5), 0, 255),
+		math.Clamp(math.floor(gr / n * 127.5), 0, 255),
+		math.Clamp(math.floor(b / n * 127.5), 0, 255),
+	}
+end
 
 local function writeBodyMesh(g, ent)
 	if g.mesh then g.mesh:Destroy() end
@@ -227,10 +252,11 @@ local function writeBodyMesh(g, ent)
 	local murkByte = math.floor(g.murk / MURK_MAX * 255 + 0.5)
 	local minX, minY, maxX, maxY, maxZ = math.huge, math.huge, -math.huge, -math.huge, -math.huge
 	local lights = g.lights
+	local flat = not lights and bodyLight(g, ent)
 	local skybox3d = g.sky and shaderpack.skybox3d
 	for i, v in ipairs(g.verts) do
 		if ent then v = ent:LocalToWorld(v) end
-		local light = lights and lights[i] or NO_LIGHT
+		local light = flat or lights[i]
 		mesh.Position(skybox3d and skybox3d.ToWorldVector(v) or v)
 		mesh.TexCoord(0, 0, 0)
 		mesh.Color(murkByte, light[1], light[2], light[3])
@@ -321,7 +347,7 @@ local UNDER_MAT
 local SKY_MAT
 local SUN_MAT
 
-local SHADERS = { "borealis_water_vs30", "borealis_water_ps30", "borealis_underwater_ps30", "borealis_water_skyfill_ps30", "borealis_water_sun_ps30" }
+local SHADERS = { "borealis_water_vs30", "borealis_water_ps30", "borealis_underwater_ps30", "borealis_water_skyfill_ps30", "borealis_water_sun_ps30", "borealis_wakesim_ps30" }
 local materialSerial = 0
 
 local function initialize()
@@ -374,6 +400,7 @@ local function initialize()
 		["$linearread_texture4"] = 1,
 		["$linearread_texture5"] = 1,
 		["$linearread_texture6"] = 1,
+		["$linearread_texture7"] = 1,
 		["$c0_x"] = 0, ["$c0_y"] = 0, ["$c0_z"] = 0, ["$c0_w"] = 0,
 		["$c1_x"] = 0, ["$c1_y"] = 0, ["$c1_z"] = 0, ["$c1_w"] = 0,
 		["$c2_x"] = 0, ["$c2_y"] = 0, ["$c2_z"] = 0, ["$c2_w"] = 0,
@@ -480,6 +507,9 @@ local function waterSurfaceZ(pos)
 	return (lo + hi) * 0.5
 end
 
+surfacewater.IsUnderwater = isUnderwater
+surfacewater.SurfaceZ = waterSurfaceZ
+
 local function skyColors()
 	local tonemap = shaderpack.ToneMapScale()
 	if procsky and procsky.GetSkyColors then
@@ -554,13 +584,16 @@ local function drawSurface(eyePos, eyeUnderwater, writeDepth)
 	local tonemap = shaderpack.ToneMapScale()
 	local wallTex = shaderpack.skywall.Texture()
 	local invW, invH = shaderpack.skywall.InvSize()
+	local waveRT, waveX, waveY = shaderpack.wakes.Texture()
+	SURF_MAT:SetTexture("$texture7", waveRT or "vgui/black")
+	waveX, waveY = waveX or -1e7, waveY or -1e7
 
 	render.OverrideDepthEnable(true, writeDepth)
 	cam.PushModelMatrix(IDENTITY_MATRIX, false)
 	for _, g in pairs(meshes) do
 		if not bodyDrawable(g, pvs, skyVisible) then continue end
 
-		rainConstants:SetUnpacked(rain, g.openness, fogDensity, fogFalloff, fogBase, g.frozen and 1 or 0, invW, invH, bakedSun.x, bakedSun.y, bakedSun.z, lightScale, fill, tonemap, 0, 0)
+		rainConstants:SetUnpacked(rain, g.openness, fogDensity, fogFalloff, fogBase, g.frozen and 1 or 0, invW, invH, bakedSun.x, bakedSun.y, bakedSun.z, lightScale, fill, tonemap, waveX, waveY)
 		SURF_MAT:SetMatrix("$viewprojmat", rainConstants)
 		SURF_MAT:SetTexture("$texture2", g.normalmap)
 		SURF_MAT:SetTexture("$texture6", g.sky and "vgui/black" or wallTex)
@@ -966,6 +999,7 @@ local function stop()
 	hook.Remove("PostDrawOpaqueRenderables", "borealis_water")
 	hook.Remove("PostDrawTranslucentRenderables", "borealis_water_underwater")
 	depthslices.RemoveEffect("borealis_water")
+	shaderpack.wakes.Stop()
 	hideSun(false)
 	removeMeshes()
 	restoreWaterMaterials()
@@ -979,6 +1013,7 @@ local function start()
 	depthWanted = true
 	depthslices.AddEffect("borealis_water", SURFACE_ORDER, drawSurfaceAbove, false, function() return depthWanted end)
 	startRainSound()
+	shaderpack.wakes.Start()
 	surfacewater.active = true
 end
 

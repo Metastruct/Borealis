@@ -14,6 +14,7 @@ sampler3D Noise : register(s3);
 sampler SkyLut : register(s4);
 sampler CoverTex : register(s5);
 sampler SkyWall : register(s6);
+sampler Wakes : register(s7);
 
 #define R_EARTH 6371.0
 #define EYE_H   0.2
@@ -31,7 +32,24 @@ sampler SkyWall : register(s6);
 #define FILL        Constants14.x
 #define BRIGHTNESS  Constants14.y
 #define INV_SCREEN  Constants12.zw
+#define WAKE_WIN    Constants14.zw
 #define FOG_RANGE   5000.0
+
+#define WAKE_TEXELS 1024.0
+#define WAKE_TEXEL  4.0
+#define WAKE_MARGIN 2.0
+#define FOAM_BIAS   0.0078125
+#define FOAM_LOW    0.6
+#define FOAM_HIGH   2.0
+#define FOAM_TILE   16.0
+#define FOAM_CLUMP_TILE 96.0
+#define FOAM_CLUMP_MIX  0.6
+#define FOAM_FLOW   0.02
+#define FOAM_SOFT   0.25
+#define FOAM_SOFT_RANGE 1500.0
+#define FOAM_MAX    0.85
+#define FOAM_ALBEDO float3(0.45, 0.45, 0.45)
+#define FOAM_NEUTRAL 0.6
 
 #define ICE_CRACK_BIG 260.0
 #define ICE_CRACK_FINE 90.0
@@ -119,6 +137,21 @@ float RainExposure(float3 pos, float3 eye) {
     float coverZ = (c.r * 65280.0 + c.g * 255.0) / 65535.0 * COVER_Z_RANGE + COVER_Z_MIN;
 
     return coverZ <= pos.z + COVER_MARGIN ? 1.0 : 0.0;
+}
+
+float4 Wake(float2 p) {
+    float2 t = float2(p.x, -p.y) / WAKE_TEXEL - 0.5;
+    float2 local = t - WAKE_WIN;
+    if (min(local.x, local.y) < WAKE_MARGIN || max(local.x, local.y) > WAKE_TEXELS - WAKE_MARGIN)
+        return 0.0;
+
+    float2 uv = (t + 0.5) / WAKE_TEXELS;
+    float d = 1.0 / WAKE_TEXELS;
+    float4 s = tex2Dlod(Wakes, float4(frac(uv), 0.0, 0.0));
+    float hx = tex2Dlod(Wakes, float4(frac(uv + float2(d, 0.0)), 0.0, 0.0)).r;
+    float hy = tex2Dlod(Wakes, float4(frac(uv + float2(0.0, d)), 0.0, 0.0)).r;
+
+    return float4(float2(hx - s.r, s.r - hy) / WAKE_TEXEL, s.r, s.a - FOAM_BIAS);
 }
 
 float3 SkyColor(float3 dir, float3 horizon, float3 zenith) {
@@ -222,6 +255,14 @@ float4 main(PS_IN i) : COLOR
         {
             slope += RainRipples(p, rain, TIME) * rainNear;
         }
+    }
+
+    float wakeFoam = 0.0;
+    [branch] if (!FROZEN)
+    {
+        float4 wake = Wake(p);
+        slope += wake.xy;
+        wakeFoam = max(smoothstep(FOAM_LOW, FOAM_HIGH, wake.z), saturate(wake.w));
     }
 
     float flatFresnel = F0 + (1 - F0) * pow(1 - saturate(abs(viewDir.z)), 5);
@@ -352,6 +393,20 @@ float4 main(PS_IN i) : COLOR
     float3 color = lerp(transmitted, hitColor, f * (1.0 - frost));
     if (!FROM_BELOW)
         color += SUN_COLOR * spec * f * (1.0 - frost) * sunUp * SUNLIT * skyClear * (hit ? 0.0 : 1.0);
+
+    [branch] if (wakeFoam > 0.0 && !FROM_BELOW)
+    {
+        float coverage = wakeFoam;
+        float soft = saturate(FOAM_SOFT + length(i.wpos - EYE_POS) / FOAM_SOFT_RANGE);
+        float clumps = IceNoise(Noise, p, FOAM_CLUMP_TILE, frac(TIME * FOAM_FLOW));
+        float bubbles = IceNoise(Noise, p, FOAM_TILE, frac(TIME * FOAM_FLOW + 0.5));
+        float pattern = lerp(bubbles, clumps, FOAM_CLUMP_MIX);
+        float edge = 1.0 - coverage;
+        float foam = smoothstep(edge - soft * 0.5, edge + soft * 0.5, pattern) * sqrt(coverage);
+        float3 lit = IceColor(i.color.gba, normal, FOAM_ALBEDO);
+        lit = lerp(lit, dot(lit, float3(0.2126, 0.7152, 0.0722)), FOAM_NEUTRAL);
+        color = lerp(color, lit, foam * FOAM_MAX);
+    }
 
     [branch] if (FROZEN)
     {
