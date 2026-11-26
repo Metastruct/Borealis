@@ -38,6 +38,12 @@ sampler Wakes : register(s7);
 #define WAKE_TEXELS 1024.0
 #define WAKE_TEXEL  4.0
 #define WAKE_MARGIN 2.0
+#define WAKE_HEIGHT 3.0
+#define WAKE_POM_RANGE 12.0
+#define WAKE_POM_MAX 96.0
+#define WAKE_POM_STEPS 12
+#define WAKE_POM_REFINE 4
+#define WAKE_POM_MIN 0.25
 #define FOAM_BIAS   0.0078125
 #define FOAM_LOW    0.6
 #define FOAM_HIGH   2.0
@@ -151,7 +157,57 @@ float4 Wake(float2 p) {
     float hx = tex2Dlod(Wakes, float4(frac(uv + float2(d, 0.0)), 0.0, 0.0)).r;
     float hy = tex2Dlod(Wakes, float4(frac(uv + float2(0.0, d)), 0.0, 0.0)).r;
 
-    return float4(float2(hx - s.r, s.r - hy) / WAKE_TEXEL, s.r, s.a - FOAM_BIAS);
+    return float4(float2(hx - s.r, s.r - hy) * (WAKE_HEIGHT / WAKE_TEXEL), s.r, s.a - FOAM_BIAS);
+}
+
+float WakeHeight(float2 p) {
+    float2 t = float2(p.x, -p.y) / WAKE_TEXEL - 0.5;
+    float2 local = t - WAKE_WIN;
+    if (min(local.x, local.y) < WAKE_MARGIN || max(local.x, local.y) > WAKE_TEXELS - WAKE_MARGIN)
+        return 0.0;
+
+    float h = tex2Dlod(Wakes, float4(frac((t + 0.5) / WAKE_TEXELS), 0.0, 0.0)).r * WAKE_HEIGHT;
+
+    return clamp(h, -WAKE_POM_RANGE, WAKE_POM_RANGE);
+}
+
+float2 WakeParallax(float2 p, float3 viewDir) {
+    float reach = min(WAKE_POM_RANGE / max(-viewDir.z, 1e-3), WAKE_POM_MAX);
+    float3 dir = viewDir * reach;
+    float peak = max(abs(WakeHeight(p)), max(abs(WakeHeight(p - dir.xy)), abs(WakeHeight(p + dir.xy))));
+
+    [branch] if (peak > WAKE_POM_MIN)
+    {
+        float s = 1.0;
+        float sPrev = -1.0;
+        [loop] for (int k = 0; k <= WAKE_POM_STEPS; k++)
+        {
+            float t = -1.0 + 2.0 * k / WAKE_POM_STEPS;
+            if (dir.z * t <= WakeHeight(p + dir.xy * t))
+            {
+                s = t;
+                break;
+            }
+            sPrev = t;
+        }
+
+        [loop] for (int r = 0; r < WAKE_POM_REFINE; r++)
+        {
+            float m = (sPrev + s) * 0.5;
+            if (dir.z * m <= WakeHeight(p + dir.xy * m))
+            {
+                s = m;
+            }
+            else
+            {
+                sPrev = m;
+            }
+        }
+
+        p += dir.xy * s;
+    }
+
+    return p;
 }
 
 float3 SkyColor(float3 dir, float3 horizon, float3 zenith) {
@@ -258,9 +314,11 @@ float4 main(PS_IN i) : COLOR
     }
 
     float wakeFoam = 0.0;
+    float2 wakeP = p;
     [branch] if (!FROZEN)
     {
-        float4 wake = Wake(p);
+        [branch] if (!FROM_BELOW) wakeP = WakeParallax(p, viewDir);
+        float4 wake = Wake(wakeP);
         slope += wake.xy;
         wakeFoam = max(smoothstep(FOAM_LOW, FOAM_HIGH, wake.z), saturate(wake.w));
     }
@@ -398,8 +456,8 @@ float4 main(PS_IN i) : COLOR
     {
         float coverage = wakeFoam;
         float soft = saturate(FOAM_SOFT + length(i.wpos - EYE_POS) / FOAM_SOFT_RANGE);
-        float clumps = IceNoise(Noise, p, FOAM_CLUMP_TILE, frac(TIME * FOAM_FLOW));
-        float bubbles = IceNoise(Noise, p, FOAM_TILE, frac(TIME * FOAM_FLOW + 0.5));
+        float clumps = IceNoise(Noise, wakeP, FOAM_CLUMP_TILE, frac(TIME * FOAM_FLOW));
+        float bubbles = IceNoise(Noise, wakeP, FOAM_TILE, frac(TIME * FOAM_FLOW + 0.5));
         float pattern = lerp(bubbles, clumps, FOAM_CLUMP_MIX);
         float edge = 1.0 - coverage;
         float foam = smoothstep(edge - soft * 0.5, edge + soft * 0.5, pattern) * sqrt(coverage);
