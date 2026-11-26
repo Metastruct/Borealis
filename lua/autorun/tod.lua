@@ -574,17 +574,25 @@ if CLIENT then
 		local traceResult = {}
 		local trace = { mask = MASK_SOLID_BRUSHONLY, output = traceResult }
 
-		timer.Create("tod_exposure", SKY_INTERVAL, 0, function()
-			local eye = EyePos()
-			trace.start = eye
-			trace.endpos = eye + skyDirs[nextDir]
-			util.TraceLine(trace)
-			local hit = traceResult.HitSky and 1 or 0
-			skyCount = skyCount - (skyHits[nextDir] or 0) + hit
-			skyHits[nextDir] = hit
-			nextDir = nextDir % SKY_TRACES + 1
-			outside = outside + (skyCount / SKY_TRACES - outside) * math.min(1, SKY_INTERVAL * OUTSIDE_RATE)
-		end)
+		local function startSkyTraces()
+			timer.Create("tod_exposure", SKY_INTERVAL, 0, function()
+				local eye = EyePos()
+				trace.start = eye
+				trace.endpos = eye + skyDirs[nextDir]
+				util.TraceLine(trace)
+				local hit = traceResult.HitSky and 1 or 0
+				skyCount = skyCount - (skyHits[nextDir] or 0) + hit
+				skyHits[nextDir] = hit
+				nextDir = nextDir % SKY_TRACES + 1
+				outside = outside + (skyCount / SKY_TRACES - outside) * math.min(1, SKY_INTERVAL * OUTSIDE_RATE)
+			end)
+		end
+
+		if LocalPlayer():IsValid() then
+			startSkyTraces()
+		end
+
+		hook.Add("InitPostEntity", "tod_exposure", startSkyTraces)
 
 		local function lightRatio()
 			local m = C.world_light_multiplier
