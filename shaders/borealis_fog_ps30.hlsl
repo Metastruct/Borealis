@@ -1,3 +1,4 @@
+#include "include/api.hlsl"
 #include "include/slices.hlsl"
 #include "include/cover_spans.hlsl"
 
@@ -112,7 +113,7 @@ float4 main(PS_IN i) : COLOR
 {
 	float2 uv = i.spos.xy / i.spos.w * float2(0.5, -0.5) + 0.5;
 
-	uv += float2(abs(ddx(uv).x), abs(ddy(uv).y)) * 0.5;
+	uv += DX9_HALF_TEXEL(float2(abs(ddx(uv).x), abs(ddy(uv).y)) * 0.5);
 	float4 frame = tex2D(Frame, uv);
 	float3 scene = frame.rgb;
 	[branch] if (frame.a > SKIP_ALPHA)

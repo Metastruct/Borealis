@@ -526,7 +526,7 @@ local function drawSurface(eyePos, eyeUnderwater, writeDepth)
 	if not eyeUnderwater then depthslices.Capture() end
 	render.UpdateScreenEffectTexture()
 	SURF_MAT:SetTexture("$basetexture", render.GetScreenEffectTexture())
-	SURF_MAT:SetTexture("$texture1", render.GetResolvedFullFrameDepth())
+	SURF_MAT:SetTexture("$texture1", depthslices.DepthTexture())
 	SURF_MAT:SetFloat("$c0_x", CurTime() % 3600)
 	setConstant(SURF_MAT, "$c1", eyePos.x, eyePos.y, eyePos.z)
 
@@ -606,7 +606,7 @@ local SUN_FAR = 0.97
 local usableRT = shaderpack.UsableRT
 
 local function targetsReady()
-	return usableRT(render.GetScreenEffectTexture()) and usableRT(render.GetResolvedFullFrameDepth())
+	return usableRT(render.GetScreenEffectTexture()) and usableRT(depthslices.DepthTexture())
 end
 
 local skyTarget
@@ -741,7 +741,7 @@ local function drawTranslucent(bDepth, bSkybox, bSkybox3D)
 	depthslices.Capture()
 	render.UpdateScreenEffectTexture()
 	UNDER_MAT:SetTexture("$basetexture", render.GetScreenEffectTexture())
-	UNDER_MAT:SetTexture("$texture1", render.GetResolvedFullFrameDepth())
+	UNDER_MAT:SetTexture("$texture1", depthslices.DepthTexture())
 
 	local fwd = EyeAngles():Forward()
 	UNDER_MAT:SetTexture("$texture2", body and body.normalmap or "dev/water_normal")

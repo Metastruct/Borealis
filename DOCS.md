@@ -29,6 +29,16 @@ Add `-Stamp` for the timestamped name.
 
 > I recommend using [autoshader](https://github.com/Earu/gm_autoshader) for iterating quickly between shader versions, it can get quite tedious otherwise.
 
+### DX12
+
+The third-party `shaderapidx12` drops SM3 shaders. It loads `<name>_ps64.vcs` when a material asks for `<name>_ps30` (same for `vs`), and accepts SM5 bytecode in the usual `.vcs` layout.
+
+`python3 dx12/build.py [-o OUT_DIR] [name ...] -- FXC_COMMAND...` builds those from the same sources into `shaders/fxc/<base>_ps64.vcs` (or `OUT_DIR`), every shader when no name is given.
+- After `--`, put a command that takes fxc arguments: `fxc.exe` from the Windows SDK, or `dx12/d3dc.c`, a small stand-in over `d3dcompiler_47.dll`. Build it with `x86_64-w64-mingw32-gcc -municode -O2 -o d3dc.exe dx12/d3dc.c`, put `d3dcompiler_47.dll` next to it and run `-- wine /path/to/d3dc.exe` on Linux.
+- Each source is compiled with `/Gec` (fxc's DX9 compatibility mode) behind a generated `main` that feeds the original one. The wrapper puts `SV_Position` first and declares `TEXCOORD0..N` in order, since SM5 links vertex outputs to pixel inputs by register. `VPOS` is moved back half a pixel to match SM3. Every `sampler X : register(sN)` also gets `register(tN)`, otherwise `/Gec` numbers textures in its own order.
+- `shaders/dx12/*.hlsl` are DX12-only shaders, compiled as they are. Name them `_ps64`/`_vs64`.
+- The DX12 build defines `DX12`. `include/api.hlsl` uses it: `DeviceDepth(d)` flips written depth for the reversed DX12 depth buffer, and `DX9_HALF_TEXEL(t)` is zero on DX12.
+
 CI compiles every shader with [gm_shadercompat](https://github.com/Earu/gm_shadercompat) on a GitHub Windows runner. Sources and `shaders/fxc` are checked as ToGL copies (`--patch-togl` does the same patch as `shader_to_gma`), and their GLSL is compiled with glslang. VTFs in a format ToGL loads wrong get a warning. Each source is also built without debug info and compared with its `shaders/fxc` copy (`--verify`), so a `.hlsl` committed without its rebuilt `.vcs` fails. A compile error fails the run, a shader ToGL can't translate only adds a warning.
 
 ## Core

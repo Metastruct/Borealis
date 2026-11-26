@@ -1,3 +1,4 @@
+#include "include/api.hlsl"
 #include "include/common.hlsl"
 #include "include/slices.hlsl"
 
@@ -107,7 +108,7 @@ float4 main(PS_IN i) : COLOR0
 {
 	float2 uv = i.spos.xy / i.spos.w * float2(0.5, -0.5) + 0.5;
 	float2 halfTexel = float2(abs(ddx(uv).x), abs(ddy(uv).y)) * 0.5;
-	uv += halfTexel;
+	uv += DX9_HALF_TEXEL(halfTexel);
 
 	float4 frame = tex2D(Frame, uv);
 	float depthSample = tex2D(Depth, uv).r;

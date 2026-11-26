@@ -67,9 +67,10 @@ if SERVER then
 end
 
 local DX_LEVEL = render.GetDXLevel()
+shaderpack.DX12 = DX_LEVEL >= 120
 
 function shaderpack.Supported()
-	return DX_LEVEL >= 90 and DX_LEVEL < 100
+	return DX_LEVEL >= 90 and DX_LEVEL < 100 or shaderpack.DX12
 end
 
 local mountedShaders = {}

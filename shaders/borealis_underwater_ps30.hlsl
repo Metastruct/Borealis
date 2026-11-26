@@ -8,6 +8,7 @@ sampler Depth : register(s1);
 sampler NormalMap : register(s2);
 sampler3D Noise : register(s3);
 
+#include "include/api.hlsl"
 #include "include/water_waves.hlsl"
 #include "include/slices.hlsl"
 #include "include/water_optics.hlsl"
@@ -51,7 +52,7 @@ struct PS_IN
 float4 main(PS_IN i) : COLOR
 {
 	float2 uv = i.spos.xy / i.spos.w * float2(0.5, -0.5) + 0.5;
-	uv += float2(abs(ddx(uv).x), abs(ddy(uv).y)) * 0.5;
+	uv += DX9_HALF_TEXEL(float2(abs(ddx(uv).x), abs(ddy(uv).y)) * 0.5);
 
 	float4 frame = tex2D(Frame, uv);
 	float3 original = frame.rgb;

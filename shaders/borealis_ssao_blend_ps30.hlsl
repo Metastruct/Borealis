@@ -1,3 +1,4 @@
+#include "include/api.hlsl"
 #include "include/slices.hlsl"
 
 const float4 Constants0 : register(c0);
@@ -52,7 +53,7 @@ float2 nearestTap(float2 best, float2 uv, float depthSample)
 PS_OUT main(PS_IN i)
 {
 	float2 uv = i.spos.xy / i.spos.w * float2(0.5, -0.5) + 0.5;
-	uv += float2(abs(ddx(uv).x), abs(ddy(uv).y)) * 0.5;
+	uv += DX9_HALF_TEXEL(float2(abs(ddx(uv).x), abs(ddy(uv).y)) * 0.5);
 
 	float4 frame = tex2D(Frame, uv);
 	float depthSample = tex2D(Depth, uv).r;
@@ -61,7 +62,7 @@ PS_OUT main(PS_IN i)
 	float d = depthSample * DEPTH_SCALE;
 
 	PS_OUT o;
-	o.depth = IsSkyDepth(depthSample) ? 1.0 : saturate(ZFAR / (ZFAR - ZNEAR) * (1.0 - ZNEAR / (d * (1.0 - bias))));
+	o.depth = DeviceDepth(IsSkyDepth(depthSample) ? 1.0 : saturate(ZFAR / (ZFAR - ZNEAR) * (1.0 - ZNEAR / (d * (1.0 - bias)))));
 	o.color = float4(frame.rgb, 1.0);
 	[branch] if (IsSkyDepth(depthSample))
 	{

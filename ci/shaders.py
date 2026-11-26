@@ -72,6 +72,8 @@ for file in sorted(source.glob("*.hlsl")):
 	record(file.stem, file, *check(file))
 
 for file in sorted((source / "fxc").glob("*.vcs")):
+	if file.stem.endswith(("_ps64", "_vs64")):
+		continue
 	record(f"{file.stem} (togl)", file, *check(file))
 
 for file in sorted(textures.rglob("*.vtf")):

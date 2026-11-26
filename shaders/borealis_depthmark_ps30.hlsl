@@ -1,3 +1,4 @@
+#include "include/api.hlsl"
 #include "include/slices.hlsl"
 
 const float4 Constants0 : register(c0);
@@ -57,7 +58,7 @@ float surfaceDepth(float depthSample, float2 uv)
 PS_OUT main(PS_IN i)
 {
 	float2 uv = i.spos.xy / i.spos.w * float2(0.5, -0.5) + 0.5;
-	uv += float2(abs(ddx(uv).x), abs(ddy(uv).y)) * 0.5;
+	uv += DX9_HALF_TEXEL(float2(abs(ddx(uv).x), abs(ddy(uv).y)) * 0.5);
 
 	float depthSample = tex2D(Depth, uv).r;
 	float slope = (abs(ddx(depthSample)) + abs(ddy(depthSample))) / max(depthSample, 1e-4);
@@ -69,7 +70,7 @@ PS_OUT main(PS_IN i)
 
 	PS_OUT o;
 	o.color = float4(0.0, 0.0, 0.0, 1.0);
-	o.depth = d >= ZFAR ? 1.0 : saturate(ZFAR / (ZFAR - ZNEAR) * (1.0 - ZNEAR / (d * (1.0 - bias))));
+	o.depth = DeviceDepth(d >= ZFAR ? 1.0 : saturate(ZFAR / (ZFAR - ZNEAR) * (1.0 - ZNEAR / (d * (1.0 - bias)))));
 
 	return o;
 }

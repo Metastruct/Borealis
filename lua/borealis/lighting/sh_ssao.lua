@@ -64,7 +64,7 @@ local function target(w, h)
 end
 
 local function draw()
-	local depth = render.GetResolvedFullFrameDepth()
+	local depth = depthslices.DepthTexture()
 	if not usableRT(depth) then return end
 
 	local w, h = ScrW(), ScrH()

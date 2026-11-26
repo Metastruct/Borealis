@@ -1,13 +1,16 @@
 local MARK_PS, MARK_VS = "borealis_depthmark_ps30", "borealis_fog_vs30"
+local LINEAR_PS, LINEAR_VS = "borealis_depthlinear_ps30", "borealis_passthrough_vs30"
 
 if SERVER then
-	shaderpack.AddResources({ MARK_VS, MARK_PS })
+	shaderpack.AddResources({ MARK_VS, MARK_PS, LINEAR_PS, LINEAR_VS })
 
 	return
 end
 
 local depthslices = shaderpack.depthslices or {}
 shaderpack.depthslices = depthslices
+
+local DX12 = shaderpack.DX12
 
 local SLICES = 32
 local NEAR = 16
@@ -145,8 +148,12 @@ function depthslices.SkipRefog()
 end
 
 local depthFrame, depthFresh = -1, false
+local linearFrame = -1
+local LINEAR, LINEAR_RT
 
 function depthslices.DepthPassFresh()
+	if DX12 then return linearFrame == FrameNumber() end
+
 	if depthFrame ~= FrameNumber() then
 		depthFrame = FrameNumber()
 		depthFresh = hook.Run("NeedsDepthPass") == true
@@ -155,10 +162,16 @@ function depthslices.DepthPassFresh()
 	return depthFresh
 end
 
+function depthslices.DepthTexture()
+	if DX12 then return LINEAR_RT end
+
+	return render.GetResolvedFullFrameDepth()
+end
+
 function depthslices.BeginDepthWrite()
 	if not depthslices.DepthPassFresh() then return false end
 
-	render.PushRenderTarget(render.GetResolvedFullFrameDepth())
+	render.PushRenderTarget(depthslices.DepthTexture())
 	render.OverrideBlend(true, BLEND_ONE, BLEND_ONE, BLENDFUNC_MIN, BLEND_ONE, BLEND_ONE, BLENDFUNC_MIN)
 
 	return true
@@ -176,7 +189,7 @@ function depthslices.KeepAlpha(draw)
 end
 
 function depthslices.Composite(mat, color)
-	local depth, fb = render.GetResolvedFullFrameDepth(), render.GetScreenEffectTexture()
+	local depth, fb = depthslices.DepthTexture(), render.GetScreenEffectTexture()
 	if not shaderpack.UsableRT(depth) or not shaderpack.UsableRT(fb) then return false end
 
 	local eye, fwd, halfW, halfH, vs = viewFan()
@@ -245,12 +258,51 @@ local function markReady()
 	return true
 end
 
+local R32F = 27
+local linearRetry = 0
+
+local function linearReady()
+	local hw = render.GetFullScreenDepthTexture()
+	local w, h = hw:Width(), hw:Height()
+	if LINEAR and usableRT(LINEAR_RT, w, h) then return true end
+	if RealTime() < linearRetry then return false end
+	linearRetry = RealTime() + 5
+
+	if not shaderpack.Available({ LINEAR_PS, LINEAR_VS }) then return false end
+
+	local rt = GetRenderTargetEx("borealis_depthslices_linear_" .. w .. "x" .. h, w, h, RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE, 1 + CLAMP, 0, R32F)
+	if not usableRT(rt, w, h) then return false end
+
+	LINEAR_RT = rt
+	LINEAR = CreateShaderMaterial("borealis_depthslices_linear_" .. w .. "x" .. h .. "_" .. os.time(), {
+		["$pixshader"] = LINEAR_PS,
+		["$vertexshader"] = LINEAR_VS,
+		["$basetexture"] = hw:GetName(),
+		["$alpha_blend"] = 0,
+		["$c0_x"] = 0, ["$c0_y"] = 0,
+	})
+
+	return true
+end
+
+local function linearize()
+	if not linearReady() then return end
+
+	local vs = render.GetViewSetup()
+	shaderpack.SetConstant(LINEAR, "$c0", vs.znear, vs.zfar)
+	render.PushRenderTarget(LINEAR_RT)
+	render.SetMaterial(LINEAR)
+	render.DrawScreenQuad()
+	render.PopRenderTarget()
+	linearFrame = FrameNumber()
+end
+
 local function refog()
 	local eye, fwd, halfW, halfH, vs = viewFan()
 	render.UpdateScreenEffectTexture()
 	MARK:SetTexture("$texture2", render.GetScreenEffectTexture())
 	MARK:SetTexture("$basetexture", CODES)
-	MARK:SetTexture("$texture1", render.GetResolvedFullFrameDepth())
+	MARK:SetTexture("$texture1", depthslices.DepthTexture())
 	shaderpack.SetConstant(MARK, "$c0", vs.znear, vs.zfar, nil, depthslices.Samples())
 
 	capturedFrame = -1
@@ -290,18 +342,25 @@ local function refog()
 	render.SetStencilEnable(false)
 end
 
-hook.Add("NeedsDepthPass", "borealis_depthslices", function()
+local function wantsDepth()
 	local t = depthslices.effects
 	for i = 1, #t do
 		local needsDepth = t[i].needsDepth
 		if needsDepth and needsDepth() then return true end
 	end
+
+	return false
+end
+
+hook.Add("NeedsDepthPass", "borealis_depthslices", function()
+	if not DX12 and wantsDepth() then return true end
 end)
 
 hook.Add("PreDrawTranslucentRenderables", "borealis_depthslices_effects", function(bDepth, bSkybox, b3DSky)
 	if bDepth or bSkybox or b3DSky or render.GetRenderTarget() then return end
 	depthslices.Invalidate()
 	cacheView()
+	if DX12 and wantsDepth() then linearize() end
 	local t = depthslices.effects
 	local wantsRefog = false
 	for i = 1, #t do

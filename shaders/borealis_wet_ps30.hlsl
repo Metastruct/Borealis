@@ -1,3 +1,4 @@
+#include "include/api.hlsl"
 #include "include/common.hlsl"
 #include "include/slices.hlsl"
 
@@ -335,14 +336,14 @@ PS_OUT main(PS_IN i)
 	float2 sx = float2(ddx(uv).x, 0.0);
 	float2 sy = float2(0.0, ddy(uv).y);
 	float2 halfTexel = float2(abs(sx.x), abs(sy.y)) * 0.5;
-	uv += halfTexel;
+	uv += DX9_HALF_TEXEL(halfTexel);
 
 	float4 frame = tex2D(Frame, uv);
 	float depthSample = tex2D(Depth, uv).r;
 	float d = IsSkyDepth(depthSample) ? FADE_END * 4.0 : depthSample * DEPTH_SCALE;
 	float slope = (abs(ddx(depthSample)) + abs(ddy(depthSample))) / max(depthSample, 1e-4);
 	float bias = DEPTH_BIAS + (slope < EDGE_SLOPE ? slope : 0.0);
-	float depth = IsSkyDepth(depthSample) ? 1.0 : saturate(ZFAR / (ZFAR - ZNEAR) * (1.0 - ZNEAR / (d * (1.0 - bias))));
+	float depth = DeviceDepth(IsSkyDepth(depthSample) ? 1.0 : saturate(ZFAR / (ZFAR - ZNEAR) * (1.0 - ZNEAR / (d * (1.0 - bias)))));
 	float samples = max(floor(i.color.b * 255.0 + 0.5), 1.0);
 	d = SliceDepth(d, frame.a * 255.0, samples);
 
@@ -428,7 +429,7 @@ PS_OUT main(PS_IN i)
 		float3 fogLight = HORIZON * FOG_AMBIENT;
 		float3 fallback = lerp(fogLight, skyColor(dir), exp(-FogLayerDepth(fog.x, fog.y, fog.z, p.z, p.z + dir.z * FOG_RANGE, FOG_RANGE)));
 		float jitter = frac(52.9829189 * frac(dot(floor(uv / (2.0 * halfTexel)), float2(0.06711056, 0.00583715))));
-		float4 reflection = puddleReflection(p + base, dir, fallback, halfTexel, samples, fog, fogLight, jitter);
+		float4 reflection = puddleReflection(p + base, dir, fallback, DX9_HALF_TEXEL(halfTexel), samples, fog, fogLight, jitter);
 		float3 mirror = reflection.rgb;
 		float troubled = 1.0 - heavy * (1.0 - near) * RAIN_HEAVY_FAR_BLUR * reflection.a;
 		float facing = pow(1.0 - saturate(dot(-ray, surface)), 5.0);

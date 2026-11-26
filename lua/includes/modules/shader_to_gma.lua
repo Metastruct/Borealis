@@ -12,6 +12,13 @@ local function toglName(name)
 	return base .. "_togl" .. suffix
 end
 
+local function dx12Name(name)
+	local base, stage = string.match(name, "^(.+)_([pv]s)%w+$")
+	if not base then return nil end
+
+	return base .. "_" .. stage .. "64"
+end
+
 if SERVER then
 	local function lowerFixPath(p)
 		p = string.gsub(p, "\\", "/")
@@ -340,6 +347,7 @@ if SERVER then
 				local hashed = hashedName(name, data)
 				names[name] = hashed
 				files[#files + 1] = { path = "shaders/fxc/" .. hashed .. ".vcs", data = data }
+				if src.dx12 then continue end
 
 				local variant, supported = toglVariant(data)
 				local togl = toglName(name)
@@ -378,19 +386,26 @@ if SERVER then
 		return changed
 	end
 
-	function resource.AddShader(shaderName)
+	local function findShader(shaderName)
 		local path = "shaders/fxc/" .. shaderName .. ".vcs"
-		local realm = "MOD"
-		if not file.Exists(path, "MOD") then
-			if not file.Exists(path, "GAME") then
-				ErrorNoHalt("Missing shader file: " .. path .. " (MOD and GAME)\n")
-				return
-			else
-				realm = "GAME"
-			end
+		if file.Exists(path, "MOD") then return { path = path, realm = "MOD" } end
+		if file.Exists(path, "GAME") then return { path = path, realm = "GAME" } end
+	end
+
+	function resource.AddShader(shaderName)
+		local src = findShader(shaderName)
+		local twin = dx12Name(shaderName)
+		local twinSrc = twin and twin ~= shaderName and findShader(twin)
+		if not src and not twinSrc then
+			ErrorNoHalt("Missing shader file: shaders/fxc/" .. shaderName .. ".vcs (MOD and GAME)\n")
+			return
 		end
 
-		state.files[shaderName] = { path = path, realm = realm }
+		state.files[shaderName] = src
+		if twinSrc then
+			twinSrc.dx12 = true
+			state.files[twin] = twinSrc
+		end
 		state.dirty = true
 	end
 
@@ -417,6 +432,16 @@ if SERVER then
 			return
 		end
 
+		net.Start("shader_to_gma")
+		net.WriteUInt(0, 16)
+		net.WriteUInt(total, 16)
+		net.WriteUInt(table.Count(names), 16)
+		for name, hashed in pairs(names) do
+			net.WriteString(name)
+			net.WriteString(hashed)
+		end
+		net.Send(ply)
+
 		local timerName = "shader_to_gma_" .. ply:UserID()
 		local index = 0
 		timer.Create(timerName, 1, total, function()
@@ -430,13 +455,6 @@ if SERVER then
 			net.Start("shader_to_gma")
 			net.WriteUInt(index, 16)
 			net.WriteUInt(total, 16)
-			if index == 1 then
-				net.WriteUInt(table.Count(names), 16)
-				for name, hashed in pairs(names) do
-					net.WriteString(name)
-					net.WriteString(hashed)
-				end
-			end
 			net.WriteUInt(#chunk, 16)
 			net.WriteData(chunk, #chunk)
 			net.Send(ply)
@@ -468,8 +486,22 @@ if CLIENT then
 
 	local TOGL = not system.IsWindows()
 	local UNSUPPORTED = TOGL and BRANCH ~= "x86-64"
+	local DX12 = render.GetDXLevel() >= 120
+
+	local function dx12Twin(name)
+		local twin = dx12Name(name)
+
+		return twin and SHADER_NAMES[twin]
+	end
 
 	local function resolveShaderName(name)
+		if DX12 then
+			local twin = dx12Twin(name)
+			if not twin then return name end
+
+			return (string.gsub(twin, "_[pv]s64$", string.match(name, "_[pv]s%w+$")))
+		end
+
 		if TOGL then
 			local togl = SHADER_NAMES[toglName(name)]
 			if togl then return togl end
@@ -495,10 +527,14 @@ if CLIENT then
 	end
 
 	local function shaderPath(name)
+		if DX12 then return "shaders/fxc/" .. (dx12Twin(name) or name) .. ".vcs" end
+
 		return "shaders/fxc/" .. resolveShaderName(name) .. ".vcs"
 	end
 
 	function ShaderExists(name)
+		if DX12 then return dx12Twin(name) ~= nil and file.Exists(shaderPath(name), "GAME") end
+
 		return SHADER_NAMES[name] ~= nil and resolveShaderName(name) ~= "" and file.Exists(shaderPath(name), "GAME")
 	end
 
@@ -553,16 +589,19 @@ if CLIENT then
 	net.Receive("shader_to_gma", function()
 		local index = net.ReadUInt(16)
 		local total = net.ReadUInt(16)
-		if index > 0 then
-			if index == 1 then
-				receivedChunks = {}
-				pendingNames = {}
-				for _ = 1, net.ReadUInt(16) do
-					local name = net.ReadString()
-					local hashed = net.ReadString()
-					pendingNames[name] = hashed
-				end
+		if index == 0 and total > 0 then
+			receivedChunks = {}
+			pendingNames = {}
+			for _ = 1, net.ReadUInt(16) do
+				local name = net.ReadString()
+				local hashed = net.ReadString()
+				pendingNames[name] = hashed
 			end
+
+			return
+		end
+
+		if index > 0 then
 			receivedChunks[index] = net.ReadData(net.ReadUInt(16))
 			if index < total then return end
 		end

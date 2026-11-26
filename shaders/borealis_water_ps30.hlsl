@@ -99,6 +99,7 @@ float2 ClipToUV(float4 pixel) {
     return pixel.xy / pixel.w * float2(0.5, -0.5) + 0.5;
 }
 
+#include "include/api.hlsl"
 #include "include/common.hlsl"
 #include "include/water_waves.hlsl"
 #include "include/slices.hlsl"
@@ -169,7 +170,7 @@ float4 main(PS_IN i) : COLOR
     float2 p = i.wpos.xy;
 
 	float2 uv = ClipToUV(i.spos);
-	uv += float2(abs(ddx(uv).x), abs(ddy(uv).y)) * 0.5;
+	uv += DX9_HALF_TEXEL(float2(abs(ddx(uv).x), abs(ddy(uv).y)) * 0.5);
 
     const float ABOVE_REFRACTION = 12.0;
 

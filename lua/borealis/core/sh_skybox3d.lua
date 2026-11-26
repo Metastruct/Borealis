@@ -263,7 +263,7 @@ local function writeDepthTexture(eye)
 	cam.End3D()
 	render.PopRenderTarget()
 
-	render.PushRenderTarget(render.GetResolvedFullFrameDepth())
+	render.PushRenderTarget(depthslices.DepthTexture())
 	render.CopyRenderTargetToTexture(copyRT)
 	compositeMat:SetTexture("$basetexture", copyRT)
 	compositeMat:SetTexture("$texture1", skyRT)
