@@ -7,13 +7,13 @@ if SERVER then
 end
 
 local bspdata, foliage = bspdata, shaderpack.foliage
-local KELP_ENABLED =CreateClientConVar("borealis_kelp", "0", true, false, "draw kelp forests on sunlit rocky sea beds")
+local KELP_ENABLED = CreateClientConVar("borealis_kelp", "0", true, false, "draw kelp forests on sunlit sea beds")
 
 local RADIUS = 3072
 local MIN_DEPTH, MAX_DEPTH, DEPTH_FADE = 400, 1300, 120
 local WARP_CELL, WARP = 1600, 1200
 local PATCH_CELL, DETAIL_CELL = 1400, 450
-local PATCH_FROM, PATCH_TO = 0.55, 0.7
+local PATCH_FROM, PATCH_TO = 0.62, 0.74
 local MAX_DENSITY = 0.75
 local MIN_LIGHT = 0.15
 local MAX_HEIGHT = 1300
@@ -28,7 +28,7 @@ local BASE_COLOR = { 0.16, 0.11, 0.035 }
 local TIP_COLOR = { 0.32, 0.24, 0.07 }
 local TRANSLUCENCY = 0.45
 
-local ROCKY = { gravel = true, rock = true, boulder = true }
+local SEABED = { gravel = true, rock = true, boulder = true, dirt = true, sand = true, antlionsand = true }
 
 local packColor, setConstant = shaderpack.PackColor, shaderpack.SetConstant
 local valueNoise, smoothstep = foliage.ValueNoise, foliage.Smoothstep
@@ -182,7 +182,7 @@ end
 local layer = foliage.Layer({
 	name = "kelp",
 	pixelShader = PIXEL_SHADER, vertexShader = VERTEX_SHADER, depthShader = DEPTH_SHADER,
-	classify = foliage.SurfaceClassifier(ROCKY), minNormalZ = 0.7,
+	classify = foliage.SurfaceClassifier(SEABED), minNormalZ = 0.7,
 	spacing = 80, jitter = 30, quadW = 0, quadH = MAX_HEIGHT,
 	keep = keep, minLight = MIN_LIGHT, timeWrap = 3600,
 	emit = emit, meshBatch = 16,
