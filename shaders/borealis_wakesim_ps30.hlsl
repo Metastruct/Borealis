@@ -1,49 +1,54 @@
 const float4 Constants0 : register(c0);
 const float4 Constants1 : register(c1);
+const float4 Constants2 : register(c2);
 
 sampler State : register(s0);
 sampler Force : register(s1);
 
-#define WIN        Constants0.xy
-#define SPEED      Constants1.x
-#define DAMPING    Constants1.y
-#define DEPTH      Constants1.z
-#define FOAM_DECAY Constants1.w
+#define SPEED      Constants2.x
+#define DAMPING    Constants2.y
+#define DEPTH      Constants2.z
+#define FOAM_DECAY Constants2.w
 
-#define TEXELS      1024.0
-#define SPONGE      48.0
+#define LEVEL       512.0
+#define STRIDE      514.0
+#define ATLAS       1028.0
+#define SPONGE      32.0
 #define SPONGE_DAMP 0.85
 #define FOAM_BIAS   0.0078125
 #define FOAM_SPREAD 0.4
 
+static float2 origin;
+
+float4 At(sampler s, float2 l) {
+	return tex2Dlod(s, float4((origin + l - floor(l / LEVEL) * LEVEL + 0.5) / ATLAS, 0.0, 0.0));
+}
+
 float4 main(float2 vpos : VPOS) : COLOR
 {
 	float2 px = floor(vpos);
-	float2 uv = (px + 0.5) / TEXELS;
-	float d = 1.0 / TEXELS;
-	float2 dx = float2(d, 0.0);
-	float2 dy = float2(0.0, d);
+	float2 q = floor(px / STRIDE);
+	float k = q.x + 2.0 * q.y;
+	origin = q * STRIDE + 1.0;
+	float2 l = px - origin;
+	l -= floor(l / LEVEL) * LEVEL;
+	float2 win = k < 0.5 ? Constants0.xy : (k < 1.5 ? Constants0.zw : (k < 2.5 ? Constants1.xy : Constants1.zw));
 
-	float4 s = tex2Dlod(State, float4(uv, 0.0, 0.0));
-	float4 n = tex2Dlod(State, float4(frac(uv + dx), 0.0, 0.0))
-		+ tex2Dlod(State, float4(frac(uv - dx), 0.0, 0.0))
-		+ tex2Dlod(State, float4(frac(uv + dy), 0.0, 0.0))
-		+ tex2Dlod(State, float4(frac(uv - dy), 0.0, 0.0));
-	float sum = n.r;
+	float2 dx = float2(1.0, 0.0);
+	float2 dy = float2(0.0, 1.0);
 
-	float h = s.r + (s.r - s.g) * DAMPING + SPEED * (sum - 4.0 * s.r);
+	float4 s = At(State, l);
+	float4 n = At(State, l + dx) + At(State, l - dx) + At(State, l + dy) + At(State, l - dy);
 
-	float2 local = frac((px - WIN) / TEXELS) * TEXELS;
-	float edge = min(min(local.x, local.y), min(TEXELS - 1.0 - local.x, TEXELS - 1.0 - local.y));
+	float h = s.r + (s.r - s.g) * DAMPING + SPEED * exp2(-2.0 * k) * (n.r - 4.0 * s.r);
+
+	float2 local = frac((l - win) / LEVEL) * LEVEL;
+	float edge = min(min(local.x, local.y), min(LEVEL - 1.0 - local.x, LEVEL - 1.0 - local.y));
 	float sponge = lerp(SPONGE_DAMP, 1.0, saturate(edge / SPONGE));
 	h *= sponge;
 
-	float2 f = tex2Dlod(Force, float4(uv, 0.0, 0.0)).rg;
-	float m = (f.x * 4.0
-		+ tex2Dlod(Force, float4(frac(uv + dx), 0.0, 0.0)).r
-		+ tex2Dlod(Force, float4(frac(uv - dx), 0.0, 0.0)).r
-		+ tex2Dlod(Force, float4(frac(uv + dy), 0.0, 0.0)).r
-		+ tex2Dlod(Force, float4(frac(uv - dy), 0.0, 0.0)).r) / 8.0;
+	float2 f = At(Force, l).rg;
+	float m = (f.x * 4.0 + At(Force, l + dx).r + At(Force, l - dx).r + At(Force, l + dy).r + At(Force, l - dy).r) / 8.0;
 	float push = DEPTH * (m - s.b);
 	float spread = lerp(s.a, n.a * 0.25, FOAM_SPREAD);
 	float foam = max(max(spread - FOAM_BIAS, 0.0) * FOAM_DECAY * sponge, f.y);

@@ -20,8 +20,7 @@ sampler Flashlight : register(s4);
 
 #define EYE         Constants0.xyz
 #define TIME        Constants0.w
-#define WIN_MIN     Constants1.xy
-#define WIN_MAX     Constants1.zw
+#define TRAIL_EYE   Constants1.xy
 #define SUN         Constants2.xyz
 #define LIGHT_SCALE Constants2.w
 #define FILL        Constants3.x
@@ -37,9 +36,13 @@ sampler Flashlight : register(s4);
 #define INV_FLASH   Constants14.zw
 
 #define SNOW_DEPTH 10.0
-#define TRAIL_SPAN 2048.0
-#define TRAIL_FADE_START 576.0
-#define TRAIL_FADE_END 880.0
+#define TRAIL_TEXEL 2.0
+#define TRAIL_LEVEL 768.0
+#define TRAIL_STRIDE 770.0
+#define TRAIL_ATLAS 1540.0
+#define TRAIL_LEVELS 4.0
+#define TRAIL_REACH 732.0
+#define TRAIL_BLEND 0.7
 #define MIN_THICK 0.12
 #define WALL_NZ 0.3
 #define POM_STEPS 16
@@ -98,13 +101,45 @@ struct PS_OUT
 	float depth  : DEPTH0;
 };
 
-static float trailFade;
+static float3 trailA;
+static float3 trailB;
+static float trailBlend;
+static float trailKeep;
+static float trailOn;
+
+float3 trailLevel(float k)
+{
+	return float3(float2(fmod(k, 2.0), floor(k * 0.5)) * TRAIL_STRIDE + 1.0, TRAIL_TEXEL * exp2(k));
+}
+
+void trailSelect(float2 xy)
+{
+	float d = length(xy - TRAIL_EYE);
+	float k = max(ceil(log2(max(d, 1.0) / TRAIL_REACH)), 0.0);
+	float reach = TRAIL_REACH * exp2(k);
+	trailOn = k < TRAIL_LEVELS ? 1.0 : 0.0;
+	trailBlend = smoothstep(reach * TRAIL_BLEND, reach, d);
+	trailKeep = k < TRAIL_LEVELS - 1.0 ? 1.0 : 0.0;
+	trailA = trailLevel(min(k, TRAIL_LEVELS - 1.0));
+	trailB = trailLevel(min(k + 1.0, TRAIL_LEVELS - 1.0));
+}
+
+float trailTap(float2 xy, float3 level)
+{
+	float2 u = frac(float2(xy.x, -xy.y) / (level.z * TRAIL_LEVEL)) * TRAIL_LEVEL;
+
+	return tex2Dlod(Trail, float4((level.xy + u) / TRAIL_ATLAS, 0.0, 0.0)).r;
+}
 
 float trailAt(float2 xy)
 {
-	float2 inside = step(WIN_MIN, xy) * step(xy, WIN_MAX);
+	float v = trailTap(xy, trailA);
+	[branch] if (trailBlend > 0.0)
+	{
+		v = lerp(v, trailTap(xy, trailB) * trailKeep, trailBlend);
+	}
 
-	return tex2Dlod(Trail, float4(frac(float2(xy.x, -xy.y) / TRAIL_SPAN), 0.0, 0.0)).r * inside.x * inside.y * trailFade;
+	return v * trailOn;
 }
 
 float carveAt(float2 xy, float thick)
@@ -175,7 +210,7 @@ PS_OUT main(PS_IN i)
 	face *= sign(face.z) / max(length(face), 1e-6);
 	float faceZ = max(face.z, WALL_NZ);
 	float dist = distance(p, EYE);
-	trailFade = saturate((TRAIL_FADE_END - distance(p.xy, EYE.xy)) / (TRAIL_FADE_END - TRAIL_FADE_START));
+	trailSelect(p.xy);
 	clip(smoothstep(FADE_END, FADE_START, dist) - hash(floor(p.xy * 0.25)));
 	ClipSkyWall(SkyWall, i.vpos, INV_SCREEN, i.spos.w);
 

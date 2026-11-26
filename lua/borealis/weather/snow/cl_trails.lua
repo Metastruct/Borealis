@@ -39,8 +39,8 @@ function trails.Texture()
 	return shared.Texture()
 end
 
-function trails.Window()
-	return shared.Window()
+function trails.Centre()
+	return shared.Centre()
 end
 
 function trails.Start()

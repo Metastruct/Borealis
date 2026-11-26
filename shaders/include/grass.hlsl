@@ -26,7 +26,9 @@ sampler Trail : register(s3);
 #define TRAIL_MAX  Constants13.zw
 #define QUAD_UNITS Constants14.x
 
-#define TRAIL_SPAN 2048.0
+#define TRAIL_TEXEL 2.0
+#define TRAIL_LEVEL 768.0
+#define TRAIL_ATLAS 1540.0
 #define TRAMPLE_H 64.0
 #define TRAMPLE_LEAN 0.6
 
@@ -63,7 +65,8 @@ float clearanceAt(float2 xy)
 	float press = 0.0;
 	[branch] if (all(xy >= TRAIL_MIN) && all(xy <= TRAIL_MAX))
 	{
-		press = tex2Dlod(Trail, float4(frac(float2(xy.x, -xy.y) / TRAIL_SPAN), 0.0, 0.0)).g;
+		float2 u = frac(float2(xy.x, -xy.y) / (TRAIL_TEXEL * TRAIL_LEVEL)) * TRAIL_LEVEL;
+		press = tex2Dlod(Trail, float4((1.0 + u) / TRAIL_ATLAS, 0.0, 0.0)).g;
 	}
 
 	return (1.0 - press) * TRAMPLE_H;

@@ -240,7 +240,7 @@ local function draw(depth, _, sky3d)
 	local sun = bspdata.BakedSun()
 	local fill = packColor(amb.x * AMBIENT_FILL, amb.y * AMBIENT_FILL, amb.z * AMBIENT_FILL)
 	local lightScale = foliage.WorldLightScale()
-	setConstant(MAT, "$c1", trails.Window())
+	setConstant(MAT, "$c1", trails.Centre())
 
 	local fr, fg, fb = render.GetFogColor()
 	local fogStart, fogEnd = render.GetFogDistances()

@@ -32,16 +32,20 @@ sampler Wakes : register(s7);
 #define FILL        Constants14.x
 #define BRIGHTNESS  Constants14.y
 #define INV_SCREEN  Constants12.zw
-#define WAKE_WIN    Constants14.zw
+#define WAKE_EYE    Constants14.zw
 #define FOG_RANGE   5000.0
 
-#define WAKE_TEXELS 1024.0
+#define WAKE_LEVEL  512.0
+#define WAKE_STRIDE 514.0
+#define WAKE_ATLAS  1028.0
+#define WAKE_LEVELS 4.0
 #define WAKE_TEXEL  4.0
-#define WAKE_MARGIN 2.0
-#define WAKE_HEIGHT 3.0
-#define WAKE_POM_RANGE 12.0
-#define WAKE_POM_MAX 96.0
-#define WAKE_POM_STEPS 12
+#define WAKE_REACH  824.0
+#define WAKE_BLEND  0.7
+#define WAKE_HEIGHT 8.4
+#define WAKE_POM_RANGE 34.0
+#define WAKE_POM_MAX 192.0
+#define WAKE_POM_STEPS 16
 #define WAKE_POM_REFINE 4
 #define WAKE_POM_MIN 0.25
 #define FOAM_BIAS   0.0078125
@@ -145,36 +149,69 @@ float RainExposure(float3 pos, float3 eye) {
     return coverZ <= pos.z + COVER_MARGIN ? 1.0 : 0.0;
 }
 
-float4 Wake(float2 p) {
-    float2 t = float2(p.x, -p.y) / WAKE_TEXEL - 0.5;
-    float2 local = t - WAKE_WIN;
-    if (min(local.x, local.y) < WAKE_MARGIN || max(local.x, local.y) > WAKE_TEXELS - WAKE_MARGIN)
-        return 0.0;
+struct WakeSel {
+    float k;
+    float3 a;
+    float3 b;
+    float blend;
+    float keep;
+};
 
-    float2 uv = (t + 0.5) / WAKE_TEXELS;
-    float d = 1.0 / WAKE_TEXELS;
-    float4 s = tex2Dlod(Wakes, float4(frac(uv), 0.0, 0.0));
-    float hx = tex2Dlod(Wakes, float4(frac(uv + float2(d, 0.0)), 0.0, 0.0)).r;
-    float hy = tex2Dlod(Wakes, float4(frac(uv + float2(0.0, d)), 0.0, 0.0)).r;
-
-    return float4(float2(hx - s.r, s.r - hy) * (WAKE_HEIGHT / WAKE_TEXEL), s.r, s.a - FOAM_BIAS);
+float3 WakeLevel(float k) {
+    return float3(float2(fmod(k, 2.0), floor(k * 0.5)) * WAKE_STRIDE + 1.0, WAKE_TEXEL * exp2(k));
 }
 
-float WakeHeight(float2 p) {
-    float2 t = float2(p.x, -p.y) / WAKE_TEXEL - 0.5;
-    float2 local = t - WAKE_WIN;
-    if (min(local.x, local.y) < WAKE_MARGIN || max(local.x, local.y) > WAKE_TEXELS - WAKE_MARGIN)
-        return 0.0;
+WakeSel WakeSelect(float2 p) {
+    WakeSel w;
+    float d = length(p - WAKE_EYE);
+    w.k = max(ceil(log2(max(d, 1.0) / WAKE_REACH)), 0.0);
+    float reach = WAKE_REACH * exp2(w.k);
+    w.blend = smoothstep(reach * WAKE_BLEND, reach, d);
+    w.keep = w.k < WAKE_LEVELS - 1.0 ? 1.0 : 0.0;
+    w.a = WakeLevel(w.k);
+    w.b = WakeLevel(min(w.k + 1.0, WAKE_LEVELS - 1.0));
 
-    float h = tex2Dlod(Wakes, float4(frac((t + 0.5) / WAKE_TEXELS), 0.0, 0.0)).r * WAKE_HEIGHT;
-
-    return clamp(h, -WAKE_POM_RANGE, WAKE_POM_RANGE);
+    return w;
 }
 
-float2 WakeParallax(float2 p, float3 viewDir) {
+float4 WakeTap(float2 p, float3 level) {
+    float2 u = frac(float2(p.x, -p.y) / (level.z * WAKE_LEVEL)) * WAKE_LEVEL;
+
+    return tex2Dlod(Wakes, float4((level.xy + u) / WAKE_ATLAS, 0.0, 0.0));
+}
+
+float4 WakeLevelSample(float2 p, float3 level) {
+    float4 s = WakeTap(p, level);
+    float hx = WakeTap(p + float2(level.z, 0.0), level).r;
+    float hy = WakeTap(p - float2(0.0, level.z), level).r;
+
+    return float4(float2(hx - s.r, s.r - hy) * (WAKE_HEIGHT / level.z), s.r, s.a - FOAM_BIAS);
+}
+
+float4 Wake(float2 p, WakeSel w) {
+    float4 wake = WakeLevelSample(p, w.a);
+    [branch] if (w.blend > 0.0)
+    {
+        wake = lerp(wake, WakeLevelSample(p, w.b) * w.keep, w.blend);
+    }
+
+    return wake;
+}
+
+float WakeHeight(float2 p, WakeSel w) {
+    float h = WakeTap(p, w.a).r;
+    [branch] if (w.blend > 0.0)
+    {
+        h = lerp(h, WakeTap(p, w.b).r * w.keep, w.blend);
+    }
+
+    return clamp(h * WAKE_HEIGHT, -WAKE_POM_RANGE, WAKE_POM_RANGE);
+}
+
+float2 WakeParallax(float2 p, float3 viewDir, WakeSel w) {
     float reach = min(WAKE_POM_RANGE / max(-viewDir.z, 1e-3), WAKE_POM_MAX);
     float3 dir = viewDir * reach;
-    float peak = max(abs(WakeHeight(p)), max(abs(WakeHeight(p - dir.xy)), abs(WakeHeight(p + dir.xy))));
+    float peak = max(abs(WakeHeight(p, w)), max(abs(WakeHeight(p - dir.xy, w)), abs(WakeHeight(p + dir.xy, w))));
 
     [branch] if (peak > WAKE_POM_MIN)
     {
@@ -183,7 +220,7 @@ float2 WakeParallax(float2 p, float3 viewDir) {
         [loop] for (int k = 0; k <= WAKE_POM_STEPS; k++)
         {
             float t = -1.0 + 2.0 * k / WAKE_POM_STEPS;
-            if (dir.z * t <= WakeHeight(p + dir.xy * t))
+            if (dir.z * t <= WakeHeight(p + dir.xy * t, w))
             {
                 s = t;
                 break;
@@ -194,7 +231,7 @@ float2 WakeParallax(float2 p, float3 viewDir) {
         [loop] for (int r = 0; r < WAKE_POM_REFINE; r++)
         {
             float m = (sPrev + s) * 0.5;
-            if (dir.z * m <= WakeHeight(p + dir.xy * m))
+            if (dir.z * m <= WakeHeight(p + dir.xy * m, w))
             {
                 s = m;
             }
@@ -315,10 +352,11 @@ float4 main(PS_IN i) : COLOR
 
     float wakeFoam = 0.0;
     float2 wakeP = p;
-    [branch] if (!FROZEN)
+    WakeSel wakeSel = WakeSelect(p);
+    [branch] if (!FROZEN && wakeSel.k < WAKE_LEVELS)
     {
-        [branch] if (!FROM_BELOW) wakeP = WakeParallax(p, viewDir);
-        float4 wake = Wake(wakeP);
+        [branch] if (!FROM_BELOW) wakeP = WakeParallax(p, viewDir, wakeSel);
+        float4 wake = Wake(wakeP, wakeSel);
         slope += wake.xy;
         wakeFoam = max(smoothstep(FOAM_LOW, FOAM_HIGH, wake.z), saturate(wake.w));
     }

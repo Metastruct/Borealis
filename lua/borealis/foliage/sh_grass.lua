@@ -283,7 +283,7 @@ end
 
 setDistance()
 
-local apply = shaderpack.Toggle("borealis_grass", GRASS_ENABLED, { "borealis_grass_ps30", "borealis_grass_vs30", "borealis_trailstamp_ps30" }, function() layer:Start() end, function() layer:Stop() end)
+local apply = shaderpack.Toggle("borealis_grass", GRASS_ENABLED, { "borealis_grass_ps30", "borealis_grass_vs30", "borealis_trailstamp_ps30", "borealis_trailfill_ps30" }, function() layer:Start() end, function() layer:Stop() end)
 
 cvars.RemoveChangeCallback("borealis_grass_distance", "borealis_grass")
 cvars.AddChangeCallback("borealis_grass_distance", setDistance, "borealis_grass")
