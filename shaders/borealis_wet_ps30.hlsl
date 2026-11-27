@@ -41,6 +41,7 @@ sampler CoverSpans : register(s6);
 #define SPANS_ON   (Constants14.w > 0.0 ? 1.0 : 0.0)
 #define ZFAR       abs(Constants14.w)
 #define SPAN_ONLY  (Constants15.x > 0.5)
+#define GROUND_ONLY Constants15.y
 
 #define R_EARTH 6371.0
 #define EYE_H 0.2
@@ -238,10 +239,11 @@ float4 exposure(float3 p, float3 n, float2 eyeCol)
 	{
 		float margin = COVER_MARGIN + min(SLOPE_MARGIN * length(n.xy) / max(n.z, 0.01), SLOPE_MARGIN_MAX);
 		open = CoverSpansOpen(CoverSpans, p, margin);
-		[branch] if (SPAN_ONLY)
-		{
-			open *= spanGround(p, SPAN_GROUND_MARGIN);
-		}
+	}
+
+	[branch] if (GROUND_ONLY > 0.0)
+	{
+		open *= lerp(1.0, spanGround(p, SPAN_GROUND_MARGIN), GROUND_ONLY);
 	}
 
 	float below = level - p.z;

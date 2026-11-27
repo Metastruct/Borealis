@@ -64,7 +64,11 @@ local function build()
 	}, "screenspace_general_8tex")
 end
 
+local RAIN_MIN = 0.02
+local PROPS_DRY_RATE, PROPS_WET_RATE = 1 / 5, 1
+
 local wet, pool, active, frozen = 0, 0, false, false
+local propsDry = 1
 
 local function ease(value, target, rise, fall, dt)
 	if target > value then
@@ -79,7 +83,14 @@ local function think()
 	local dt = RealFrameTime()
 	wet = ease(wet, rain, WET_RATE, DRY_RATE, dt)
 	pool = ease(pool, rain, POOL_RATE, POOL_DRY_RATE, dt)
+	propsDry = ease(propsDry, rain > RAIN_MIN and 0 or 1, PROPS_DRY_RATE, PROPS_WET_RATE, dt)
 	active = wet > 0.001 or pool > 0.001
+end
+
+local function groundOnly()
+	if not cover.Spans() then return 0 end
+
+	return SPAN_ONLY:GetBool() and 1 or propsDry
 end
 
 local FAR_COLUMN, FAR_COLUMNS = 128, 64
@@ -249,6 +260,7 @@ local function draw()
 	)
 	MAT:SetMatrix("$viewprojmat", wetConstants)
 	spanConstants:SetField(1, 1, useSpans and 1 or 0)
+	spanConstants:SetField(1, 2, groundOnly())
 	MAT:SetMatrix("$invviewprojmat", spanConstants)
 	quadColor.r = math.floor(math.min(fogDensity / FOG_DENSITY_MAX, 1) * 255 + 0.5)
 	quadColor.g = math.floor(math.Clamp(fogFalloff / FOG_FALLOFF_MAX, 1 / 255, 1) * 255 + 0.5)
@@ -341,7 +353,7 @@ local function footstep(ply, pos, _, _, volume)
 	stepTrace.filter = ply
 	util.TraceLine(stepTrace)
 	local hit = stepTrace.output
-	if not hit.Hit or (not hit.HitWorld and spanOnly()) then return end
+	if not hit.Hit or (not hit.HitWorld and groundOnly() > 0.5) then return end
 
 	local nz = hit.HitNormal.z
 	local upward = smoothstep(UP_MIN, UP_FULL, nz)
