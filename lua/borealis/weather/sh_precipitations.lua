@@ -642,6 +642,7 @@ do
 	local THUNDER_AMOUNT = 0.8
 	local THUNDER_INTERVAL = { 25, 70 }
 	local THUNDER_DELAY = { 0.8, 3 }
+	local THUNDER_GAIN = 2.5
 
 	local coverTrace = { mask = bit.bor(CONTENTS_SOLID, CONTENTS_MOVEABLE, CONTENTS_WINDOW, CONTENTS_GRATE) }
 	local rainSounds = false
@@ -729,7 +730,7 @@ do
 		local v = precipitations.RainVolume()
 		local rain = tod and tod.rain
 		if v > 0 and rain and rain.amount > 0 and IsValid(ply) then
-			ply:EmitSound("ambient/weather/thunder" .. math.random(6) .. ".wav", 0, math.random(90, 110), 0.7 * v * exposure, CHAN_STATIC)
+			ply:EmitSound("ambient/weather/thunder" .. math.random(6) .. ".wav", 0, math.random(90, 110), math.min(v * THUNDER_GAIN * exposure, 1), CHAN_STATIC)
 		end
 	end
 
