@@ -9,6 +9,11 @@ end
 
 local cover, depthslices, procsky, fog, bspdata = shaderpack.cover, shaderpack.depthslices, shaderpack.procsky, shaderpack.fog, bspdata
 local ENABLED = CreateClientConVar("borealis_wetness", "1", true, false, "darken and gloss the surfaces the rain reaches")
+local SPAN_ONLY = CreateClientConVar("borealis_wetness_world_only", "0", true, false, "take wetness cover from the baked span map instead of the trace grid")
+
+local function spanOnly()
+	return SPAN_ONLY:GetBool() and cover.Spans() ~= nil
+end
 
 local WET_RATE, DRY_RATE = 1 / 20, 1 / 60
 local POOL_RATE, POOL_DRY_RATE = 1 / 40, 1 / 180
@@ -180,7 +185,7 @@ end
 local function prepare()
 	if active then
 		local eye = EyePos()
-		cover.Update(eye)
+		if not spanOnly() then cover.Update(eye) end
 		updateFar(eye)
 	end
 end
@@ -201,20 +206,21 @@ end
 
 local FOG_DENSITY_MAX, FOG_FALLOFF_MAX = 0.001, 1000
 local quadColor = Color(0, 0, 0, 255)
-local wetConstants = Matrix()
+local wetConstants, spanConstants = Matrix(), Matrix()
 
 local function draw()
 	if not active then return end
 
+	local spans = cover.Spans()
+	local useSpans = spanOnly()
 	local coverRT = cover.Texture()
-	if not coverRT or not farRT then return end
+	if not farRT or not (coverRT or useSpans) then return end
 
 	if not MAT then build() end
 	local bakedSun = bspdata.BakedSun()
 
-	MAT:SetTexture("$texture2", coverRT)
+	MAT:SetTexture("$texture2", coverRT or spans)
 	MAT:SetTexture("$texture5", farRT)
-	local spans = cover.Spans()
 	MAT:SetTexture("$texture6", spans or coverRT)
 	local eye, ang = EyePos(), EyeAngles()
 	local fwd, right = ang:Forward(), ang:Right()
@@ -242,6 +248,8 @@ local function draw()
 		(farX + FAR_COLUMNS / 2) * FAR_COLUMN, (farY + FAR_COLUMNS / 2) * FAR_COLUMN, fogBase, spans and vs.zfar or -vs.zfar
 	)
 	MAT:SetMatrix("$viewprojmat", wetConstants)
+	spanConstants:SetField(1, 1, useSpans and 1 or 0)
+	MAT:SetMatrix("$invviewprojmat", spanConstants)
 	quadColor.r = math.floor(math.min(fogDensity / FOG_DENSITY_MAX, 1) * 255 + 0.5)
 	quadColor.g = math.floor(math.Clamp(fogFalloff / FOG_FALLOFF_MAX, 1 / 255, 1) * 255 + 0.5)
 	quadColor.b = depthslices.Samples()
@@ -310,7 +318,7 @@ local function smoothstep(a, b, x)
 end
 
 local function exposed(p, nz)
-	local top = cover.HeightAt(p.x, p.y)
+	local top = not spanOnly() and cover.HeightAt(p.x, p.y)
 	if top then
 		local slope = math.min(SLOPE_MARGIN * math.sqrt(math.max(1 - nz * nz, 0)) / math.max(nz, 0.01), SLOPE_MARGIN_MAX)
 
@@ -333,7 +341,7 @@ local function footstep(ply, pos, _, _, volume)
 	stepTrace.filter = ply
 	util.TraceLine(stepTrace)
 	local hit = stepTrace.output
-	if not hit.Hit then return end
+	if not hit.Hit or (not hit.HitWorld and spanOnly()) then return end
 
 	local nz = hit.HitNormal.z
 	local upward = smoothstep(UP_MIN, UP_FULL, nz)

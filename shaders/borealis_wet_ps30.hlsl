@@ -9,6 +9,7 @@ const float4 Constants11 : register(c11);
 const float4 Constants12 : register(c12);
 const float4 Constants13 : register(c13);
 const float4 Constants14 : register(c14);
+const float4 Constants15 : register(c15);
 
 sampler Frame : register(s0);
 sampler Depth : register(s1);
@@ -39,6 +40,7 @@ sampler CoverSpans : register(s6);
 #define FOG_BASE   Constants14.z
 #define SPANS_ON   (Constants14.w > 0.0 ? 1.0 : 0.0)
 #define ZFAR       abs(Constants14.w)
+#define SPAN_ONLY  (Constants15.x > 0.5)
 
 #define R_EARTH 6371.0
 #define EYE_H 0.2
@@ -64,6 +66,7 @@ sampler CoverSpans : register(s6);
 #define SLOPE_MARGIN_MAX 64.0
 #define UNTRACED_MIN 3.0
 #define UNTRACED_MAX 8.0
+#define SPAN_GROUND_MARGIN 16.0
 #define GLOSS_FAR 0.7
 #define GLOSS_SEED (179.0 / 255.0)
 #define FAR_COLUMN 128.0
@@ -176,13 +179,32 @@ float2 farSample(float3 p)
 	return float2(lerp(GLOSS_FAR, lerp(lerp(f00.y, f10.y, ff.x), lerp(f01.y, f11.y, ff.x), ff.y), window), window > 0.0 ? max(max(f00.z, f10.z), max(f01.z, f11.z)) : Z_MIN);
 }
 
+float spanGroundAt(float2 col, float z, float margin)
+{
+	float4 a, b;
+	CoverSpansFetch(CoverSpans, col, a, b);
+
+	return dot(step(abs(float4(a.y, a.w, b.y, b.w) - z), margin), 1.0);
+}
+
+float spanGround(float3 p, float margin)
+{
+	float2 col = floor((p.xy - COVER_SPANS_MIN) / COVER_SPANS_SIZE * COVER_SPANS_COLUMNS - 0.5);
+	float z = (p.z - COVER_SPANS_MIN) / COVER_SPANS_SIZE;
+	float m = margin / COVER_SPANS_SIZE;
+	float ground = max(spanGroundAt(col, z, m), spanGroundAt(col + float2(1.0, 0.0), z, m));
+	ground = max(ground, max(spanGroundAt(col + float2(0.0, 1.0), z, m), spanGroundAt(col + float2(1.0, 1.0), z, m)));
+
+	return saturate(ground);
+}
+
 float4 exposure(float3 p, float3 n, float2 eyeCol)
 {
 	float2 g = p.xy / COLUMN - 0.5;
 	float2 col = floor(g);
 	float2 f = g - col;
 	float open = 1.0;
-	float columnsLeft = COVER_RANGE - 1.0 - max(abs(col.x - eyeCol.x), abs(col.y - eyeCol.y));
+	float columnsLeft = SPAN_ONLY ? 0.0 : COVER_RANGE - 1.0 - max(abs(col.x - eyeCol.x), abs(col.y - eyeCol.y));
 	float far = 0.0;
 	float level = Z_MIN;
 	[branch] if (columnsLeft < GLOSS_FADE)
@@ -214,7 +236,12 @@ float4 exposure(float3 p, float3 n, float2 eyeCol)
 	}
 	else if (SPANS_ON > 0.5)
 	{
-		open = CoverSpansOpen(CoverSpans, p, COVER_MARGIN + min(SLOPE_MARGIN * length(n.xy) / max(n.z, 0.01), SLOPE_MARGIN_MAX));
+		float margin = COVER_MARGIN + min(SLOPE_MARGIN * length(n.xy) / max(n.z, 0.01), SLOPE_MARGIN_MAX);
+		open = CoverSpansOpen(CoverSpans, p, margin);
+		[branch] if (SPAN_ONLY)
+		{
+			open *= spanGround(p, SPAN_GROUND_MARGIN);
+		}
 	}
 
 	float below = level - p.z;

@@ -25,6 +25,12 @@ local COL = {
 	danger = Color(255, 92, 84),
 }
 
+local GROUP = setmetatable({
+	fill = mix(SCREEN, PHOSPHOR, 0.12),
+	hover = mix(SCREEN, PHOSPHOR, 0.22),
+	line = mix(SCREEN, PHOSPHOR, 0.3),
+}, { __index = COL })
+
 local CASE = {
 	body = Color(56, 55, 50),
 	top = Color(78, 76, 69),
@@ -59,11 +65,18 @@ local EFFECT_GROUPS = {
 		{ "borealis_sunshafts", "Sun shafts", "Cast sunbeams through gaps and treetops" },
 	} },
 	{ "WEATHER", {
-		{ "borealis_precipitations", "Rain and snow", "Drop rain and snow in bad weather" },
+		{ "borealis_precipitations", "Rain and snow", "Drop rain and snow in bad weather", children = {
+			{ "borealis_rain_volume", "Rain volume", "Set how loud rain, drips and thunder are", slider = { 0, 1, 2 } },
+			{ "borealis_rain_mute_losefocus", "Mute unfocused", "Silence rain while the game is in the background" },
+		} },
 		{ "borealis_fog", "Volumetric fog", "Thicken fog so lights shine through it" },
-		{ "borealis_wetness", "Wet surfaces", "Darken wet ground and form puddles" },
+		{ "borealis_wetness", "Wet surfaces", "Darken wet ground and form puddles", children = {
+			{ "borealis_wetness_world_only", "World only", "Wet only the map and keep props dry" },
+		} },
 		{ "borealis_drips", "Roof drips", "Drip rain off roof edges" },
-		{ "borealis_snow", "Deep snow", "Pile up snow in winter and keep footprints" },
+		{ "borealis_snow", "Deep snow", "Pile up snow in winter and keep footprints", children = {
+			{ "borealis_snow_distance", "Snow distance", "Set how far away deep snow shows", slider = { 1024, 8192, 0 } },
+		} },
 		{ "borealis_snow_powder", "Snow powder", "Kick up snow under cars and explosions" },
 		{ "borealis_icicles", "Icicles", "Hang icicles under snowy roof edges" },
 		{ "borealis_breath", "Cold breath", "Show breath outdoors in winter" },
@@ -73,27 +86,24 @@ local EFFECT_GROUPS = {
 		{ "borealis_lava", "Lava", "Make lava glow, shimmer and spark", show = function()
 			return GetGlobal2Vector("borealis_lava_area_mins", vector_origin) ~= GetGlobal2Vector("borealis_lava_area_maxs", vector_origin)
 		end },
-		{ "borealis_grass", "Grass", "Grow grass on grassy ground" },
+		{ "borealis_grass", "Grass", "Grow grass on grassy ground", children = {
+			{ "borealis_grass_distance", "Grass distance", "Set how far away grass shows", slider = { 1024, 8192, 0 } },
+		} },
 		{ "borealis_seagrass", "Seagrass", "Grow seagrass on sandy sea floors" },
 		{ "borealis_kelp", "Kelp", "Grow kelp forests on rocky sea floors" },
 		{ "borealis_leaves", "Leaves", "Drop leaves from trees in autumn" },
 	} },
 	{ "ADVANCED", {
 		{ "borealis_skybox3d", "3D skybox depth", "Extend fog and weather to distant scenery" },
-		{ "borealis_ssao", "Ambient occlusion", "Shade corners and the ground under objects" },
-		{ "borealis_ssao_halfres", "Half-res occlusion", "Trade shading sharpness for speed" },
-		{ "borealis_sharpen", "Sharpening", "Sharpen the picture" },
+		{ "borealis_ssao", "Ambient occlusion", "Shade corners and the ground under objects", children = {
+			{ "borealis_ssao_halfres", "Half res", "Trade shading sharpness for speed" },
+			{ "borealis_ssao_strength", "Occlusion", "Set shading darkness", slider = { 0, 1, 2 } },
+		} },
+		{ "borealis_sharpen", "Sharpening", "Sharpen the picture", children = {
+			{ "borealis_sharpen_strength", "Strength", "Set sharpening strength", slider = { 0, 1, 2 } },
+		} },
 		{ "borealis_grade", "Colour grading", "Tint the picture by time of day" },
-		{ "borealis_rain_mute_losefocus", "Mute rain unfocused", "Silence rain while the game is in the background" },
 	} },
-}
-
-local EFFECT_SLIDERS = {
-	{ "borealis_grass_distance", "Grass distance", 1024, 8192, 0, "Set how far away grass shows" },
-	{ "borealis_snow_distance", "Snow distance", 1024, 8192, 0, "Set how far away deep snow shows" },
-	{ "borealis_sharpen_strength", "Sharpening", 0, 1, 2, "Set sharpening strength" },
-	{ "borealis_ssao_strength", "Occlusion", 0, 1, 2, "Set shading darkness" },
-	{ "borealis_rain_volume", "Rain volume", 0, 1, 2, "Set how loud rain, drips and thunder are" },
 }
 
 local GLYPHS = {
@@ -539,20 +549,21 @@ end
 
 function TOGGLE:Paint(w, h)
 	local on = self.ConVar:GetBool()
-	local live = self.Master or GetConVar("borealis_enabled"):GetBool()
+	local live = self.Master or GetConVar("borealis_enabled"):GetBool() and (not self.Parent or self.Parent:GetBool())
+	local C = self.Grouped and GROUP or COL
 
-	if self:IsHovered() and ready() then rect(0, 0, w, h, COL.hover) end
+	if self:IsHovered() and ready() then rect(0, 0, w, h, C.hover) end
 
 	local font = self.Master and FONT.med or FONT.body
 	local state = on and "ON" or "OFF"
-	local stateCol = not live and COL.dim or on and COL.bright or self.Master and COL.danger or COL.dim
-	local lw = say(self.Label, font, px(6), h / 2, live and COL.mid or COL.dim, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+	local stateCol = not live and C.dim or on and C.bright or self.Master and C.danger or C.dim
+	local lw = say(self.Label, font, px(6), h / 2, live and C.mid or C.dim, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
 
 	surface.SetFont(font)
 	local sw = surface.GetTextSize("OFF")
 	local f = reveal(6)
 	if f > 0 then
-		surface.SetDrawColor(COL.line)
+		surface.SetDrawColor(C.line)
 		local x1, x2 = px(6) + lw + px(8), w - px(6) - sw - px(8)
 		local dy = math.floor(h / 2 + px(3))
 		for dx = x1, x1 + (x2 - x1) * f, px(6) do
@@ -626,22 +637,67 @@ function SLIDER:Paint(w, h)
 	local frac = math.Clamp((value - self.Min) / (self.Max - self.Min), 0, 1)
 	local picking = self.Picked ~= nil
 	local hovered = self:IsHovered() or picking
+	local live = not self.Parent or GetConVar("borealis_enabled"):GetBool() and self.Parent:GetBool()
+	local C = self.Grouped and GROUP or COL
 
-	say(self.Label, FONT.small, 0, 0, hovered and COL.bright or COL.mid)
-	say(self.Decimals > 0 and string.format("%." .. self.Decimals .. "f", value) or tostring(math.Round(value)), FONT.small, w, 0, COL.bright, TEXT_ALIGN_RIGHT)
+	say(self.Label, FONT.body, 0, 0, hovered and C.bright or live and C.mid or C.dim)
+	say(self.Decimals > 0 and string.format("%." .. self.Decimals .. "f", value) or tostring(math.Round(value)), FONT.body, w, 0, live and C.bright or C.dim, TEXT_ALIGN_RIGHT)
 
 	local f = reveal(SEGMENTS)
 	local gap = px(3)
 	local step = (w + gap) / SEGMENTS
 	local filled = math.Round(frac * SEGMENTS)
-	local y = H.small + px(6)
+	local y = H.body + px(6)
 	for i = 0, math.floor(SEGMENTS * f) - 1 do
 		local x = math.floor(i * step)
-		rect(x, y, math.floor((i + 1) * step) - gap - x, h - y, i < filled and (picking and COL.bright or COL.ink) or COL.line)
+		rect(x, y, math.floor((i + 1) * step) - gap - x, h - y, i < filled and (picking and C.bright or live and C.ink or C.dim) or C.line)
 	end
 end
 
 vgui.Register("BorealisSlider", SLIDER, "Panel")
+
+local CATEGORY = {}
+
+function CATEGORY:Init()
+	self:SetText("")
+end
+
+function CATEGORY:Setup(label, convars, onPress)
+	self.Label = label:upper()
+	self.ConVars = convars
+	self.OnPress = onPress
+	self.BorealisHelp = "Show " .. label:lower() .. " effects"
+
+	return self
+end
+
+function CATEGORY:Paint(w, h)
+	local count = 0
+	for _, convar in ipairs(self.ConVars) do
+		if convar:GetBool() then count = count + 1 end
+	end
+	local status = count .. "/" .. #self.ConVars
+
+	if self:IsActive() then
+		rect(0, 0, w, h, COL.ink)
+		text(self.Label, FONT.body, px(8), h / 2, COL.screen, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+		text(status, FONT.small, w - px(8), h / 2, COL.screen, TEXT_ALIGN_RIGHT, TEXT_ALIGN_CENTER)
+
+		return
+	end
+
+	local hovered = self:IsHovered() and ready()
+	if hovered then rect(0, 0, w, h, COL.hover) end
+	say(self.Label, FONT.body, px(8), h / 2, hovered and COL.bright or COL.mid, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+	say(status, FONT.small, w - px(8), h / 2, COL.dim, TEXT_ALIGN_RIGHT, TEXT_ALIGN_CENTER)
+end
+
+function CATEGORY:DoClick()
+	playUI(SOUND.click, CLICK_VOLUME)
+	self:OnPress()
+end
+
+vgui.Register("BorealisCategory", CATEGORY, "DButton")
 
 local CHART = {}
 
@@ -1026,12 +1082,11 @@ end
 local function buildEffects(tab, w, h)
 	local gap = px(24)
 	local masterH = px(40)
-	local headH = H.small + px(2)
 	local rowH = px(26)
 	local benchW = px(190)
 
 	local master = vgui.Create("BorealisToggle", tab)
-	master:Setup("Borealis effects", GetConVar("borealis_enabled"), "Switch all effects on or off")
+	master:Setup("Borealis", GetConVar("borealis_enabled"), "Switch all effects on or off")
 	master.Master = true
 	master:SetPos(0, 0)
 	master:SetSize(w - benchW * 2 - gap * 2, masterH)
@@ -1040,10 +1095,10 @@ local function buildEffects(tab, w, h)
 	for _, group in ipairs(EFFECT_GROUPS) do
 		for _, entry in ipairs(group[2]) do
 			names[#names + 1] = entry[1]
+			for _, child in ipairs(entry.children or {}) do
+				names[#names + 1] = child[1]
+			end
 		end
-	end
-	for _, entry in ipairs(EFFECT_SLIDERS) do
-		names[#names + 1] = entry[1]
 	end
 
 	local confirmUntil = 0
@@ -1075,54 +1130,136 @@ local function buildEffects(tab, w, h)
 	bench:SetSize(benchW, px(28))
 
 	local top = masterH + px(22)
-	local cols = #EFFECT_GROUPS
-	local cw = math.floor((w - gap * (cols - 1)) / cols)
-	local groups, tallest = {}, 0
+	local railW, catH = px(190), px(34)
+	local paneX = railW + gap
+	local paneW = w - paneX
+	local colW = math.floor((paneW - gap) / 2)
+	local indent = px(22)
+	local sliderH = H.body + px(20)
+	local sliderStep = sliderH + px(10)
+	local blockGap = px(8)
+	local panes = {}
+
+	local function select(index)
+		menu.LastEffectsGroup = index
+		for k, pane in ipairs(panes) do
+			pane:SetVisible(k == index)
+		end
+	end
 
 	for i, group in ipairs(EFFECT_GROUPS) do
-		local x = (i - 1) * (cw + gap)
-		local y = top + headH + px(10)
-		local convars = {}
+		local items, convars = {}, {}
 		for _, entry in ipairs(group[2]) do
 			local convar = GetConVar(entry[1])
 			if convar and (not entry.show or entry.show()) then
-				local toggle = vgui.Create("BorealisToggle", tab)
-				toggle:Setup(entry[2], convar, entry[3])
-				toggle:SetPos(x, y)
-				toggle:SetSize(cw, rowH)
+				local children = {}
+				for _, child in ipairs(entry.children or {}) do
+					local childVar = GetConVar(child[1])
+					if childVar then children[#children + 1] = { child, childVar } end
+				end
+
+				local height = rowH
+				if #children > 0 then
+					for _, child in ipairs(children) do
+						height = height + (child[1].slider and sliderStep or rowH)
+					end
+					height = height + px(4) + blockGap
+				end
+
+				items[#items + 1] = { entry = entry, convar = convar, children = children, height = height }
 				convars[#convars + 1] = convar
-				y = y + rowH
 			end
 		end
 
-		groups[i] = { x = x, name = group[1], convars = convars }
-		tallest = math.max(tallest, y - top)
+		table.sort(items, function(a, b)
+			if (#a.children > 0) ~= (#b.children > 0) then return #a.children > 0 end
+
+			return a.entry[2] < b.entry[2]
+		end)
+
+		local total = 0
+		for _, item in ipairs(items) do
+			total = total + item.height
+		end
+
+		local split, best, run = 0, math.huge, 0
+		for k = 0, #items do
+			if k > 0 then run = run + items[k].height end
+			local worst = math.max(run, total - run)
+			if worst < best then best, split = worst, k end
+		end
+
+		local pane = vgui.Create("Panel", tab)
+		pane:SetPos(paneX, top)
+		pane:SetSize(paneW, h - top)
+		panes[i] = pane
+
+		local branches = {}
+		local x, y = 0, 0
+		for k, item in ipairs(items) do
+			if k == split + 1 then x, y = colW + gap, 0 end
+
+			local blockTop = y
+			local toggle = vgui.Create("BorealisToggle", pane)
+			toggle:Setup(item.entry[2], item.convar, item.entry[3])
+			toggle:SetPos(x, y)
+			toggle:SetSize(colW, rowH)
+			toggle.Grouped = #item.children > 0
+			y = y + rowH
+
+			if #item.children > 0 then
+				local from, stubs = y - px(4), {}
+				for _, child in ipairs(item.children) do
+					local spec, childVar = child[1], child[2]
+					local row
+					if spec.slider then
+						row = vgui.Create("BorealisSlider", pane)
+						row:Setup(spec[2], spec.slider[1], spec.slider[2], spec.slider[3], childVar, spec[3])
+						row:SetPos(x + indent + px(6), y + px(4))
+						row:SetSize(colW - indent - px(12), sliderH)
+						stubs[#stubs + 1] = y + px(4) + math.floor(H.body / 2)
+						y = y + sliderStep
+					else
+						row = vgui.Create("BorealisToggle", pane)
+						row:Setup(spec[2], childVar, spec[3])
+						row:SetPos(x + indent, y)
+						row:SetSize(colW - indent, rowH)
+						stubs[#stubs + 1] = y + math.floor(rowH / 2)
+						y = y + rowH
+					end
+					row.Parent = item.convar
+					row.Grouped = true
+				end
+
+				y = y + px(4)
+				branches[#branches + 1] = { x = x, from = from, stubs = stubs, top = blockTop, h = y - blockTop }
+				y = y + blockGap
+			end
+		end
+
+		function pane:Paint()
+			local t = px(2)
+			for _, branch in ipairs(branches) do
+				rect(branch.x, branch.top, colW, branch.h, GROUP.fill)
+				local bx = branch.x + px(10)
+				rect(bx, branch.from, t, branch.stubs[#branch.stubs] - branch.from + t, GROUP.line)
+				for _, stub in ipairs(branch.stubs) do
+					rect(bx, stub, branch.x + indent - px(2) - bx, t, GROUP.line)
+				end
+			end
+		end
+
+		local category = vgui.Create("BorealisCategory", tab)
+		category:Setup(group[1], convars, function() select(i) end)
+		category.IsActive = function() return menu.LastEffectsGroup == i end
+		category:SetPos(0, top + (i - 1) * (catH + px(4)))
+		category:SetSize(railW, catH)
 	end
 
-	local dy = top + tallest + px(26)
-	local sw = math.floor((w - gap * (#EFFECT_SLIDERS - 1)) / #EFFECT_SLIDERS)
-	local n = 0
-	for _, entry in ipairs(EFFECT_SLIDERS) do
-		local convar = GetConVar(entry[1])
-		if convar then
-			local slider = vgui.Create("BorealisSlider", tab)
-			slider:Setup(entry[2], entry[3], entry[4], entry[5], convar, entry[6])
-			slider:SetPos(n * (sw + gap), dy + headH + px(16))
-			slider:SetSize(sw, H.small + px(20))
-			n = n + 1
-		end
-	end
+	select(panes[menu.LastEffectsGroup or 0] and menu.LastEffectsGroup or 1)
 
 	function tab:Paint()
-		for _, group in ipairs(groups) do
-			local count = 0
-			for _, convar in ipairs(group.convars) do
-				if convar:GetBool() then count = count + 1 end
-			end
-			section(group.x, top, cw, group.name, count .. "/" .. #group.convars)
-		end
-
-		section(0, dy, w, "DETAIL")
+		rect(railW + math.floor(gap / 2), top, 1, h - top, COL.line)
 	end
 end
 
