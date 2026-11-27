@@ -47,6 +47,7 @@ local function build()
 		["$linearread_texture4"] = 1,
 		["$linearread_texture5"] = 1,
 		["$linearread_texture6"] = 1,
+		["$linearread_texture7"] = 1,
 		["$linearwrite"] = 0,
 		["$additive"] = 0,
 		["$alpha_blend"] = 0,
@@ -181,6 +182,7 @@ local function prepare()
 	if active then
 		local eye = EyePos()
 		cover.Update(eye)
+		cover.UpdateRaster(eye)
 		updateFar(eye)
 	end
 end
@@ -201,7 +203,7 @@ end
 
 local FOG_DENSITY_MAX, FOG_FALLOFF_MAX = 0.001, 1000
 local quadColor = Color(0, 0, 0, 255)
-local wetConstants = Matrix()
+local wetConstants, rasterConstants = Matrix(), Matrix()
 
 local function draw()
 	if not active then return end
@@ -216,6 +218,8 @@ local function draw()
 	MAT:SetTexture("$texture5", farRT)
 	local spans = cover.Spans()
 	MAT:SetTexture("$texture6", spans or coverRT)
+	MAT:SetTexture("$texture7", cover.RasterConstants(rasterConstants) or coverRT)
+	MAT:SetMatrix("$invviewprojmat", rasterConstants)
 	local eye, ang = EyePos(), EyeAngles()
 	local fwd, right = ang:Forward(), ang:Right()
 	local halfW, halfH, vs = depthslices.ViewTan()
@@ -309,6 +313,14 @@ local function smoothstep(a, b, x)
 	return t * t * (3 - 2 * t)
 end
 
+local function skyOpen(p)
+	skyTrace.start:SetUnpacked(p.x, p.y, p.z + 4)
+	skyTrace.endpos:SetUnpacked(p.x, p.y, p.z + Z_RANGE)
+	util.TraceLine(skyTrace)
+
+	return skyTrace.output.HitSky or not skyTrace.output.Hit
+end
+
 local function exposed(p, nz)
 	local top = cover.HeightAt(p.x, p.y)
 	if top then
@@ -317,11 +329,7 @@ local function exposed(p, nz)
 		return top <= p.z + COVER_MARGIN + slope and p.z - top < UNTRACED_MAX
 	end
 
-	skyTrace.start:SetUnpacked(p.x, p.y, p.z + 4)
-	skyTrace.endpos:SetUnpacked(p.x, p.y, p.z + Z_RANGE)
-	util.TraceLine(skyTrace)
-
-	return skyTrace.output.HitSky or not skyTrace.output.Hit
+	return skyOpen(p)
 end
 
 local function footstep(ply, pos, _, _, volume)
@@ -360,10 +368,105 @@ local function footstep(ply, pos, _, _, volume)
 	ply:EmitSound(STEP_SOUNDS[math.random(#STEP_SOUNDS)], STEP_LEVEL, math.random(STEP_PITCH - STEP_PITCH_SPREAD, STEP_PITCH + STEP_PITCH_SPREAD), math.min(volume * gain, 1))
 end
 
+local SHED_MATERIAL = "effects/splash2"
+local SHED_MIN_WET = 0.05
+local SHED_SAMPLES, SHED_LIFT = 24, 8
+local SHED_TIME = 1
+local SHED_DENSITY, SHED_MAX_RATE = 1 / 150, 120
+local SHED_INHERIT_MIN, SHED_INHERIT_MAX, SHED_SCATTER, SHED_KICK = 0.6, 0.9, 15, 30
+local SHED_GRAVITY, SHED_DRAG = Vector(0, 0, -600), 150
+local SHED_LIFE_MIN, SHED_LIFE_MAX, SHED_ALPHA = 0.5, 0.9, 140
+local SHED_SIZE_MIN, SHED_SIZE_MAX, SHED_SIZE_END = 0.8, 1.4, 0.6
+local SHED_LENGTH_MIN, SHED_LENGTH_MAX, SHED_LENGTH_END = 3, 6, 10
+
+local shedders, shedEmitter = {}, nil
+local shedTrace = { start = Vector(), endpos = Vector(), ignoreworld = true, output = {} }
+
+local function shedPoints(e)
+	local mins, maxs = e:OBBMins(), e:OBBMaxs()
+	local depth = maxs.z - mins.z + SHED_LIFT * 2
+	local down = -e:GetUp() * depth
+	shedTrace.filter = function(hit) return hit == e end
+	local points = {}
+	for _ = 1, SHED_SAMPLES do
+		local from = e:LocalToWorld(Vector(Lerp(math.random(), mins.x, maxs.x), Lerp(math.random(), mins.y, maxs.y), maxs.z + SHED_LIFT))
+		shedTrace.start:Set(from)
+		shedTrace.endpos:Set(from + down)
+		util.TraceLine(shedTrace)
+		local hit = shedTrace.output
+		if hit.Hit and hit.Entity == e and hit.HitNormal.z > UP_MIN and skyOpen(hit.HitPos) then
+			points[#points + 1] = e:WorldToLocal(hit.HitPos)
+		end
+	end
+
+	shedTrace.filter = nil
+
+	return points
+end
+
+local function shed(e)
+	if not active or wet < SHED_MIN_WET then return end
+
+	local points = shedPoints(e)
+	if #points == 0 then return end
+
+	local size = e:OBBMaxs() - e:OBBMins()
+	local area = size.x * size.y * #points / SHED_SAMPLES
+	shedders[#shedders + 1] = {
+		e = e, points = points, start = RealTime(), carry = 0, last = e:GetPos(),
+		rate = math.min(area * SHED_DENSITY, SHED_MAX_RATE) * wet,
+	}
+end
+
+local function updateShedding()
+	if #shedders == 0 then return end
+
+	local now, dt = RealTime(), FrameTime()
+	shedEmitter = shedEmitter or ParticleEmitter(vector_origin)
+	for i = #shedders, 1, -1 do
+		local s = shedders[i]
+		local t = (now - s.start) / SHED_TIME
+		if t >= 1 or not IsValid(s.e) then
+			table.remove(shedders, i)
+		else
+			local pos = s.e:GetPos()
+			local vel = dt > 0 and (pos - s.last) / dt or vector_origin
+			s.last = pos
+			s.carry = s.carry + s.rate * (1 - t) * dt
+			while s.carry >= 1 do
+				s.carry = s.carry - 1
+				local p = shedEmitter:Add(SHED_MATERIAL, s.e:LocalToWorld(s.points[math.random(#s.points)]))
+				if p then
+					p:SetVelocity(vel * math.Rand(SHED_INHERIT_MIN, SHED_INHERIT_MAX) + VectorRand() * SHED_SCATTER + Vector(0, 0, math.Rand(0, SHED_KICK)))
+					p:SetGravity(SHED_GRAVITY)
+					p:SetAirResistance(SHED_DRAG)
+					p:SetDieTime(math.Rand(SHED_LIFE_MIN, SHED_LIFE_MAX))
+					p:SetStartAlpha(SHED_ALPHA)
+					p:SetEndAlpha(0)
+					p:SetStartSize(math.Rand(SHED_SIZE_MIN, SHED_SIZE_MAX))
+					p:SetEndSize(SHED_SIZE_END)
+					p:SetStartLength(math.Rand(SHED_LENGTH_MIN, SHED_LENGTH_MAX))
+					p:SetEndLength(SHED_LENGTH_END)
+					p:SetLighting(true)
+					p:SetCollide(true)
+					p:SetBounce(0)
+				end
+			end
+		end
+	end
+end
+
 local function stop()
 	shaderpack.footsteps.Remove("borealis_wetness")
+	cover.UnlistenRaster("borealis_wetness")
 	hook.Remove("Think", "borealis_wetness")
+	hook.Remove("Think", "borealis_wetness_shed")
 	hook.Remove("PreRender", "borealis_wetness")
+	shedders = {}
+	if shedEmitter then
+		shedEmitter:Finish()
+		shedEmitter = nil
+	end
 	depthslices.RemoveEffect("borealis_wetness")
 	active = false
 end
@@ -382,7 +485,9 @@ local function start()
 	MAT = nil
 	freeze()
 	hook.Add("Think", "borealis_wetness", think)
+	hook.Add("Think", "borealis_wetness_shed", updateShedding)
 	hook.Add("PreRender", "borealis_wetness", prepare)
+	cover.ListenRaster("borealis_wetness", shed)
 	if patchNoise == nil then loadNoise() end
 	shaderpack.footsteps.Add("borealis_wetness", footstep)
 	depthslices.AddEffect("borealis_wetness", ORDER, draw, false, function() return active end)

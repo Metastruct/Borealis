@@ -1,5 +1,6 @@
 #include "include/common.hlsl"
 #include "include/slices.hlsl"
+#include "include/cover_raster.hlsl"
 
 const float4 Constants0 : register(c0);
 const float4 Constants1 : register(c1);
@@ -54,6 +55,10 @@ sampler CoverSpans : register(s6);
 #define Z_MIN -16384.0
 #define Z_RANGE 32768.0
 #define COVER_MARGIN 12.0
+#define RASTER_MARGIN 4.0
+#define RASTER_SLOPE 6.0
+#define RASTER_SLOPE_MAX 24.0
+#define RASTER_CUT_PROBE 16.0
 #define WATERLINE 2.0
 #define SHALLOW 128.0
 #define SOAK_DEPTH 48.0
@@ -176,6 +181,24 @@ float2 farSample(float3 p)
 	return float2(lerp(GLOSS_FAR, lerp(lerp(f00.y, f10.y, ff.x), lerp(f01.y, f11.y, ff.x), ff.y), window), window > 0.0 ? max(max(f00.z, f10.z), max(f01.z, f11.z)) : Z_MIN);
 }
 
+float rasterOpen(float3 p, float3 n, out float top)
+{
+	float2 px = RasterPixel(p);
+	top = Z_MIN;
+	[branch] if (!RasterInside(px))
+	{
+		return -1.0;
+	}
+
+	float2 i = floor(px);
+	float2 f = px - i;
+	float4 h = float4(RasterHeight(i), RasterHeight(i + float2(1.0, 0.0)), RasterHeight(i + float2(0.0, 1.0)), RasterHeight(i + 1.0));
+	float4 o = step(h, p.z + RASTER_MARGIN + min(RASTER_SLOPE * length(n.xy) / max(n.z, 0.01), RASTER_SLOPE_MAX));
+	top = max(max(h.x, h.y), max(h.z, h.w));
+
+	return lerp(lerp(o.x, o.y, f.x), lerp(o.z, o.w, f.x), f.y);
+}
+
 float4 exposure(float3 p, float3 n, float2 eyeCol)
 {
 	float2 g = p.xy / COLUMN - 0.5;
@@ -215,6 +238,23 @@ float4 exposure(float3 p, float3 n, float2 eyeCol)
 	else if (SPANS_ON > 0.5)
 	{
 		open = CoverSpansOpen(CoverSpans, p, COVER_MARGIN + min(SLOPE_MARGIN * length(n.xy) / max(n.z, 0.01), SLOPE_MARGIN_MAX));
+	}
+
+	float rasterTop;
+	float raster = rasterOpen(p, n, rasterTop);
+	[branch] if (raster >= 0.0)
+	{
+		open = raster * (1.0 - smoothstep(UNTRACED_MIN, UNTRACED_MAX, p.z - rasterTop)) * step(level, p.z + COVER_MARGIN);
+		[branch] if (SPANS_ON > 0.5)
+		{
+			float sky = CoverSpansOpen(CoverSpans, float3(p.xy, RASTER_CUT - RASTER_CUT_PROBE), 0.0);
+			[branch] if (sky < 0.5)
+			{
+				sky = CoverSpansOpen(CoverSpans, p, COVER_MARGIN + min(SLOPE_MARGIN * length(n.xy) / max(n.z, 0.01), SLOPE_MARGIN_MAX));
+			}
+
+			open *= sky;
+		}
 	}
 
 	float below = level - p.z;

@@ -77,9 +77,9 @@ local SPLASH_GREY = 0.45
 local SPLASH_OVERCAST = 0.85
 local SPLASH_REBUILD = 0.5
 local SPLASH_FLAT = 10
+local SPLASH_PLANE = 3
 local SPLASH_NSCALE = 0.75
 local SPLASH_C0 = math.floor((SPLASH_STEP - SPLASH_QUAD) * 0.5)
-local SPLASH_C1 = SPLASH_C0 + SPLASH_QUAD
 
 local packColor, setConstant, toLinear = shaderpack.PackColor, shaderpack.SetConstant, shaderpack.ToLinear
 
@@ -265,20 +265,52 @@ local function removeSplashes()
 	splashMesh = nil
 end
 
+local SPLASH_W = COLUMNS + SPLASH_QUAD
+local planeOffset, planeA, planeB, planeC, planeD = {}, {}, {}, {}, {}
+for j = 0, SPLASH_QUAD do
+	for i = 0, SPLASH_QUAD do
+		if (i ~= 0 and i ~= SPLASH_QUAD) or (j ~= 0 and j ~= SPLASH_QUAD) then
+			local u, v, k = i / SPLASH_QUAD, j / SPLASH_QUAD, #planeOffset + 1
+			planeOffset[k] = j * SPLASH_W + i
+			planeA[k], planeB[k], planeC[k], planeD[k] = (1 - u) * (1 - v), u * (1 - v), u * v, (1 - u) * v
+		end
+	end
+end
+
+local heights = {}
+
+local function onPlane(base, z00, z10, z11, z01)
+	for k = 1, #planeOffset do
+		local z = heights[base + planeOffset[k]]
+		if not z or math.abs(z - (z00 * planeA[k] + z10 * planeB[k] + z11 * planeC[k] + z01 * planeD[k])) > SPLASH_PLANE then return false end
+	end
+
+	return true
+end
+
 local function buildSplashes()
 	local winX, winY = cover.Window()
 	if not winX then return nil end
 
 	local groundAt = cover.Ground
+	local x0, y0 = winX + SPLASH_C0, winY + SPLASH_C0
+	for j = 0, SPLASH_W - 1 do
+		local row = j * SPLASH_W + 1
+		for i = 0, SPLASH_W - 1 do
+			heights[row + i] = groundAt(x0 + i, y0 + j) or false
+		end
+	end
+
 	local quads, count = {}, 0
 	local q = COLUMN * SPLASH_QUAD
+	local right, down = SPLASH_QUAD, SPLASH_QUAD * SPLASH_W
 	for cy = winY + winY % SPLASH_STEP, winY + COLUMNS - 1, SPLASH_STEP do
 		for cx = winX + winX % SPLASH_STEP, winX + COLUMNS - 1, SPLASH_STEP do
-			local z00 = groundAt(cx + SPLASH_C0, cy + SPLASH_C0)
-			local z10 = groundAt(cx + SPLASH_C1, cy + SPLASH_C0)
-			local z11 = groundAt(cx + SPLASH_C1, cy + SPLASH_C1)
-			local z01 = groundAt(cx + SPLASH_C0, cy + SPLASH_C1)
-			if z00 and z10 and z11 and z01 and math.abs(z00 - z10 + z11 - z01) * 0.5 <= SPLASH_FLAT then
+			local base = (cy - winY) * SPLASH_W + (cx - winX) + 1
+			local z00, z10 = heights[base], heights[base + right]
+			local z11, z01 = heights[base + down + right], heights[base + down]
+			if z00 and z10 and z11 and z01 and math.abs(z00 - z10 + z11 - z01) * 0.5 <= SPLASH_FLAT
+				and onPlane(base, z00, z10, z11, z01) then
 				local seed = (cx * 73856093 + cy * 19349663) % 65536
 				local dzdx, dzdy = (z10 - z00 + z11 - z01) * 0.5 / q, (z01 - z00 + z11 - z10) * 0.5 / q
 				local nz = 1 / math.sqrt(dzdx * dzdx + dzdy * dzdy + 1)
@@ -321,6 +353,7 @@ local function prepare()
 
 	local eye = EyePos()
 	if not cover.Update(eye) then return end
+	cover.UpdateRaster(eye)
 	if not DROP_MAT then build() end
 
 	submerged = bit.band(util.PointContents(eye), IN_WATER) ~= 0
@@ -475,9 +508,18 @@ local function drawSnow(eye, amount)
 	end
 end
 
+local rasterConstants = Matrix()
+
+local function setRaster(mat, rasterRT)
+	mat:SetTexture("$texture7", rasterRT or cover.Texture())
+	mat:SetMatrix("$invviewprojmat", rasterConstants)
+end
+
 local function drawWeather()
+	local rasterRT = cover.RasterConstants(rasterConstants)
 	local snow = tod and tod.snow
 	if snow and snow.amount > 0.001 and SNOW_MAT then
+		setRaster(SNOW_MAT, rasterRT)
 		drawSnow(EyePos(), snow.amount)
 	end
 
@@ -493,6 +535,7 @@ local function drawWeather()
 	local tonemap = shaderpack.ToneMapScale()
 
 	DROP_MAT:SetTexture("$basetexture", cover.Texture())
+	setRaster(DROP_MAT, rasterRT)
 	DROP_MAT:SetTexture("$texture1", dynamiclights.Texture() or "vgui/black")
 	DROP_MAT:SetTexture("$texture2", dynamiclights.ProjectedTexture() or "vgui/black")
 	DROP_MAT:SetTexture("$texture3", locallights.Texture() or "vgui/black")
@@ -550,6 +593,7 @@ local function material(name, pixelShader, vertexShader)
 		["$linearread_texture1"] = 1,
 		["$linearread_texture2"] = 1,
 		["$linearread_texture3"] = 1,
+		["$linearread_texture7"] = 1,
 		["$ignorez"] = 0,
 		["$depthtest"] = 1,
 		["$additive"] = 0,
@@ -559,7 +603,7 @@ local function material(name, pixelShader, vertexShader)
 		["$c1_x"] = 0, ["$c1_y"] = FADE_START, ["$c1_z"] = FADE_END, ["$c1_w"] = 0,
 		["$c2_x"] = 0, ["$c2_y"] = 0, ["$c2_z"] = 1, ["$c2_w"] = 0,
 		["$c3_x"] = 0, ["$c3_y"] = 0, ["$c3_z"] = 0, ["$c3_w"] = 0,
-	})
+	}, "screenspace_general_8tex")
 end
 
 function build()

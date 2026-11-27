@@ -1,6 +1,7 @@
 #include "include/common.hlsl"
 #include "include/dynamic_lights.hlsl"
 #include "include/local_lights.hlsl"
+#include "include/cover_raster.hlsl"
 
 const float4 Constants0 : register(c0);
 const float4 Constants1 : register(c1);
@@ -46,7 +47,7 @@ float4 main(PS_IN i) : COLOR
 {
 	float2 col = floor(i.centre.xy / COLUMN);
 	float2 cuv = frac(col / COLUMNS) + 0.5 / COLUMNS;
-	float2 c = tex2D(CoverTex, cuv).rg;
+	float4 c = tex2D(CoverTex, cuv);
 	float coverZ = (c.r * 65280.0 + c.g * 255.0) / 65535.0 * Z_RANGE + Z_MIN;
 
 	float r = length(i.uv);
@@ -63,7 +64,7 @@ float4 main(PS_IN i) : COLOR
 	float3 lit = FILL + WorldLight(WorldTex, i.centre.xy, WORLD_K) + GroundLight(DynamicTex, ProjectedTex, i.centre, coverZ, EYE.xy, DYN_K);
 	float3 color = lerp(lit, FOG_COLOR, max(fog, depth * HAZE));
 
-	float a = i.centre.z >= coverZ - 1.0 ? disc * fade * i.dimming.x * i.dimming.y * INTENSITY : 0.0;
+	float a = i.centre.z >= RasterBlockZ(i.centre, coverZ, c.a) - 1.0 ? disc * fade * i.dimming.x * i.dimming.y * INTENSITY : 0.0;
 
 	return float4(color, a);
 }

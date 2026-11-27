@@ -1,6 +1,7 @@
 #include "include/common.hlsl"
 #include "include/dynamic_lights.hlsl"
 #include "include/local_lights.hlsl"
+#include "include/cover_raster.hlsl"
 
 const float4 Constants0 : register(c0);
 const float4 Constants1 : register(c1);
@@ -91,7 +92,7 @@ float4 main(PS_IN i) : COLOR
 {
 	float2 col = floor(i.wpos.xy / COLUMN);
 	float2 cuv = frac(col / COLUMNS) + 0.5 / COLUMNS;
-	float2 c = tex2D(CoverTex, cuv).rg;
+	float4 c = tex2D(CoverTex, cuv);
 	float coverZ = (c.r * 65280.0 + c.g * 255.0) / 65535.0 * Z_RANGE + Z_MIN;
 
 	float px = fwidth(i.uv.x);
@@ -122,7 +123,7 @@ float4 main(PS_IN i) : COLOR
 	float fown = j < 0.5 ? fa : (j < 1.5 ? fb : fd);
 	float dropIndex = floor(fown);
 	float own = frac(dropIndex / SLOTS) * SLOTS;
-	bool mine = abs(win - j) < 0.5 && abs(own - m) < 0.5 && i.wpos.z >= i.tileData.z && i.wpos.z <= i.tileData.w && i.wpos.z >= coverZ;
+	bool mine = abs(win - j) < 0.5 && abs(own - m) < 0.5 && i.wpos.z >= i.tileData.z && i.wpos.z <= i.tileData.w && i.wpos.z >= RasterBlockZ(i.wpos, coverZ, c.a);
 
 	float dist = distance(i.wpos, EYE);
 	float fade = (1.0 - smoothstep(FADE_START, FADE_END, dist)) * smoothstep(NEAR * 0.3, NEAR, dist);

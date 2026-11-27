@@ -1055,6 +1055,496 @@ function cover.HeightAt(x, y)
 	return coverZs[key]
 end
 
+local RASTER_SIZE, RASTER_HALF = 320, 640
+local RASTER_SNAP, RASTER_RECENTRE = 128, 128
+local RASTER_HEIGHT, RASTER_DEPTH, RASTER_FLOOR = 40000, 16384, 64
+local RASTER_TILE, RASTER_TILE_MARGIN, RASTER_TILE_KEEP = 1024, 256, 256
+local RASTER_CHUNK, RASTER_LOD, RASTER_FLAT, RASTER_MIN_PROP = 4096, 2, 0.02, 16
+local RASTER_SKIP = bit.bor(SURF_SKY, SURF_SKY2D, SURF_NODRAW, SURF_TRIGGER, SURF_HINT, SURF_SKIP)
+local RASTER_SCAN_INTERVAL = 0.25
+local RASTER_MOVE, RASTER_TURN = 32, 15
+local RASTER_SHIFT, RASTER_SHIFT_TURN = 4, 2
+local RASTER_RT_FLAGS, RASTER_FORMAT = 1 + 4 + 8, 27
+local RASTER_IDLE = 30
+
+local raster = {
+	tiles = {}, queue = {}, models = {}, casters = {}, state = {},
+	staticDirty = false, dirty = false, ready = false, idle = false,
+	nextScan = 0, frame = -1, used = 0,
+}
+local rasterVector = Vector()
+local rasterView = {
+	type = "3D", origin = Vector(), angles = Angle(90, 90, 0),
+	znear = RASTER_HEIGHT, zfar = RASTER_HEIGHT + RASTER_DEPTH,
+	fov = 2 * math.deg(math.atan(RASTER_HALF / RASTER_HEIGHT)), aspect = 1,
+	x = 0, y = 0, w = RASTER_SIZE, h = RASTER_SIZE,
+}
+
+local function rasterSurface(name)
+	if name:lower():find("^tools/") or Material(name):GetShader():lower():find("water", 1, true) then return end
+
+	return 1
+end
+
+local function tileKey(tx, ty)
+	return tx .. ":" .. ty
+end
+
+local function appendTri(out, ax, ay, az, bx, by, bz, cx, cy, cz)
+	local ux, uy, uz = bx - ax, by - ay, bz - az
+	local vx, vy, vz = cx - ax, cy - ay, cz - az
+	local nx, ny, nz = uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx
+	local len = math.sqrt(nx * nx + ny * ny + nz * nz)
+	if len < 1e-6 or math.abs(nz) < RASTER_FLAT * len then return end
+
+	local n = #out
+	out[n + 1], out[n + 2], out[n + 3] = ax, ay, az
+	out[n + 4], out[n + 5], out[n + 6] = bx, by, bz
+	out[n + 7], out[n + 8], out[n + 9] = cx, cy, cz
+end
+
+local function modelTriangles(model)
+	local flat = raster.models[model]
+	if flat then return flat end
+
+	flat = {}
+	local x0, y0, z0, x1, y1, z1 = math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge
+	for _, sub in ipairs(util.GetModelMeshes(model, RASTER_LOD) or {}) do
+		for _, v in ipairs(sub.triangles) do
+			local p, n = v.pos, #flat
+			local x, y, z = p.x, p.y, p.z
+			flat[n + 1], flat[n + 2], flat[n + 3] = x, y, z
+			x0, y0, z0 = math.min(x0, x), math.min(y0, y), math.min(z0, z)
+			x1, y1, z1 = math.max(x1, x), math.max(y1, y), math.max(z1, z)
+		end
+	end
+
+	local sx, sy, sz = x1 - x0, y1 - y0, z1 - z0
+	flat.size = #flat >= 9 and math.max(math.min(sx, sy), math.min(sx, sz), math.min(sy, sz)) or 0
+	raster.models[model] = flat
+
+	return flat
+end
+
+local function appendProp(out, prop)
+	local flat = modelTriangles(prop.model)
+	local s = prop.scale or 1
+	if flat.size * s < RASTER_MIN_PROP then return end
+
+	local o = prop.origin
+	local f, r, u = prop.angles:Forward(), prop.angles:Right(), prop.angles:Up()
+	local fx, fy, fz = f.x * s, f.y * s, f.z * s
+	local lx, ly, lz = -r.x * s, -r.y * s, -r.z * s
+	local ux, uy, uz = u.x * s, u.y * s, u.z * s
+	local ox, oy, oz = o.x, o.y, o.z
+	for i = 1, #flat - 8, 9 do
+		local ax, ay, az = flat[i], flat[i + 1], flat[i + 2]
+		local bx, by, bz = flat[i + 3], flat[i + 4], flat[i + 5]
+		local cx, cy, cz = flat[i + 6], flat[i + 7], flat[i + 8]
+		appendTri(out,
+			ox + fx * ax + lx * ay + ux * az, oy + fy * ax + ly * ay + uy * az, oz + fz * ax + lz * ay + uz * az,
+			ox + fx * bx + lx * by + ux * bz, oy + fy * bx + ly * by + uy * bz, oz + fz * bx + lz * by + uz * bz,
+			ox + fx * cx + lx * cy + ux * cz, oy + fy * cx + ly * cy + uy * cz, oz + fz * cx + lz * cy + uz * cz)
+	end
+end
+
+local function buildMeshes(out, yieldIfOverBudget)
+	local meshes = {}
+	local total = #out / 9
+	for first = 0, total - 1, RASTER_CHUNK do
+		local count = math.min(RASTER_CHUNK, total - first)
+		local m = Mesh(raster.depth)
+		mesh.Begin(m, MATERIAL_TRIANGLES, count)
+		for i = first * 9 + 1, (first + count) * 9, 3 do
+			rasterVector:SetUnpacked(out[i], out[i + 1], out[i + 2])
+			mesh.Position(rasterVector)
+			mesh.AdvanceVertex()
+		end
+		mesh.End()
+		meshes[#meshes + 1] = m
+		yieldIfOverBudget()
+	end
+
+	return meshes
+end
+
+local function destroyMeshes(meshes)
+	for _, m in ipairs(meshes) do
+		m:Destroy()
+	end
+end
+
+local function buildTile(key, yieldIfOverBudget)
+	local out = {}
+	local world = raster.world[key]
+	if world then
+		for i = 1, #world do
+			out[i] = world[i]
+		end
+	end
+
+	yieldIfOverBudget()
+	for _, prop in ipairs(raster.props[key] or {}) do
+		appendProp(out, prop)
+		yieldIfOverBudget()
+	end
+
+	return buildMeshes(out, yieldIfOverBudget)
+end
+
+local function loadRaster()
+	local yieldIfOverBudget = bspdata.FrameBudget()
+	local grid = bspdata.Triangles(rasterSurface, -1, true, RASTER_SKIP)
+	if not grid then return end
+
+	local props = {}
+	for _, prop in ipairs(bspdata.StaticProps()) do
+		local key = tileKey(math.floor(prop.origin.x / RASTER_TILE), math.floor(prop.origin.y / RASTER_TILE))
+		local list = props[key] or {}
+		props[key] = list
+		list[#list + 1] = prop
+	end
+
+	grid = bspdata.RemoveSkybox(grid)
+	local world = {}
+	for key, cell in pairs(grid) do
+		local flat = {}
+		for _, t in ipairs(cell) do
+			appendTri(flat, t[1], t[2], t[3], t[4], t[5], t[6], t[7], t[8], t[9])
+		end
+
+		if #flat > 0 then world[key] = flat end
+		grid[key] = nil
+		yieldIfOverBudget()
+	end
+
+	raster.world, raster.props = world, props
+	raster.staticDirty = true
+	while true do
+		local key = table.remove(raster.queue, 1)
+		if key then
+			if raster.tiles[key] == false then
+				local meshes = buildTile(key, yieldIfOverBudget)
+				if raster.tiles[key] == false then
+					raster.tiles[key] = meshes
+					raster.staticDirty = true
+				else
+					destroyMeshes(meshes)
+				end
+			end
+		else
+			raster.idle = true
+			coroutine.yield()
+			raster.idle = false
+		end
+	end
+end
+
+local function tileRange(margin)
+	local reach = RASTER_HALF + RASTER_TILE_MARGIN + margin
+
+	return math.floor((raster.x - reach) / RASTER_TILE), math.floor((raster.y - reach) / RASTER_TILE),
+		math.floor((raster.x + reach) / RASTER_TILE), math.floor((raster.y + reach) / RASTER_TILE)
+end
+
+local function requestTiles()
+	local tx0, ty0, tx1, ty1 = tileRange(RASTER_TILE_KEEP)
+	for key, meshes in pairs(raster.tiles) do
+		local tx, ty = key:match("^(%-?%d+):(%-?%d+)$")
+		tx, ty = tonumber(tx), tonumber(ty)
+		if tx < tx0 or tx > tx1 or ty < ty0 or ty > ty1 then
+			if meshes then destroyMeshes(meshes) end
+			raster.tiles[key] = nil
+		end
+	end
+
+	tx0, ty0, tx1, ty1 = tileRange(0)
+	local cx, cy = raster.x / RASTER_TILE - 0.5, raster.y / RASTER_TILE - 0.5
+	local wanted = {}
+	for ty = ty0, ty1 do
+		for tx = tx0, tx1 do
+			local key = tileKey(tx, ty)
+			if raster.tiles[key] == nil then
+				raster.tiles[key] = false
+				wanted[#wanted + 1] = { key, (tx - cx) ^ 2 + (ty - cy) ^ 2 }
+			end
+		end
+	end
+
+	table.sort(wanted, function(a, b) return a[2] < b[2] end)
+	for _, w in ipairs(wanted) do
+		raster.queue[#raster.queue + 1] = w[1]
+	end
+end
+
+local function tilesComplete()
+	local tx0, ty0, tx1, ty1 = tileRange(0)
+	for ty = ty0, ty1 do
+		for tx = tx0, tx1 do
+			if not raster.tiles[tileKey(tx, ty)] then return false end
+		end
+	end
+
+	return true
+end
+
+local function buildRaster()
+	local static = GetRenderTargetEx("borealis_cover_raster_static_" .. RASTER_SIZE, RASTER_SIZE, RASTER_SIZE, RT_SIZE_LITERAL, MATERIAL_RT_DEPTH_SEPARATE, RASTER_RT_FLAGS, 0, RASTER_FORMAT)
+	local combined = GetRenderTargetEx("borealis_cover_raster_" .. RASTER_SIZE, RASTER_SIZE, RASTER_SIZE, RT_SIZE_LITERAL, MATERIAL_RT_DEPTH_SEPARATE, RASTER_RT_FLAGS, 0, RASTER_FORMAT)
+	if not shaderpack.UsableRT(static, RASTER_SIZE) or not shaderpack.UsableRT(combined, RASTER_SIZE) then return false end
+
+	raster.staticRT, raster.rt = static, combined
+	raster.depth = CreateMaterial("borealis_cover_raster_depth", "DepthWrite", { ["$color_depth"] = 1, ["$nocull"] = 1 })
+	raster.copy = CreateMaterial("borealis_cover_raster_copy", "UnlitGeneric", { ["$basetexture"] = static:GetName(), ["$ignorez"] = 1 })
+	raster.copy:SetTexture("$basetexture", static)
+
+	return true
+end
+
+local function startCapture(rt)
+	render.PushRenderTarget(rt)
+	rasterView.origin:SetUnpacked(raster.x, raster.y, raster.cut + RASTER_HEIGHT)
+	cam.Start(rasterView)
+	cam.IgnoreZ(true)
+	render.ClearDepth()
+end
+
+local function endCapture()
+	cam.IgnoreZ(false)
+	cam.End3D()
+	render.PopRenderTarget()
+end
+
+local function drawStatic()
+	startCapture(raster.staticRT)
+	render.SetMaterial(raster.depth)
+	local z, e = raster.cut - RASTER_DEPTH + RASTER_FLOOR, RASTER_HALF * 2
+	mesh.Begin(MATERIAL_QUADS, 1)
+	rasterVector:SetUnpacked(raster.x - e, raster.y - e, z) mesh.Position(rasterVector) mesh.AdvanceVertex()
+	rasterVector:SetUnpacked(raster.x + e, raster.y - e, z) mesh.Position(rasterVector) mesh.AdvanceVertex()
+	rasterVector:SetUnpacked(raster.x + e, raster.y + e, z) mesh.Position(rasterVector) mesh.AdvanceVertex()
+	rasterVector:SetUnpacked(raster.x - e, raster.y + e, z) mesh.Position(rasterVector) mesh.AdvanceVertex()
+	mesh.End()
+
+	render.OverrideBlend(true, BLEND_ONE, BLEND_ONE, BLENDFUNC_MIN)
+	local tx0, ty0, tx1, ty1 = tileRange(0)
+	for ty = ty0, ty1 do
+		for tx = tx0, tx1 do
+			for _, m in ipairs(raster.tiles[tileKey(tx, ty)] or {}) do
+				m:Draw()
+			end
+		end
+	end
+	render.OverrideBlend(false)
+	endCapture()
+end
+
+local function compose()
+	render.PushRenderTarget(raster.rt)
+	render.SetMaterial(raster.copy)
+	render.DrawScreenQuad()
+	render.PopRenderTarget()
+	if #raster.casters == 0 then return end
+
+	startCapture(raster.rt)
+	render.OverrideBlend(true, BLEND_ONE, BLEND_ONE, BLENDFUNC_MIN)
+	render.MaterialOverride(raster.depth)
+	render.BrushMaterialOverride(raster.depth)
+	for _, e in ipairs(raster.casters) do
+		local s = raster.state[e]
+		if IsValid(e) and s then
+			s.drawnPos, s.drawnAng = e:GetPos(), e:GetAngles()
+			e:DrawModel()
+		end
+	end
+	render.BrushMaterialOverride()
+	render.MaterialOverride()
+	render.OverrideBlend(false)
+	endCapture()
+end
+
+local function castsCover(e)
+	if not IsValid(e) or e:EntIndex() <= 0 or e:IsDormant() or e:GetNoDraw() then return false end
+	if e:IsPlayer() or e:IsWeapon() then return false end
+
+	local model = e:GetModel()
+	if not model or (model:sub(1, 1) ~= "*" and model:sub(-4):lower() ~= ".mdl") then return false end
+
+	local parent = e:GetParent()
+	if IsValid(parent) and parent:IsPlayer() then return false end
+
+	local class = e:GetClass()
+
+	return class ~= "viewmodel" and class ~= "predicted_viewmodel" and class ~= "gmod_hands"
+end
+
+local function far(p, a, lp, la, dist, turn)
+	return p:DistToSqr(lp) > dist * dist
+		or math.abs(math.AngleDifference(a.p, la.p)) > turn
+		or math.abs(math.AngleDifference(a.y, la.y)) > turn
+		or math.abs(math.AngleDifference(a.r, la.r)) > turn
+end
+
+local scanMin, scanMax = Vector(), Vector()
+
+local function scanCasters()
+	scanMin:SetUnpacked(raster.x - RASTER_HALF, raster.y - RASTER_HALF, raster.cut - RASTER_DEPTH)
+	scanMax:SetUnpacked(raster.x + RASTER_HALF, raster.y + RASTER_HALF, raster.cut)
+	local old, state, found = {}, {}, {}
+	for _, e in ipairs(raster.casters) do
+		old[e] = true
+	end
+
+	local changed = false
+	local now = RealTime()
+	for _, e in ipairs(ents.FindInBox(scanMin, scanMax)) do
+		if castsCover(e) then
+			local p, a = e:GetPos(), e:GetAngles()
+			local s = raster.state[e]
+			if not s then
+				s = { pos = p, ang = a, time = now }
+			elseif now - s.time >= RASTER_SCAN_INTERVAL then
+				s.still = not far(p, a, s.pos, s.ang, RASTER_MOVE, RASTER_TURN)
+				s.pos, s.ang, s.time = p, a, now
+				if s.still and s.drawnPos and far(p, a, s.drawnPos, s.drawnAng, RASTER_SHIFT, RASTER_SHIFT_TURN) then
+					changed = true
+				end
+			end
+
+			state[e] = s
+			if s.still then
+				found[#found + 1] = e
+				if not old[e] then changed = true end
+				old[e] = nil
+			end
+		end
+	end
+
+	raster.state, raster.casters = state, found
+	if changed or next(old) ~= nil then raster.dirty = true end
+end
+
+cover.rasterListeners = cover.rasterListeners or {}
+
+function cover.ListenRaster(id, onMoved)
+	cover.rasterListeners[id] = onMoved
+end
+
+function cover.UnlistenRaster(id)
+	cover.rasterListeners[id] = nil
+end
+
+local function dropMoving()
+	local kept, moving = {}, nil
+	for _, e in ipairs(raster.casters) do
+		local s = raster.state[e]
+		if IsValid(e) and s and not (s.drawnPos and far(e:GetPos(), e:GetAngles(), s.drawnPos, s.drawnAng, RASTER_MOVE, RASTER_TURN)) then
+			kept[#kept + 1] = e
+		elseif s then
+			if IsValid(e) and s.drawnPos then
+				moving = moving or {}
+				moving[#moving + 1] = e
+			end
+
+			s.still, s.drawnPos, s.drawnAng = false, nil, nil
+		end
+	end
+
+	if #kept ~= #raster.casters then
+		raster.casters, raster.dirty = kept, true
+	end
+
+	if not moving then return end
+
+	for _, e in ipairs(moving) do
+		for _, onMoved in pairs(cover.rasterListeners) do
+			ProtectedCall(onMoved, e)
+		end
+	end
+end
+
+function cover.UpdateRaster(eye)
+	local frame = FrameNumber()
+	if raster.frame == frame then return end
+	raster.frame, raster.used = frame, RealTime()
+	if not raster.rt and not buildRaster() then return end
+
+	if raster.loader == nil then raster.loader = coroutine.create(loadRaster) end
+	if raster.loader and coroutine.status(raster.loader) ~= "dead" then
+		local ok, err = coroutine.resume(raster.loader)
+		if not ok then
+			ErrorNoHalt("[cover] raster load failed: " .. tostring(err) .. "\n")
+			raster.loader = false
+		end
+	end
+	if not raster.world then return end
+
+	local level = cover.SkyLevel()
+	local cut = level and level.ceiling or (traceZ or eye.z) + TRACE_HALF
+	local x, y = raster.x, raster.y
+	if not x or math.abs(eye.x - x) > RASTER_RECENTRE or math.abs(eye.y - y) > RASTER_RECENTRE then
+		x, y = math.Round(eye.x / RASTER_SNAP) * RASTER_SNAP, math.Round(eye.y / RASTER_SNAP) * RASTER_SNAP
+	end
+
+	if x ~= raster.x or y ~= raster.y or cut ~= raster.cut then
+		raster.x, raster.y, raster.cut = x, y, cut
+		raster.ready, raster.staticDirty, raster.nextScan = false, true, 0
+		requestTiles()
+	end
+
+	local now = RealTime()
+	if now >= raster.nextScan then
+		raster.nextScan = now + RASTER_SCAN_INTERVAL
+		scanCasters()
+	end
+
+	if raster.staticDirty then
+		raster.staticDirty, raster.dirty = false, true
+		drawStatic()
+	end
+
+	dropMoving()
+	if raster.dirty then
+		raster.dirty = false
+		compose()
+		raster.ready = tilesComplete()
+	end
+end
+
+function cover.RasterConstants(m)
+	if not raster.ready then
+		m:SetUnpacked(0, 0, 0, 0, 0, 0, RASTER_SIZE, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+
+		return
+	end
+
+	m:SetUnpacked(raster.x, raster.y, raster.cut + RASTER_HEIGHT, RASTER_HEIGHT / RASTER_HALF, raster.cut, 1, RASTER_SIZE, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+
+	return raster.rt
+end
+
+local function releaseRaster()
+	for _, meshes in pairs(raster.tiles) do
+		if meshes then destroyMeshes(meshes) end
+	end
+
+	raster.tiles, raster.queue = {}, {}
+	local loader = raster.loader
+	if loader and not raster.idle and coroutine.status(loader) ~= "dead"
+		and coroutine.resume(loader) and coroutine.status(loader) ~= "dead" and not raster.idle then return end
+
+	raster.loader, raster.idle = nil, false
+	raster.world, raster.props, raster.models, raster.casters, raster.state = nil, nil, {}, {}, {}
+	raster.x, raster.y, raster.cut = nil, nil, nil
+	raster.ready, raster.staticDirty, raster.dirty = false, false, false
+end
+
+hook.Add("Think", "borealis_cover_raster", function()
+	if raster.loader ~= nil and RealTime() - raster.used > RASTER_IDLE then releaseRaster() end
+end)
+hook.Add("OnEntityCreated", "borealis_cover_raster", function() raster.nextScan = 0 end)
+hook.Add("EntityRemoved", "borealis_cover_raster", function() raster.nextScan = 0 end)
+
 local exposureRT, exposureMat
 local exposureFrame, exposureReady = -1, false
 local exposureX, exposureY, exposureZ = 0, 0, 0
