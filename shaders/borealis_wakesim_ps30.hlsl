@@ -1,6 +1,7 @@
 const float4 Constants0 : register(c0);
 const float4 Constants1 : register(c1);
 const float4 Constants2 : register(c2);
+const float4 Constants3 : register(c3);
 
 sampler State : register(s0);
 sampler Force : register(s1);
@@ -9,6 +10,7 @@ sampler Force : register(s1);
 #define DAMPING    Constants2.y
 #define DEPTH      Constants2.z
 #define FOAM_DECAY Constants2.w
+#define SPLASH     Constants3.x
 
 #define LEVEL       512.0
 #define STRIDE      514.0
@@ -47,9 +49,11 @@ float4 main(float2 vpos : VPOS) : COLOR
 	float sponge = lerp(SPONGE_DAMP, 1.0, saturate(edge / SPONGE));
 	h *= sponge;
 
-	float2 f = At(Force, l).rg;
-	float m = (f.x * 4.0 + At(Force, l + dx).r + At(Force, l - dx).r + At(Force, l + dy).r + At(Force, l - dy).r) / 8.0;
-	float push = DEPTH * (m - s.b);
+	float3 f = At(Force, l).rgb;
+	float2 mask = (f.xz * 4.0 + At(Force, l + dx).rb + At(Force, l - dx).rb + At(Force, l + dy).rb + At(Force, l - dy).rb) / 8.0;
+	float m = mask.x;
+	float rise = m - s.b;
+	float push = rise * DEPTH - SPLASH * mask.y * saturate(rise / max(m, 0.001));
 	float spread = lerp(s.a, n.a * 0.25, FOAM_SPREAD);
 	float foam = max(max(spread - FOAM_BIAS, 0.0) * FOAM_DECAY * sponge, f.y);
 

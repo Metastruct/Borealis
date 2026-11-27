@@ -19,8 +19,6 @@ local CANDIDATE_INTERVAL = 0.25
 local SUBMERGED = 8
 local SURFACE_CELL = 64
 local SURFACE_BAND = 512
-local POLY_SIDES = 20
-local SPLASH_MAX_RINGS = 16
 local CAPTURE_LIFT = 64
 local SWEEP_STEPS = 8
 local SWEEP_MAX = 512
@@ -41,24 +39,22 @@ local SPRAY_UP = Vector(0, 0, 1)
 
 local CONFIG = {
 	speed = 0.4,
-	damping = 0.99,
+	damping = 0.985,
 	depth = 1,
 	foamDecay = 0.985,
 	splash = 8,
-	splashFoam = 1.5,
 	splashMin = 150,
 	splashSpeed = 800,
-	splashSpread = 2.5,
 	skimMin = 120,
 	skimFull = 800,
-	skimRate = 180,
+	skimRate = 120,
 	skimLift = 0.35,
 	skimThrow = 0.3,
 	skimCarry = 0.6,
 	skimFoam = 0.8,
 }
 
-local toLinear, setConstant = shaderpack.ToLinear, shaderpack.SetConstant
+local setConstant = shaderpack.SetConstant
 
 local levelTexel, levelX, levelY = {}, {}, {}
 for i = 1, LEVELS do
@@ -74,22 +70,11 @@ local viewEye = Vector()
 local simTime, lastActive, tick = 0, -math.huge, 0
 local candidates, nextCandidates = {}, 0
 local farList, farNext, sweepList, sweepIndex = {}, {}, nil, 1
-local tracked, splashes, surfaces = {}, {}, {}
+local tracked, pending, surfaces = {}, {}, {}
 local probe = Vector()
 local emitter, stampMat
 local capturing = false
 local sounds = {}
-
-local function linearByte(v)
-	local c, err = 0, math.huge
-	for b = 0, 255 do
-		local e = math.abs(toLinear(b) - v)
-		if e > err then break end
-		c, err = b, e
-	end
-
-	return c
-end
 
 local function floats(e)
 	if not IsValid(e) or e:IsDormant() then return false end
@@ -270,16 +255,15 @@ local function skim(e, track, nextTrack, pos, now, z)
 	end
 end
 
-local function queueSplash(e, track, pos, now)
+local function queueSplash(e, track, pos, now, z)
 	local dt = now - track.time
 	if dt <= 0 then return end
 
 	local fall = (track.pos.z - pos.z) / dt
 	if fall < CONFIG.splashMin then return end
 
-	local mins, maxs = e:WorldSpaceAABB()
-	local r = math.max(maxs.x - mins.x, maxs.y - mins.y) * 0.5 * CONFIG.splashSpread
-	splashes[#splashes + 1] = { x = (mins.x + maxs.x) * 0.5, y = (mins.y + maxs.y) * 0.5, r = r, v = math.min(fall / CONFIG.splashSpeed, 1) * CONFIG.splash }
+	pending[e] = { v = math.min(fall / CONFIG.splashSpeed, 1), z = z, seen = {}, left = LEVELS }
+	lastActive = now
 end
 
 local function trackList(list, seen, now)
@@ -296,7 +280,7 @@ local function trackList(list, seen, now)
 					if track.wet then
 						skim(e, track, nextTrack, pos, now, wet)
 					else
-						queueSplash(e, track, pos, now)
+						queueSplash(e, track, pos, now, wet)
 					end
 				end
 				tracked[e] = nextTrack
@@ -318,29 +302,6 @@ local function updateTracked()
 		if not seen[e] then
 			if track.wet then lastActive = now end
 			tracked[e] = nil
-		end
-	end
-end
-
-local shifted = {}
-
-local function drawWrapped(poly, minX, minY, maxX, maxY, ox, oy)
-	local baseX = math.floor((minX + maxX) * 0.5 / LEVEL) * LEVEL
-	local baseY = math.floor((minY + maxY) * 0.5 / LEVEL) * LEVEL
-	for sx = -1, 1 do
-		for sy = -1, 1 do
-			local dx, dy = sx * LEVEL - baseX, sy * LEVEL - baseY
-			if maxX + dx >= 0 and minX + dx < LEVEL and maxY + dy >= 0 and minY + dy < LEVEL then
-				for i, p in ipairs(poly) do
-					local s = shifted[i] or {}
-					shifted[i] = s
-					s.x, s.y = p.x + dx + ox, p.y + dy + oy
-				end
-				for i = #shifted, #poly + 1, -1 do
-					shifted[i] = nil
-				end
-				surface.DrawPoly(shifted)
-			end
 		end
 	end
 end
@@ -385,7 +346,7 @@ local function captureRect(px, py, w, h, ox, oy)
 		cam.End()
 	end
 
-	render.SetColorModulation(1, foam, 0)
+	render.SetColorModulation(1, foam, shot.splash)
 	captureView.origin:SetUnpacked(cx, cy, cz)
 	cam.Start(captureView)
 	e:DrawModel()
@@ -407,7 +368,7 @@ local function renderBox(e)
 	return minX, minY, minZ, maxX, maxY, maxZ
 end
 
-local function stamp(e, i, foam, minX, minY, minZ, maxX, maxY, maxZ)
+local function stamp(e, i, foam, splash, minX, minY, minZ, maxX, maxY, maxZ)
 	local texel = levelTexel[i]
 	local last = stamped[i]
 	if i > 1 and math.max(maxX - minX, maxY - minY) < texel then
@@ -438,18 +399,31 @@ local function stamp(e, i, foam, minX, minY, minZ, maxX, maxY, maxZ)
 	local h = math.min(math.ceil(-minY / texel) + 1 - Y0, LEVEL)
 	if not inWindow(i, X0, Y0, X0 + w, Y0 + h) then return end
 
-	shot.e, shot.foam, shot.X0, shot.Y0, shot.top, shot.texel = e, foam, X0, Y0, maxZ, texel
+	shot.e, shot.foam, shot.splash, shot.X0, shot.Y0, shot.top, shot.texel = e, foam, splash, X0, Y0, maxZ, texel
 	captureView.zfar = maxZ - minZ + CAPTURE_LIFT * 2
 	eachRect(i, X0, Y0, w, h, captureRect)
 end
 
 local due = {}
 
-local function stampAll(e, z, foam)
+local function stampAll(e, z, wet, foam, splash)
 	local minX, minY, minZ, maxX, maxY, maxZ = renderBox(e)
 	render.PushCustomClipPlane(clipNormal, -z)
 	for i = 1, LEVELS do
-		if due[i] then stamp(e, i, foam, minX, minY, minZ, maxX, maxY, maxZ) end
+		if due[i] then
+			local dig = 0
+			if splash and not splash.seen[i] then
+				splash.seen[i] = true
+				splash.left = splash.left - 1
+				dig = splash.v
+			end
+
+			if wet or dig > 0 then
+				stamp(e, i, foam, dig, minX, minY, minZ, maxX, maxY, maxZ)
+			else
+				stamped[i][e] = nil
+			end
+		end
 	end
 	render.PopCustomClipPlane()
 end
@@ -473,10 +447,12 @@ local function drawFootprints()
 	local clipping = render.EnableClipping(true)
 	capturing = true
 	for e, track in pairs(tracked) do
-		if track.wet and IsValid(e) then
+		local splash = pending[e]
+		local z = track.wet or splash and splash.z
+		if z and IsValid(e) then
 			local override = e.RenderOverride
 			e.RenderOverride = nil
-			local ok, err = pcall(stampAll, e, track.wet, track.foam or 0)
+			local ok, err = pcall(stampAll, e, z, track.wet ~= nil, track.foam or 0, splash)
 			e.RenderOverride = override
 			if not ok then ErrorNoHalt("[wakes] capture: " .. tostring(err) .. "\n") end
 		else
@@ -490,6 +466,9 @@ local function drawFootprints()
 			if not tracked[e] then stamped[i][e] = nil end
 		end
 	end
+	for e, splash in pairs(pending) do
+		if splash.left <= 0 or not tracked[e] then pending[e] = nil end
+	end
 	capturing = false
 	render.EnableClipping(clipping)
 	render.OverrideBlend(false)
@@ -497,69 +476,6 @@ local function drawFootprints()
 	render.SuppressEngineLighting(false)
 	render.MaterialOverride()
 	render.PopRenderTarget()
-end
-
-local levelBytes = {}
-
-local function levelByte(v)
-	local key = math.floor(math.Clamp(v, 0, 1) * 1023 + 0.5)
-	local b = levelBytes[key]
-	if not b then
-		b = linearByte(key / 1023)
-		levelBytes[key] = b
-	end
-
-	return b
-end
-
-local function discPoly(cx, cy, r)
-	local poly = {}
-	for i = 1, POLY_SIDES do
-		local a = i / POLY_SIDES * math.pi * 2
-		poly[i] = { x = cx + math.cos(a) * r, y = cy + math.sin(a) * r }
-	end
-
-	return poly
-end
-
-local function drawSplashes()
-	if #splashes == 0 then return end
-
-	lastActive = RealTime()
-	render.PushRenderTarget(stateRTs[cur])
-	render.OverrideAlphaWriteEnable(true, true)
-	cam.Start2D()
-	draw.NoTexture()
-	for i = 1, LEVELS do
-		local texel, ox, oy = levelTexel[i], levelX[i], levelY[i]
-		render.SetScissorRect(ox, oy, ox + LEVEL, oy + LEVEL, true)
-		for _, s in ipairs(splashes) do
-			local X, Y, r = s.x / texel, -s.y / texel, s.r / texel
-			if (i == 1 or r >= 1) and inWindow(i, X - r, Y - r, X + r, Y + r) then
-				local rim = s.v / 3
-				local rings = math.min(math.max(math.ceil(r), math.ceil(s.v + rim)), SPLASH_MAX_RINGS)
-				local raise, dig = levelByte(rim / rings), levelByte((s.v + rim) / rings)
-
-				render.OverrideBlend(true, BLEND_ONE, BLEND_ONE, BLENDFUNC_ADD, BLEND_ZERO, BLEND_ONE, BLENDFUNC_ADD)
-				surface.SetDrawColor(raise, raise, 0, 255)
-				for k = 1, rings do
-					drawWrapped(discPoly(X, Y, r * math.sqrt(1 - (k - 1) / rings)), X - r, Y - r, X + r, Y + r, ox, oy)
-				end
-
-				render.OverrideBlend(true, BLEND_ONE, BLEND_ONE, BLENDFUNC_REVERSE_SUBTRACT, BLEND_ONE, BLEND_ONE, BLENDFUNC_ADD)
-				surface.SetDrawColor(dig, dig, 0, math.max(math.floor(math.min(CONFIG.splashFoam * s.v / CONFIG.splash / rings, 1) * 255 + 0.5), 1))
-				for k = 1, rings do
-					drawWrapped(discPoly(X, Y, r * 0.5 * math.sqrt(1 - (k - 1) / rings)), X - r, Y - r, X + r, Y + r, ox, oy)
-				end
-			end
-		end
-	end
-	render.SetScissorRect(0, 0, 0, 0, false)
-	render.OverrideBlend(false)
-	cam.End2D()
-	render.OverrideAlphaWriteEnable(false)
-	render.PopRenderTarget()
-	splashes = {}
 end
 
 local function recentreLevel(i, eye)
@@ -628,6 +544,7 @@ local function step()
 		setConstant(mat, "$c0", winX[1], winY[1], winX[2], winY[2])
 		setConstant(mat, "$c1", winX[3], winY[3], winX[4], winY[4])
 		setConstant(mat, "$c2", CONFIG.speed, CONFIG.damping, CONFIG.depth, CONFIG.foamDecay)
+		setConstant(mat, "$c3", CONFIG.splash, 0, 0, 0)
 	end
 	for _ = 1, steps do
 		local src = cur
@@ -702,7 +619,6 @@ local function update()
 	sweepFar(eye)
 	updateTracked()
 	updateSounds(eye)
-	drawSplashes()
 	step()
 end
 
@@ -754,6 +670,7 @@ function wakes.Start()
 			["$c0_x"] = 0, ["$c0_y"] = 0, ["$c0_z"] = 0, ["$c0_w"] = 0,
 			["$c1_x"] = 0, ["$c1_y"] = 0, ["$c1_z"] = 0, ["$c1_w"] = 0,
 			["$c2_x"] = 0, ["$c2_y"] = 0, ["$c2_z"] = 0, ["$c2_w"] = 0,
+			["$c3_x"] = 0, ["$c3_y"] = 0, ["$c3_z"] = 0, ["$c3_w"] = 0,
 		})
 		simMats[i]:SetTexture("$basetexture", rt)
 		simMats[i]:SetTexture("$texture1", forceRT)
@@ -761,7 +678,7 @@ function wakes.Start()
 
 	cur, winX, winY, eyeX, eyeY, nextCandidates, tick = 1, {}, {}, nil, nil, 0, 0
 	simTime, lastActive = RealTime(), -math.huge
-	tracked, splashes, surfaces, candidates = {}, {}, {}, {}
+	tracked, pending, surfaces, candidates = {}, {}, {}, {}
 	farList, farNext, sweepList = {}, {}, nil
 	hook.Add("OnEntityCreated", "borealis_wakes", function() nextCandidates = 0 end)
 	hook.Add("PreRender", "borealis_wakes", update)
@@ -779,7 +696,7 @@ function wakes.Stop()
 	if IsValid(emitter) then emitter:Finish() end
 	stateRTs, forceRT, simMats, winX, winY, eyeX, eyeY, emitter = {}, nil, nil, {}, {}, nil, nil, nil
 	stopSounds()
-	tracked, splashes, surfaces, candidates = {}, {}, {}, {}
+	tracked, pending, surfaces, candidates = {}, {}, {}, {}
 	farList, farNext, sweepList = {}, {}, nil
 	for i = 1, LEVELS do
 		table.Empty(stamped[i])
