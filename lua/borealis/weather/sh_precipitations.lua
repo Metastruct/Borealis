@@ -77,9 +77,9 @@ local SPLASH_GREY = 0.45
 local SPLASH_OVERCAST = 0.85
 local SPLASH_REBUILD = 0.5
 local SPLASH_FLAT = 10
+local SPLASH_PLANE = 3
 local SPLASH_NSCALE = 0.75
 local SPLASH_C0 = math.floor((SPLASH_STEP - SPLASH_QUAD) * 0.5)
-local SPLASH_C1 = SPLASH_C0 + SPLASH_QUAD
 
 local packColor, setConstant, toLinear = shaderpack.PackColor, shaderpack.SetConstant, shaderpack.ToLinear
 
@@ -265,20 +265,52 @@ local function removeSplashes()
 	splashMesh = nil
 end
 
+local SPLASH_W = COLUMNS + SPLASH_QUAD
+local planeOffset, planeA, planeB, planeC, planeD = {}, {}, {}, {}, {}
+for j = 0, SPLASH_QUAD do
+	for i = 0, SPLASH_QUAD do
+		if (i ~= 0 and i ~= SPLASH_QUAD) or (j ~= 0 and j ~= SPLASH_QUAD) then
+			local u, v, k = i / SPLASH_QUAD, j / SPLASH_QUAD, #planeOffset + 1
+			planeOffset[k] = j * SPLASH_W + i
+			planeA[k], planeB[k], planeC[k], planeD[k] = (1 - u) * (1 - v), u * (1 - v), u * v, (1 - u) * v
+		end
+	end
+end
+
+local heights = {}
+
+local function onPlane(base, z00, z10, z11, z01)
+	for k = 1, #planeOffset do
+		local z = heights[base + planeOffset[k]]
+		if not z or math.abs(z - (z00 * planeA[k] + z10 * planeB[k] + z11 * planeC[k] + z01 * planeD[k])) > SPLASH_PLANE then return false end
+	end
+
+	return true
+end
+
 local function buildSplashes()
 	local winX, winY = cover.Window()
 	if not winX then return nil end
 
 	local groundAt = cover.Ground
+	local x0, y0 = winX + SPLASH_C0, winY + SPLASH_C0
+	for j = 0, SPLASH_W - 1 do
+		local row = j * SPLASH_W + 1
+		for i = 0, SPLASH_W - 1 do
+			heights[row + i] = groundAt(x0 + i, y0 + j) or false
+		end
+	end
+
 	local quads, count = {}, 0
 	local q = COLUMN * SPLASH_QUAD
+	local right, down = SPLASH_QUAD, SPLASH_QUAD * SPLASH_W
 	for cy = winY + winY % SPLASH_STEP, winY + COLUMNS - 1, SPLASH_STEP do
 		for cx = winX + winX % SPLASH_STEP, winX + COLUMNS - 1, SPLASH_STEP do
-			local z00 = groundAt(cx + SPLASH_C0, cy + SPLASH_C0)
-			local z10 = groundAt(cx + SPLASH_C1, cy + SPLASH_C0)
-			local z11 = groundAt(cx + SPLASH_C1, cy + SPLASH_C1)
-			local z01 = groundAt(cx + SPLASH_C0, cy + SPLASH_C1)
-			if z00 and z10 and z11 and z01 and math.abs(z00 - z10 + z11 - z01) * 0.5 <= SPLASH_FLAT then
+			local base = (cy - winY) * SPLASH_W + (cx - winX) + 1
+			local z00, z10 = heights[base], heights[base + right]
+			local z11, z01 = heights[base + down + right], heights[base + down]
+			if z00 and z10 and z11 and z01 and math.abs(z00 - z10 + z11 - z01) * 0.5 <= SPLASH_FLAT
+				and onPlane(base, z00, z10, z11, z01) then
 				local seed = (cx * 73856093 + cy * 19349663) % 65536
 				local dzdx, dzdy = (z10 - z00 + z11 - z01) * 0.5 / q, (z01 - z00 + z11 - z10) * 0.5 / q
 				local nz = 1 / math.sqrt(dzdx * dzdx + dzdy * dzdy + 1)
