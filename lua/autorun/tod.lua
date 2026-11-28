@@ -1405,6 +1405,7 @@ if SERVER then
 end
 
 tod.season_cvar = CreateConVar("sv_tod_season", "", bit.bor(FCVAR_REPLICATED, FCVAR_ARCHIVE), "forces the season on the next map load: winter, autumn or summer, empty for current season")
+tod.loaded_season_cvar = CreateConVar("sv_tod_loaded_season", "", bit.bor(FCVAR_REPLICATED, FCVAR_DONTRECORD), "season the server loaded the current map with, set by tod")
 
 local SEASONS = {winter = true, autumn = true, summer = true}
 
@@ -1442,6 +1443,18 @@ do
 	end
 
 	local season = tod.GetSeason()
+	if SERVER then
+		cvars.RemoveChangeCallback("sv_tod_loaded_season", "tod")
+		tod.loaded_season_cvar:SetString(season)
+
+		-- read only basically
+		cvars.AddChangeCallback("sv_tod_loaded_season", function(_, _, value)
+			if value ~= tod.loaded_season then tod.loaded_season_cvar:SetString(tod.loaded_season) end
+		end, "tod")
+	else
+		local loaded = tod.loaded_season_cvar:GetString()
+		if SEASONS[loaded] then season = loaded end
+	end
 	tod.loaded_season = season
 	if season == "winter" then
 		include("tod/snow.lua")

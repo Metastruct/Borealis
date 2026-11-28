@@ -12,6 +12,7 @@ local function le32(v)
 end
 
 function shaderpack.Season()
+	if tod and tod.loaded_season then return tod.loaded_season end
 	if tod and tod.GetSeason then return tod.GetSeason() end
 
 	local month = tonumber(os.date("%m")) or 0
